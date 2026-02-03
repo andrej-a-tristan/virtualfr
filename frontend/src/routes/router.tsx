@@ -7,6 +7,9 @@ import Signup from "@/pages/Signup"
 import AgeGate from "@/pages/AgeGate"
 import OnboardingTraits from "@/pages/OnboardingTraits"
 import PersonaPreview from "@/pages/PersonaPreview"
+import OnboardingAppearance from "@/pages/OnboardingAppearance"
+import OnboardingPreferences from "@/pages/OnboardingPreferences"
+import OnboardingGenerating from "@/pages/OnboardingGenerating"
 import Chat from "@/pages/Chat"
 import Gallery from "@/pages/Gallery"
 import Profile from "@/pages/Profile"
@@ -32,6 +35,36 @@ const router = createBrowserRouter([
       <RequireAuth>
         <RequireAgeGate>
           <OnboardingTraits />
+        </RequireAgeGate>
+      </RequireAuth>
+    ),
+  },
+  {
+    path: "/onboarding/appearance",
+    element: (
+      <RequireAuth>
+        <RequireAgeGate>
+          <OnboardingAppearance />
+        </RequireAgeGate>
+      </RequireAuth>
+    ),
+  },
+  {
+    path: "/onboarding/preferences",
+    element: (
+      <RequireAuth>
+        <RequireAgeGate>
+          <OnboardingPreferences />
+        </RequireAgeGate>
+      </RequireAuth>
+    ),
+  },
+  {
+    path: "/onboarding/generating",
+    element: (
+      <RequireAuth>
+        <RequireAgeGate>
+          <OnboardingGenerating />
         </RequireAgeGate>
       </RequireAuth>
     ),

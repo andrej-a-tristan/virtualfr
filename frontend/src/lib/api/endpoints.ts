@@ -12,6 +12,7 @@ import type {
   GalleryItem,
   BillingStatus,
   ImageJob,
+  OnboardingCompleteRequest,
 } from "./types"
 
 // Auth
@@ -74,4 +75,13 @@ export async function checkout() {
 // Moderation
 export async function report() {
   return apiPost<{ ok: boolean }>("/moderation/report")
+}
+
+// Onboarding
+export function getOnboardingPromptImages() {
+  return apiGet<Record<string, string>>("/onboarding/prompt-images")
+}
+
+export function completeOnboarding(body: OnboardingCompleteRequest) {
+  return apiPost<Girlfriend>("/onboarding/complete", body)
 }

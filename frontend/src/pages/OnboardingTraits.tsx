@@ -1,7 +1,5 @@
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { createGirlfriend } from "@/lib/api/endpoints"
-import { useQueryClient } from "@tanstack/react-query"
 import { useAppStore } from "@/lib/store/useAppStore"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -68,8 +66,7 @@ const defaultTraits: Partial<TraitsInput> = {
 
 export default function OnboardingTraits() {
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
-  const setGirlfriend = useAppStore((s) => s.setGirlfriend)
+  const setOnboardingTraits = useAppStore((s) => s.setOnboardingTraits)
   const [traits, setTraits] = useState<Partial<TraitsInput>>(defaultTraits)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -85,10 +82,8 @@ export default function OnboardingTraits() {
     setError(null)
     setLoading(true)
     try {
-      const gf = await createGirlfriend(traits as TraitsInput)
-      setGirlfriend(gf)
-      await queryClient.invalidateQueries({ queryKey: ["me"] })
-      navigate("/onboarding/preview", { replace: true })
+      setOnboardingTraits(traits as TraitsInput)
+      navigate("/onboarding/appearance", { replace: true })
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong")
     } finally {

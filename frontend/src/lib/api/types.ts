@@ -17,11 +17,46 @@ export interface Traits {
   cultural_personality: string
 }
 
+export type AppearancePrefs = {
+  vibe?:
+    | "cute"
+    | "elegant"
+    | "sporty"
+    | "goth"
+    | "girl-next-door"
+    | "model"
+  age_range?: "18" | "19-21" | "22-26" | "27+"
+  ethnicity?:
+    | "any"
+    | "asian"
+    | "black"
+    | "latina"
+    | "white"
+    | "middle-eastern"
+    | "south-asian"
+  breast_size?: "small" | "medium" | "large" | "massive"
+  butt_size?: "small" | "medium" | "large" | "massive"
+  hair_color?: "black" | "brown" | "blonde" | "red" | "ginger" | "unnatural"
+  hair_style?: "long" | "bob" | "curly" | "straight" | "bun"
+  eye_color?: "brown" | "blue" | "green" | "hazel"
+  body_type?: "slim" | "athletic" | "curvy"
+}
+
+export type ContentPrefs = { wants_spicy_photos: boolean }
+
+export type OnboardingCompleteRequest = {
+  traits: Traits
+  appearance_prefs: AppearancePrefs
+  content_prefs: ContentPrefs
+}
+
 export interface Girlfriend {
   id: string
   name: string
   avatar_url: string | null
   traits: Traits
+  appearance_prefs?: Record<string, any>
+  content_prefs?: Record<string, any>
   created_at: string
 }
 
