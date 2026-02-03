@@ -21,7 +21,7 @@ def signup(body: SignupRequest, response: Response):
         samesite="lax",
         max_age=86400 * 7,
     )
-    return {"ok": True, "user": UserResponse(id=user_id, email=body.email, display_name=body.display_name, age_gate_passed=False, has_girlfriend=False)}
+    return {"ok": True, "user": UserResponse(id=user_id, email=body.email, display_name=body.display_name, age_gate_passed=False, has_girlfriend=False, current_girlfriend_id=None)}
 
 
 @router.post("/login")
@@ -36,7 +36,7 @@ def login(body: LoginRequest, response: Response):
         samesite="lax",
         max_age=86400 * 7,
     )
-    return {"ok": True, "user": UserResponse(id=user_id, email=body.email, display_name=None, age_gate_passed=False, has_girlfriend=False)}
+    return {"ok": True, "user": UserResponse(id=user_id, email=body.email, display_name=None, age_gate_passed=False, has_girlfriend=False, current_girlfriend_id=None)}
 
 
 @router.post("/logout")

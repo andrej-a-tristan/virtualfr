@@ -11,7 +11,14 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
     env: str = "development"
-    cors_origins: str = "http://localhost:5173"
+    cors_origins: str = "http://localhost:5173,http://localhost:5174"
+
+    # Supabase (optional; leave empty to use in-memory store)
+    supabase_url: str = ""
+    supabase_anon_key: str = ""
+
+    # API key for external services (e.g. OpenAI); optional
+    api_key: str = ""
 
     @property
     def is_production(self) -> bool:

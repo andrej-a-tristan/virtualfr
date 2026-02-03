@@ -20,17 +20,11 @@ export default function ChatHeader() {
   return (
     <header className="flex h-16 items-center justify-between gap-4 border-b border-white/10 px-4">
       <div className="flex items-center gap-3">
-        <div className="h-10 w-10 overflow-hidden rounded-full bg-muted">
-          {gf.avatar_url ? (
-            <img src={gf.avatar_url} alt={gf.name} className="h-full w-full object-cover" />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center text-lg font-semibold text-muted-foreground">
-              {gf.name[0]}
-            </div>
-          )}
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/20 text-lg font-semibold text-primary">
+          {gf.display_name?.[0] ?? "?"}
         </div>
         <div>
-          <h1 className="font-semibold">{gf.name}</h1>
+          <h1 className="font-semibold">{gf.display_name}</h1>
           <p className="text-xs text-muted-foreground">Your companion</p>
         </div>
       </div>

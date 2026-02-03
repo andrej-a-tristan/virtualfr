@@ -1,40 +1,46 @@
+import type { LucideIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { Card } from "@/components/ui/card"
-import type { TraitsInput } from "@/lib/api/zod"
+import TraitCard, { type TraitCardOption } from "./TraitCard"
+import type { TraitSelection } from "@/lib/api/types"
 
-export interface TraitOption {
-  value: string
-  label: string
-  description: string
+export type TraitSelectorKey = keyof TraitSelection
+
+export interface TraitSelectorConfig {
+  key: TraitSelectorKey
+  question: string
+  options: TraitCardOption[]
+  icon: LucideIcon
 }
 
 interface TraitSelectorProps {
-  traitKey: keyof TraitsInput
-  label: string
-  options: TraitOption[]
+  config: TraitSelectorConfig
   value: string
-  onChange: (key: keyof TraitsInput, value: string) => void
+  onChange: (key: TraitSelectorKey, value: string) => void
+  className?: string
 }
 
-export default function TraitSelector({ traitKey, label, options, value, onChange }: TraitSelectorProps) {
+export default function TraitSelector({ config, value, onChange, className }: TraitSelectorProps) {
+  const Icon = config.icon
   return (
-    <div className="space-y-2">
-      <h3 className="text-sm font-medium text-foreground">{label}</h3>
-      <div className="grid gap-2 sm:grid-cols-2">
-        {options.map((opt) => (
-          <Card
+    <section className={cn("space-y-4", className)} aria-labelledby={`trait-${config.key}`}>
+      <div className="flex items-center gap-2">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
+          <Icon className="h-4 w-4" />
+        </div>
+        <h2 id={`trait-${config.key}`} className="text-base font-semibold text-foreground">
+          {config.question}
+        </h2>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {config.options.map((opt) => (
+          <TraitCard
             key={opt.value}
-            className={cn(
-              "cursor-pointer rounded-xl border-2 p-4 transition-colors",
-              value === opt.value ? "border-primary bg-primary/10" : "border-white/10 hover:border-white/20"
-            )}
-            onClick={() => onChange(traitKey, opt.value)}
-          >
-            <p className="font-medium">{opt.label}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{opt.description}</p>
-          </Card>
+            option={opt}
+            selected={value === opt.value}
+            onClick={() => onChange(config.key, opt.value)}
+          />
         ))}
       </div>
-    </div>
+    </section>
   )
 }

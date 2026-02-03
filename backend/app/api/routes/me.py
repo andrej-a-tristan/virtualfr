@@ -22,7 +22,9 @@ def me(request: Request):
     user = get_session_user(sid)
     if not user:
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
-    has_gf = bool(get_girlfriend(sid))
+    gf = get_girlfriend(sid)
+    has_gf = bool(gf)
+    current_gf_id = gf["id"] if gf else None
     age_gate = _age_gate(user)
     return UserResponse(
         id=user["id"],
@@ -30,6 +32,7 @@ def me(request: Request):
         display_name=user.get("display_name"),
         age_gate_passed=age_gate,
         has_girlfriend=has_gf,
+        current_girlfriend_id=current_gf_id,
     )
 
 

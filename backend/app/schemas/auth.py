@@ -19,3 +19,4 @@ class UserResponse(BaseModel):
     display_name: str | None = None
     age_gate_passed: bool = False
     has_girlfriend: bool = False
+    current_girlfriend_id: str | None = None

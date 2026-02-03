@@ -1,18 +1,39 @@
 /** API endpoint helpers and response types */
-import {
-  apiGet,
-  apiPost,
-} from "./client"
+import { apiGet, apiPost } from "./client"
 import type {
   User,
   Girlfriend,
-  Traits,
+  TraitSelection,
   ChatMessage,
   RelationshipState,
   GalleryItem,
   BillingStatus,
   ImageJob,
 } from "./types"
+
+/** Convert TraitSelection (camelCase) to API snake_case. */
+function traitsToApi(t: TraitSelection) {
+  return {
+    emotional_style: t.emotionalStyle,
+    attachment_style: t.attachmentStyle,
+    reaction_to_absence: t.reactionToAbsence,
+    communication_style: t.communicationStyle,
+    relationship_pace: t.relationshipPace,
+    cultural_personality: t.culturalPersonality,
+  }
+}
+
+/** Convert API traits (snake_case) to TraitSelection (camelCase). */
+function traitsFromApi(t: Record<string, string>): TraitSelection {
+  return {
+    emotionalStyle: t.emotional_style as TraitSelection["emotionalStyle"],
+    attachmentStyle: t.attachment_style as TraitSelection["attachmentStyle"],
+    reactionToAbsence: t.reaction_to_absence as TraitSelection["reactionToAbsence"],
+    communicationStyle: t.communication_style as TraitSelection["communicationStyle"],
+    relationshipPace: t.relationship_pace as TraitSelection["relationshipPace"],
+    culturalPersonality: t.cultural_personality as TraitSelection["culturalPersonality"],
+  }
+}
 
 // Auth
 export async function signup(email: string, password: string, displayName?: string) {
@@ -34,11 +55,46 @@ export async function postAgeGate() {
 }
 
 // Girlfriends
-export async function createGirlfriend(traits: Traits) {
-  return apiPost<Girlfriend>("/girlfriends", traits)
+export interface CreateGirlfriendPayload {
+  displayName: string
+  traits: TraitSelection
 }
-export async function getCurrentGirlfriend() {
-  return apiGet<Girlfriend>("/girlfriends/current")
+
+export async function createGirlfriend(payload: CreateGirlfriendPayload): Promise<Girlfriend> {
+  const raw = await apiPost<{
+    id: string
+    display_name: string
+    traits: Record<string, string>
+    created_at: string
+  }>("/girlfriends", {
+    display_name: payload.displayName,
+    traits: traitsToApi(payload.traits),
+  })
+  return {
+    id: raw.id,
+    display_name: raw.display_name,
+    traits: traitsFromApi(raw.traits),
+    created_at: raw.created_at,
+  }
+}
+
+export async function getCurrentGirlfriend(): Promise<Girlfriend | null> {
+  try {
+    const raw = await apiGet<{
+      id: string
+      display_name: string
+      traits: Record<string, string>
+      created_at: string
+    }>("/girlfriends/current")
+    return {
+      id: raw.id,
+      display_name: raw.display_name,
+      traits: traitsFromApi(raw.traits),
+      created_at: raw.created_at,
+    }
+  } catch {
+    return null
+  }
 }
 
 // Chat

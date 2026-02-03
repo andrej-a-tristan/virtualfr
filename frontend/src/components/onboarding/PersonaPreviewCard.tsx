@@ -1,39 +1,63 @@
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
-import type { TraitsInput } from "@/lib/api/zod"
+import { Separator } from "@/components/ui/separator"
+import { getVibeSummary, getHowSheTreatsYou } from "@/lib/onboarding/vibe"
+import type { TraitSelection } from "@/lib/api/types"
 import { cn } from "@/lib/utils"
 
 interface PersonaPreviewCardProps {
-  traits: Partial<TraitsInput>
+  displayName: string
+  traits: Partial<TraitSelection>
+  compact?: boolean
   className?: string
 }
 
-const LABELS: Record<keyof TraitsInput, string> = {
-  emotional_style: "Emotional style",
-  attachment_style: "Attachment",
-  jealousy_level: "Jealousy",
-  communication_tone: "Tone",
-  intimacy_pace: "Intimacy pace",
-  cultural_personality: "Personality",
-}
+export default function PersonaPreviewCard({
+  displayName,
+  traits,
+  compact = false,
+  className,
+}: PersonaPreviewCardProps) {
+  const vibe = getVibeSummary(traits)
+  const bullets = getHowSheTreatsYou(traits)
+  const hasAny = Object.values(traits).some(Boolean)
 
-export default function PersonaPreviewCard({ traits, className }: PersonaPreviewCardProps) {
-  const entries = Object.entries(traits).filter(([, v]) => v) as [keyof TraitsInput, string][]
   return (
-    <Card className={cn("rounded-2xl border-white/10 bg-card/80", className)}>
-      <CardHeader className="pb-2">
-        <h3 className="text-lg font-semibold">Persona preview</h3>
-        <p className="text-sm text-muted-foreground">Your companion will reflect these traits.</p>
+    <Card className={cn("rounded-2xl border-white/10 bg-card/80 shadow-xl", className)}>
+      <CardHeader className={cn("space-y-1", compact ? "p-4 pb-2" : "p-6 pb-2")}>
+        <h3 className="text-lg font-semibold text-foreground">
+          {displayName || "My Girl"}
+        </h3>
+        <p className="text-xs text-muted-foreground">
+          All choices still care — only the style changes.
+        </p>
       </CardHeader>
-      <CardContent className="space-y-2">
-        {entries.length ? (
-          entries.map(([key, value]) => (
-            <div key={key} className="flex justify-between text-sm">
-              <span className="text-muted-foreground">{LABELS[key]}</span>
-              <span className="font-medium capitalize">{value.replace(/_/g, " ")}</span>
-            </div>
-          ))
+      <CardContent className={cn("space-y-4", compact ? "p-4 pt-0" : "p-6 pt-0")}>
+        {hasAny ? (
+          <>
+            <p className="text-sm leading-relaxed text-muted-foreground">{vibe}</p>
+            {bullets.length > 0 && (
+              <>
+                <Separator className="bg-white/10" />
+                <div>
+                  <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    How she’ll treat you
+                  </p>
+                  <ul className="space-y-1.5 text-sm text-foreground">
+                    {bullets.map((b, i) => (
+                      <li key={i} className="flex gap-2">
+                        <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+                        <span>{b}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </>
+            )}
+          </>
         ) : (
-          <p className="text-sm text-muted-foreground">Select traits above to see a preview.</p>
+          <p className="text-sm text-muted-foreground">
+            Select options above to see a live preview. Her personality stays consistent, but she opens up more as you get closer.
+          </p>
         )}
       </CardContent>
     </Card>

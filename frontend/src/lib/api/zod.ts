@@ -12,15 +12,19 @@ export const loginSchema = z.object({
   password: z.string().min(1),
 })
 
-export const traitsSchema = z.object({
-  emotional_style: z.string().min(1),
-  attachment_style: z.string().min(1),
-  jealousy_level: z.string().min(1),
-  communication_tone: z.string().min(1),
-  intimacy_pace: z.string().min(1),
-  cultural_personality: z.string().min(1),
+/** Trait selection schema: all fields required, displayName 1–24 chars. */
+export const traitSelectionSchema = z.object({
+  displayName: z.string().min(1, "Name is required").max(24, "Max 24 characters"),
+  traits: z.object({
+    emotionalStyle: z.enum(["Caring", "Playful", "Reserved", "Protective"]),
+    attachmentStyle: z.enum(["Very attached", "Emotionally present", "Calm but caring"]),
+    reactionToAbsence: z.enum(["High", "Medium", "Low"]),
+    communicationStyle: z.enum(["Soft", "Direct", "Teasing"]),
+    relationshipPace: z.enum(["Slow", "Natural", "Fast"]),
+    culturalPersonality: z.enum(["Warm Slavic", "Calm Central European", "Passionate Balkan"]),
+  }),
 })
 
 export type SignupInput = z.infer<typeof signupSchema>
 export type LoginInput = z.infer<typeof loginSchema>
-export type TraitsInput = z.infer<typeof traitsSchema>
+export type TraitSelectionInput = z.infer<typeof traitSelectionSchema>

@@ -6,23 +6,41 @@ export interface User {
   display_name: string | null
   age_gate_passed: boolean
   has_girlfriend: boolean
+  current_girlfriend_id: string | null
 }
 
-export interface Traits {
-  emotional_style: string
-  attachment_style: string
-  jealousy_level: string
-  communication_tone: string
-  intimacy_pace: string
-  cultural_personality: string
+/** Trait selection union types (exact values from onboarding). */
+export type EmotionalStyle = "Caring" | "Playful" | "Reserved" | "Protective"
+export type AttachmentStyle = "Very attached" | "Emotionally present" | "Calm but caring"
+export type ReactionToAbsence = "High" | "Medium" | "Low"
+export type CommunicationStyle = "Soft" | "Direct" | "Teasing"
+export type RelationshipPace = "Slow" | "Natural" | "Fast"
+export type CulturalPersonality = "Warm Slavic" | "Calm Central European" | "Passionate Balkan"
+
+export interface TraitSelection {
+  emotionalStyle: EmotionalStyle
+  attachmentStyle: AttachmentStyle
+  reactionToAbsence: ReactionToAbsence
+  communicationStyle: CommunicationStyle
+  relationshipPace: RelationshipPace
+  culturalPersonality: CulturalPersonality
 }
 
 export interface Girlfriend {
   id: string
-  name: string
-  avatar_url: string | null
-  traits: Traits
+  display_name: string
+  traits: TraitSelection
   created_at: string
+}
+
+/** Legacy alias for traits (snake_case from API). */
+export interface Traits {
+  emotional_style: string
+  attachment_style: string
+  reaction_to_absence: string
+  communication_style: string
+  relationship_pace: string
+  cultural_personality: string
 }
 
 export type ChatMessageRole = "user" | "assistant" | "system"

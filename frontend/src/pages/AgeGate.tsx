@@ -55,7 +55,7 @@ export default function AgeGate() {
               onChange={(e) => setConfirmed(e.target.checked)}
             />
             <Label htmlFor="age" className="cursor-pointer text-sm font-medium">
-              I confirm that I am 18 years of age or older
+              I am 18+
             </Label>
           </div>
           <Button
