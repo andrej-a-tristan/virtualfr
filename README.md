@@ -85,3 +85,99 @@ CORS and static serving are driven by `backend/app/core/config.py` (e.g. `ENV`, 
 - **Safety:** Report via `/api/moderation/report`; content preferences in Settings.
 
 All state is in-memory keyed by session cookie. Ready to swap in a real DB and auth when you extend.
+
+---
+
+## Chat gateway (v1) — SSE streaming
+
+The backend exposes a **chat gateway** at `POST /v1/chat/stream` with Bearer auth, rate limiting, timeouts, and JSONL logging. The gateway calls an **internal OpenAI-compatible** endpoint (`POST {INTERNAL_LLM_BASE_URL}/v1/chat/completions`), so you can run a mock now and swap in vLLM (or any OpenAI-compatible server) later with no frontend changes.
+
+### Run gateway + internal mock (two terminals)
+
+**Terminal 1 — Internal LLM mock (port 8001)**
+
+```bash
+cd backend
+uvicorn app.mock_main:app --reload --port 8001
+```
+
+**Terminal 2 — Gateway (port 8000)**
+
+```bash
+cd backend
+export CHAT_API_KEY=dev-key
+export INTERNAL_LLM_BASE_URL=http://127.0.0.1:8001
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### Test
+
+```bash
+curl -N -X POST http://localhost:8000/v1/chat/stream \
+  -H "Authorization: Bearer dev-key" \
+  -H "Content-Type: application/json" \
+  -d '{"session_id":"abc","model":"mock-1","model_version":"2026-02-03","messages":[{"role":"user","content":"Hi"}]}'
+```
+
+Use `-N` to disable buffering. You should see `event: token` with `data: {"token":"..."}` and finally `event: done`. The mock responds with "Mock reply: Hi" (or the last user message).
+
+You can later **replace the internal mock with vLLM** (or any server that exposes `POST /v1/chat/completions` with OpenAI-style streaming); set `INTERNAL_LLM_BASE_URL` to that server and optionally `INTERNAL_LLM_API_KEY`.
+
+### Env (optional)
+
+| Env | Default | Description |
+|-----|---------|-------------|
+| `CHAT_API_KEY` | `dev-key` | Bearer token required by clients |
+| `INTERNAL_LLM_BASE_URL` | `http://127.0.0.1:8001` | Base URL of internal LLM (OpenAI-compatible) |
+| `INTERNAL_LLM_API_KEY` | *(empty)* | If set, gateway sends `Authorization: Bearer <key>` to internal LLM |
+| `STREAM_TIMEOUT_SECONDS` | `60` | Hard limit for the whole stream |
+| `UPSTREAM_TOKEN_TIMEOUT_SECONDS` | `15` | Timeout waiting for next token from internal LLM |
+
+### Logs
+
+Each request is logged as one JSON line in **`backend/logs/chat.jsonl`**. Fields: `request_id`, `timestamp_utc`, `session_id`, `user_id`, `client_ip`, `model`, `model_version`, `messages`, `output_text`, `num_tokens`, `latency_ms`, `status`, `error_message`.
+
+---
+
+## Step C: CPU-only inference container
+
+You can run a **CPU-only** inference server (vLLM) locally in Docker. It serves the OpenAI-compatible endpoint:
+
+- `POST /v1/chat/completions`
+
+Then point the gateway (`:8000`) at it via `INTERNAL_LLM_BASE_URL`.
+
+### 1) Build + run the vLLM CPU container (port 8001)
+
+From `virtualfr/backend/`:
+
+```bash
+docker build -t virtualfr-vllm-cpu -f inference/Dockerfile .
+docker run --rm -p 8001:8000 \
+  -e MODEL=Qwen/Qwen2.5-0.5B-Instruct \
+  -e VLLM_API_KEY=token-abc123 \
+  virtualfr-vllm-cpu
+```
+
+CPU inference is slow; a small model is recommended. See `backend/inference/README.md` for details.
+
+### 2) Run the gateway (port 8000) pointed at the container
+
+```bash
+cd backend
+export CHAT_API_KEY=dev-key
+export INTERNAL_LLM_BASE_URL=http://127.0.0.1:8001
+export INTERNAL_LLM_API_KEY=token-abc123
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### 3) Run tests against `/v1/chat/completions`
+
+```bash
+cd backend
+export INTERNAL_LLM_BASE_URL=http://127.0.0.1:8001
+export INTERNAL_LLM_API_KEY=token-abc123
+pytest -q
+```
+
+If the internal server isn’t running, the tests will skip with a message telling you what to start.

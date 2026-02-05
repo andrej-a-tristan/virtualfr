@@ -50,7 +50,7 @@ export default function OnboardingPreferences() {
   const handleContinue = () => {
     if (wantsSpicyPhotos == null) return
     setOnboardingContentPrefs({ wants_spicy_photos: wantsSpicyPhotos })
-    navigate("/onboarding/generating", { replace: true })
+    navigate("/onboarding/identity", { replace: true })
   }
 
   return (

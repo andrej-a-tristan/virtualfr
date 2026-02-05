@@ -19,6 +19,8 @@ from app.api.routes import (
     moderation,
     onboarding,
 )
+from app.routers import chat as chat_gateway
+from app.routers import mock_model
 
 app = FastAPI(title="Companion API", version="1.0.0")
 setup_cors(app)
@@ -51,6 +53,12 @@ app.include_router(images.router, prefix="/api")
 app.include_router(billing.router, prefix="/api")
 app.include_router(moderation.router, prefix="/api")
 app.include_router(onboarding.router, prefix="/api")
+
+# Chat gateway: /v1/chat/stream and /api/chat/stream (same handler; /api works with proxy)
+app.include_router(chat_gateway.router, prefix="/v1")
+app.include_router(chat_gateway.router, prefix="/api")
+app.include_router(mock_model.router)
+app.include_router(mock_model.router_completions)
 
 # In production, serve built frontend: static files from dist, SPA fallback to index.html
 settings = get_settings()

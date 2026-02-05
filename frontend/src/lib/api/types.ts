@@ -44,10 +44,29 @@ export type AppearancePrefs = {
 
 export type ContentPrefs = { wants_spicy_photos: boolean }
 
+export type IdentityPrefs = {
+  girlfriend_name: string
+  job_vibe?: string
+  hobbies: string[]
+  origin_vibe?: string
+}
+
+export type IdentityCanon = {
+  backstory: string
+  daily_routine: string
+  favorites: {
+    music_vibe: string
+    comfort_food: string
+    weekend_idea: string
+  }
+  memory_seeds: string[]
+}
+
 export type OnboardingCompleteRequest = {
   traits: Traits
   appearance_prefs: AppearancePrefs
   content_prefs: ContentPrefs
+  identity: IdentityPrefs
 }
 
 export interface Girlfriend {
@@ -57,6 +76,8 @@ export interface Girlfriend {
   traits: Traits
   appearance_prefs?: Record<string, any>
   content_prefs?: Record<string, any>
+  identity?: IdentityPrefs
+  identity_canon?: IdentityCanon
   created_at: string
 }
 

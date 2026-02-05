@@ -13,6 +13,7 @@ export default function OnboardingGenerating() {
     onboardingTraits,
     onboardingAppearance,
     onboardingContentPrefs,
+    onboardingIdentity,
     setGirlfriend,
     clearOnboarding,
   } = useAppStore()
@@ -31,7 +32,7 @@ export default function OnboardingGenerating() {
   })
 
   useEffect(() => {
-    if (!onboardingTraits || !onboardingAppearance || !onboardingContentPrefs) {
+    if (!onboardingTraits || !onboardingAppearance || !onboardingContentPrefs || !onboardingIdentity) {
       navigate("/onboarding/traits", { replace: true })
       return
     }
@@ -40,10 +41,11 @@ export default function OnboardingGenerating() {
         traits: onboardingTraits,
         appearance_prefs: onboardingAppearance,
         content_prefs: onboardingContentPrefs,
+        identity: onboardingIdentity,
       })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onboardingTraits, onboardingAppearance, onboardingContentPrefs])
+  }, [onboardingTraits, onboardingAppearance, onboardingContentPrefs, onboardingIdentity])
 
   return (
     <div className="flex min-h-[60vh] items-center justify-center px-4 py-12">

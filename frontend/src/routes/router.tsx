@@ -10,6 +10,7 @@ import PersonaPreview from "@/pages/PersonaPreview"
 import OnboardingAppearance from "@/pages/OnboardingAppearance"
 import OnboardingPreferences from "@/pages/OnboardingPreferences"
 import OnboardingGenerating from "@/pages/OnboardingGenerating"
+import OnboardingIdentity from "@/pages/OnboardingIdentity"
 import Chat from "@/pages/Chat"
 import Gallery from "@/pages/Gallery"
 import Profile from "@/pages/Profile"
@@ -55,6 +56,16 @@ const router = createBrowserRouter([
       <RequireAuth>
         <RequireAgeGate>
           <OnboardingPreferences />
+        </RequireAgeGate>
+      </RequireAuth>
+    ),
+  },
+  {
+    path: "/onboarding/identity",
+    element: (
+      <RequireAuth>
+        <RequireAgeGate>
+          <OnboardingIdentity />
         </RequireAgeGate>
       </RequireAuth>
     ),

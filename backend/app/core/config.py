@@ -13,6 +13,18 @@ class Settings(BaseSettings):
     env: str = "development"
     cors_origins: str = "http://localhost:5173"
 
+    # Chat gateway
+    chat_api_key: str = "dev-key"
+    stream_timeout_seconds: int = 60
+    upstream_token_timeout_seconds: int = 15
+    use_mock_model: bool = True
+    mock_model_base_url: str = "http://127.0.0.1:8000"
+
+    # Internal LLM (OpenAI-compatible); gateway calls this (default: same host = mock on main app)
+    internal_llm_base_url: str = "http://127.0.0.1:8000"
+    internal_llm_api_key: str = ""
+    internal_llm_path: str = "/v1/chat/completions"
+
     @property
     def is_production(self) -> bool:
         return self.env.lower() == "production"

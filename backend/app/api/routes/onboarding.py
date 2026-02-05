@@ -8,8 +8,10 @@ from fastapi.responses import JSONResponse
 from app.api.store import get_session_user, set_girlfriend
 from app.schemas.girlfriend import (
     GirlfriendResponse,
+    IdentityResponse,
     OnboardingCompletePayload,
 )
+from app.utils.identity_canon import generate_identity_canon
 
 
 router = APIRouter(prefix="/onboarding", tags=["onboarding"])
@@ -74,25 +76,51 @@ def complete_onboarding(request: Request, body: OnboardingCompletePayload):
     if not user:
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
 
+    girlfriend_name = body.identity.girlfriend_name.strip()
+
     traits = body.traits.model_dump()
     appearance_prefs = body.appearance_prefs.model_dump()
     content_prefs = body.content_prefs.model_dump()
+    
+    # Build identity object (anchors)
+    identity = {
+        "name": girlfriend_name,
+        "job_vibe": body.identity.job_vibe,
+        "hobbies": body.identity.hobbies,
+        "origin_vibe": body.identity.origin_vibe,
+    }
 
+    # Deterministic seed for avatar and canon
+    gf_id = "gf-1"
     seed_source = (
         f'{user["id"]}|'
         f"{json.dumps(appearance_prefs, sort_keys=True)}|"
         f"{json.dumps(traits, sort_keys=True)}"
     )
-    seed = hashlib.sha256(seed_source.encode("utf-8")).hexdigest()[:16]
-    avatar_url = f"https://picsum.photos/seed/{seed}/512/512"
+    avatar_seed = hashlib.sha256(seed_source.encode("utf-8")).hexdigest()[:16]
+    avatar_url = f"https://picsum.photos/seed/{avatar_seed}/512/512"
+    
+    # Generate identity canon (deterministic from gf_id)
+    canon_seed = int(hashlib.sha256(gf_id.encode("utf-8")).hexdigest()[:8], 16)
+    identity_canon = generate_identity_canon(
+        name=girlfriend_name,
+        job_vibe=body.identity.job_vibe or "in-between",
+        hobbies=body.identity.hobbies,
+        origin_vibe=body.identity.origin_vibe or "",
+        traits=traits,
+        content_prefs=content_prefs,
+        seed=canon_seed,
+    )
 
     gf = {
-        "id": "gf-1",
-        "name": "Luna",
+        "id": gf_id,
+        "name": girlfriend_name,
         "avatar_url": avatar_url,
         "traits": traits,
         "appearance_prefs": appearance_prefs,
         "content_prefs": content_prefs,
+        "identity": identity,
+        "identity_canon": identity_canon.model_dump(),
         "created_at": "2025-01-01T00:00:00Z",
     }
 
