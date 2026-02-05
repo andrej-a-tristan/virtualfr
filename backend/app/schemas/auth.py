@@ -20,3 +20,4 @@ class UserResponse(BaseModel):
     age_gate_passed: bool = False
     has_girlfriend: bool = False
     current_girlfriend_id: str | None = None
+    language_pref: str = "en"  # e.g. "en" | "sk"; TODO: wrap prompts in Slovak if "sk"

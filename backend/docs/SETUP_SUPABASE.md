@@ -33,8 +33,15 @@ SUPABASE_URL=https://qzbiudxpeepbepclnkoq.supabase.co
 SUPABASE_ANON_KEY=<paste your anon key from Supabase Dashboard → Settings → API>
 ```
 
-- Use the **anon** key for normal backend use (Row Level Security applies).
-- For admin-only operations you can add `SUPABASE_SERVICE_ROLE_KEY` later (keep it secret).
+- For **signup** and **database** (storing users, messages, relationship state), you must also set the **service role** key (same page, "service_role" secret). **Keep it secret**; use only on the server.
+
+In `backend/.env` add:
+
+```env
+SUPABASE_SERVICE_ROLE_KEY=<paste your service_role key from Supabase Dashboard → Settings → API>
+```
+
+- Use the **anon** key for login (`sign_in_with_password`). Use the **service_role** key for creating users (signup) and for all DB reads/writes (bypasses RLS).
 
 **Publishable key:** If you have a “publishable” key (e.g. `sb_publishable_...`), that is for client-side usage. For this FastAPI backend use the **anon** key from the API settings.
 
@@ -79,10 +86,11 @@ uvicorn app.main:app --reload --port 8000
 
 ## Quick reference
 
-| Variable             | Where to get it                    | Used for              |
-|----------------------|------------------------------------|------------------------|
-| `SUPABASE_URL`       | Supabase → Settings → API          | Supabase client        |
-| `SUPABASE_ANON_KEY`  | Supabase → Settings → API (anon)   | Supabase client        |
-| `API_KEY`            | Your API provider (e.g. OpenAI)    | External API calls     |
+| Variable                     | Where to get it                    | Used for              |
+|-----------------------------|------------------------------------|------------------------|
+| `SUPABASE_URL`              | Supabase → Settings → API          | Supabase client        |
+| `SUPABASE_ANON_KEY`         | Supabase → Settings → API (anon)  | Login, Supabase client |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Settings → API (secret)| Signup, DB writes      |
+| `API_KEY`                   | Your API provider (e.g. OpenAI)    | Chat AI (OpenAI)       |
 
 After editing `.env`, restart the FastAPI server so it picks up the new values.

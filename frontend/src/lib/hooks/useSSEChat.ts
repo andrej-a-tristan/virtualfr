@@ -16,8 +16,23 @@ export async function sendChatMessage(message: string): Promise<void> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message }),
     })
-    if (!res.ok) throw new Error("Send failed")
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error((err as { error?: string }).error || "Send failed")
+    }
     const reader = res.body?.getReader()
+    if (!reader) {
+      useChatStore.getState().appendMessage({
+        id: `err-${Date.now()}`,
+        role: "assistant",
+        content: "[Error: No response body from server]",
+        image_url: null,
+        event_type: null,
+        event_key: null,
+        created_at: new Date().toISOString(),
+      })
+      return
+    }
     const decoder = new TextDecoder()
     let buffer = ""
     let fullContent = ""
@@ -30,12 +45,23 @@ export async function sendChatMessage(message: string): Promise<void> {
       for (const line of lines) {
         if (line.startsWith("data: ")) {
           try {
-            const data = JSON.parse(line.slice(6)) as { type: string; token?: string; message?: ChatMessage }
+            const data = JSON.parse(line.slice(6)) as { type: string; token?: string; message?: ChatMessage; error?: string }
             if (data.type === "token" && data.token) {
               fullContent += data.token
               setStreamingContent(fullContent)
             } else if (data.type === "message" && data.message) {
               appendMessage(data.message)
+              setStreamingContent("")
+            } else if (data.type === "error" && data.error) {
+              appendMessage({
+                id: `err-${Date.now()}`,
+                role: "assistant",
+                content: `[Error: ${data.error}]`,
+                image_url: null,
+                event_type: null,
+                event_key: null,
+                created_at: new Date().toISOString(),
+              })
               setStreamingContent("")
             } else if (data.type === "done") {
               setStreamingContent("")

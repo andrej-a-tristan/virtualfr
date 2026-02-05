@@ -1,7 +1,7 @@
 import { useState, useRef } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useSSEChat } from "@/lib/hooks/useSSEChat"
 import { useChatStore } from "@/lib/store/useChatStore"
-import { useQuery } from "@tanstack/react-query"
 import { getBillingStatus } from "@/lib/api/endpoints"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,6 +11,7 @@ import { Send, ImagePlus } from "lucide-react"
 export default function Composer() {
   const [text, setText] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
+  const queryClient = useQueryClient()
   const { sendMessage } = useSSEChat()
   const { isStreaming, appendMessage } = useChatStore()
   const { data: billing } = useQuery({ queryKey: ["billing"], queryFn: getBillingStatus })
@@ -32,6 +33,7 @@ export default function Composer() {
     })
     try {
       await sendMessage(msg)
+      await queryClient.invalidateQueries({ queryKey: ["chatHistory"] })
     } catch {
       // Error handled in hook / store
     }

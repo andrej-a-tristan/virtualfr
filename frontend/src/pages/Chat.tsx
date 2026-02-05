@@ -1,6 +1,7 @@
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { getChatHistory } from "@/lib/api/endpoints"
+import { getChatHistory, postChatAppOpen } from "@/lib/api/endpoints"
+import { getCurrentGirlfriend } from "@/lib/api/endpoints"
 import { useChatStore } from "@/lib/store/useChatStore"
 import ChatHeader from "@/components/chat/ChatHeader"
 import MessageList from "@/components/chat/MessageList"
@@ -9,14 +10,40 @@ import { Skeleton } from "@/components/ui/skeleton"
 
 export default function Chat() {
   const setMessages = useChatStore((s) => s.setMessages)
-  const { data, isLoading } = useQuery({
+  const isStreaming = useChatStore((s) => s.isStreaming)
+  const hasMergedRef = useRef(false)
+
+  const { data: gf } = useQuery({ queryKey: ["girlfriend"], queryFn: getCurrentGirlfriend })
+  const { data: appOpenData } = useQuery({
+    queryKey: ["chatAppOpen", gf?.id],
+    queryFn: () => postChatAppOpen(gf!.id),
+    enabled: !!gf?.id,
+    staleTime: 60_000,
+  })
+  const { data: historyData, isLoading } = useQuery({
     queryKey: ["chatHistory"],
     queryFn: getChatHistory,
   })
 
   useEffect(() => {
-    if (data?.messages) setMessages(data.messages)
-  }, [data?.messages, setMessages])
+    hasMergedRef.current = false
+  }, [gf?.id])
+
+  // Merge app_open messages (top) with history when data is ready. Don't overwrite if we're
+  // streaming or have more messages locally (e.g. just received a streamed reply).
+  useEffect(() => {
+    if (historyData == null) return
+    const history = historyData.messages ?? []
+    const initiated = appOpenData?.messages ?? []
+    const next = initiated.length > 0 ? [...initiated, ...history] : history
+
+    setMessages((prev) => {
+      if (isStreaming) return prev
+      if (hasMergedRef.current && next.length <= prev.length) return prev
+      hasMergedRef.current = true
+      return next
+    })
+  }, [historyData, appOpenData?.messages, isStreaming, setMessages])
 
   if (isLoading) {
     return (

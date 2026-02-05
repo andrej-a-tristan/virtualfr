@@ -2,6 +2,8 @@ import { create } from "zustand"
 import { persist } from "zustand/middleware"
 import type { User, Girlfriend, TraitSelection } from "@/lib/api/types"
 
+// language_pref from /api/me (e.g. "en" | "sk"); TODO: use for Slovak prompts
+
 const ONBOARDING_STORAGE_KEY = "companion-onboarding-draft"
 
 export interface OnboardingDraft {
