@@ -32,8 +32,16 @@ export default function Composer() {
     })
     try {
       await sendMessage(msg)
-    } catch {
-      // Error handled in hook / store
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e)
+      appendMessage({
+        id: `assistant-${Date.now()}`,
+        role: "assistant",
+        content: `Error: ${errMsg}`,
+        image_url: null,
+        event_type: null,
+        created_at: new Date().toISOString(),
+      })
     }
     inputRef.current?.focus()
   }

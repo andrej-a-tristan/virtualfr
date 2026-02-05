@@ -15,6 +15,7 @@ import type {
   MemoryType,
   FactualMemoryItem,
   EmotionalMemoryItem,
+  OnboardingCompleteRequest,
 } from "./types"
 
 /** Convert TraitSelection (camelCase) to API snake_case. */
@@ -173,4 +174,16 @@ export async function getEmotionalMemoryItems(girlfriendId?: string, limit = 50)
 export async function getMemoryStats(girlfriendId?: string): Promise<MemorySummary> {
   const params = girlfriendId ? `?girlfriendId=${girlfriendId}` : ""
   return apiGet<MemorySummary>(`/memory/stats${params}`)
+}
+
+// -----------------------------------------------------------------------------
+// Onboarding
+// -----------------------------------------------------------------------------
+
+export function getOnboardingPromptImages() {
+  return apiGet<Record<string, string>>("/onboarding/prompt-images")
+}
+
+export function completeOnboarding(body: OnboardingCompleteRequest) {
+  return apiPost<Girlfriend>("/onboarding/complete", body)
 }

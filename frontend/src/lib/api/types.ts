@@ -27,10 +27,68 @@ export interface TraitSelection {
   culturalPersonality: CulturalPersonality
 }
 
+export type AppearancePrefs = {
+  vibe?:
+    | "cute"
+    | "elegant"
+    | "sporty"
+    | "goth"
+    | "girl-next-door"
+    | "model"
+  age_range?: "18" | "19-21" | "22-26" | "27+"
+  ethnicity?:
+    | "any"
+    | "asian"
+    | "black"
+    | "latina"
+    | "white"
+    | "middle-eastern"
+    | "south-asian"
+  breast_size?: "small" | "medium" | "large" | "massive"
+  butt_size?: "small" | "medium" | "large" | "massive"
+  hair_color?: "black" | "brown" | "blonde" | "red" | "ginger" | "unnatural"
+  hair_style?: "long" | "bob" | "curly" | "straight" | "bun"
+  eye_color?: "brown" | "blue" | "green" | "hazel"
+  body_type?: "slim" | "athletic" | "curvy"
+}
+
+export type ContentPrefs = { wants_spicy_photos: boolean }
+
+export type IdentityPrefs = {
+  girlfriend_name: string
+  job_vibe?: string
+  hobbies: string[]
+  origin_vibe?: string
+}
+
+export type IdentityCanon = {
+  backstory: string
+  daily_routine: string
+  favorites: {
+    music_vibe: string
+    comfort_food: string
+    weekend_idea: string
+  }
+  memory_seeds: string[]
+}
+
+export type OnboardingCompleteRequest = {
+  traits: Traits
+  appearance_prefs: AppearancePrefs
+  content_prefs: ContentPrefs
+  identity: IdentityPrefs
+}
+
 export interface Girlfriend {
   id: string
-  display_name: string
-  traits: TraitSelection
+  display_name?: string
+  name?: string
+  avatar_url?: string | null
+  traits: TraitSelection | Traits
+  appearance_prefs?: Record<string, any>
+  content_prefs?: Record<string, any>
+  identity?: IdentityPrefs
+  identity_canon?: IdentityCanon
   created_at: string
 }
 
