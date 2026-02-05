@@ -9,6 +9,12 @@ import type {
   GalleryItem,
   BillingStatus,
   ImageJob,
+  MemoryContext,
+  MemorySummary,
+  MemoryItemsResponse,
+  MemoryType,
+  FactualMemoryItem,
+  EmotionalMemoryItem,
 } from "./types"
 
 /** Convert TraitSelection (camelCase) to API snake_case. */
@@ -104,6 +110,13 @@ export async function getChatHistory() {
 export async function getChatState() {
   return apiGet<RelationshipState>("/chat/state")
 }
+export interface ChatAppOpenPayload {
+  messages: ChatMessage[]
+  relationshipState: RelationshipState
+}
+export async function postChatAppOpen(girlfriendId: string): Promise<ChatAppOpenPayload> {
+  return apiPost<ChatAppOpenPayload>("/chat/app_open", { girlfriend_id: girlfriendId })
+}
 export function getChatSendStreamUrl() {
   return "/api/chat/send"
 }
@@ -130,4 +143,34 @@ export async function checkout() {
 // Moderation
 export async function report() {
   return apiPost<{ ok: boolean }>("/moderation/report")
+}
+
+// -----------------------------------------------------------------------------
+// Memory System (Task 1.2)
+// -----------------------------------------------------------------------------
+
+/** Get compact memory context for prompt building. */
+export async function getMemorySummaryContext(girlfriendId?: string): Promise<MemoryContext> {
+  const params = girlfriendId ? `?girlfriendId=${girlfriendId}` : ""
+  return apiGet<MemoryContext>(`/memory/summary${params}`)
+}
+
+/** Get raw factual memory items. */
+export async function getFactualMemoryItems(girlfriendId?: string, limit = 50): Promise<MemoryItemsResponse<FactualMemoryItem>> {
+  const params = new URLSearchParams({ type: "factual", limit: String(limit) })
+  if (girlfriendId) params.set("girlfriendId", girlfriendId)
+  return apiGet<MemoryItemsResponse<FactualMemoryItem>>(`/memory/items?${params}`)
+}
+
+/** Get raw emotional memory items. */
+export async function getEmotionalMemoryItems(girlfriendId?: string, limit = 50): Promise<MemoryItemsResponse<EmotionalMemoryItem>> {
+  const params = new URLSearchParams({ type: "emotional", limit: String(limit) })
+  if (girlfriendId) params.set("girlfriendId", girlfriendId)
+  return apiGet<MemoryItemsResponse<EmotionalMemoryItem>>(`/memory/items?${params}`)
+}
+
+/** Get memory statistics and recent items. */
+export async function getMemoryStats(girlfriendId?: string): Promise<MemorySummary> {
+  const params = girlfriendId ? `?girlfriendId=${girlfriendId}` : ""
+  return apiGet<MemorySummary>(`/memory/stats${params}`)
 }
