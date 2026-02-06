@@ -31,20 +31,21 @@ export default function PersonaPreview() {
   }
 
   const traits = gf.traits as Partial<TraitSelection>
+  const girlfriendName = gf.display_name || gf.name || "Your Companion"
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-background/95">
       <div className="mx-auto max-w-lg space-y-8 px-4 py-12">
         <div className="text-center">
           <h1 className="text-2xl font-bold tracking-tight text-foreground md:text-3xl">
-            Meet {gf.display_name}
+            Meet {girlfriendName}
           </h1>
           <p className="mt-2 text-muted-foreground">
             Your companion is ready. She’ll open up more as you get closer.
           </p>
         </div>
 
-        <PersonaPreviewCard displayName={gf.display_name} traits={traits} />
+        <PersonaPreviewCard displayName={girlfriendName} traits={traits} />
 
         <Card className="rounded-2xl border-primary/20 bg-primary/5">
           <CardHeader className="pb-2">

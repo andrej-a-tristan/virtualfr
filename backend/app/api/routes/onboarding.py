@@ -115,6 +115,7 @@ def complete_onboarding(request: Request, body: OnboardingCompletePayload):
     gf = {
         "id": gf_id,
         "name": girlfriend_name,
+        "display_name": girlfriend_name,
         "avatar_url": avatar_url,
         "traits": traits,
         "appearance_prefs": appearance_prefs,

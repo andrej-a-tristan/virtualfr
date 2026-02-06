@@ -72,7 +72,9 @@ class OnboardingCompletePayload(BaseModel):
 
 class GirlfriendResponse(BaseModel):
     id: str
-    display_name: str
+    display_name: str | None = None
+    name: str | None = None
+    avatar_url: str | None = None
     traits: dict
     appearance_prefs: dict | None = None
     content_prefs: dict | None = None

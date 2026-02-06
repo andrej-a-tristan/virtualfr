@@ -27,3 +27,8 @@ def get_girlfriend(session_id: str) -> dict[str, Any] | None:
 
 def set_girlfriend(session_id: str, data: dict[str, Any]) -> None:
     _girlfriends[session_id] = data
+    # Update user's has_girlfriend flag
+    user = _sessions.get(session_id)
+    if user:
+        user["has_girlfriend"] = True
+        user["current_girlfriend_id"] = data.get("id")

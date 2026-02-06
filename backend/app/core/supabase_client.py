@@ -29,3 +29,12 @@ def is_supabase_configured() -> bool:
     """Return True if Supabase env vars are set."""
     settings = get_settings()
     return bool(settings.supabase_url and settings.supabase_anon_key)
+
+
+def get_supabase_admin() -> "Client | None":
+    """Return Supabase admin client (same as get_supabase for now).
+    
+    In production, this could use a service role key for elevated permissions.
+    For now, it's an alias to get_supabase().
+    """
+    return get_supabase()

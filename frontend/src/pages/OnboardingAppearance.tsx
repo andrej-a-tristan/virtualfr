@@ -101,6 +101,10 @@ export default function OnboardingAppearance() {
     navigate("/onboarding/preferences", { replace: true })
   }
 
+  const handleBack = () => {
+    navigate("/onboarding/traits", { replace: true })
+  }
+
   return (
     <div className="mx-auto max-w-4xl space-y-8 px-4 py-8">
       <div className="text-center">
@@ -159,7 +163,10 @@ export default function OnboardingAppearance() {
         })}
       </div>
 
-      <div className="flex justify-center pt-2">
+      <div className="flex justify-center gap-4 pt-2">
+        <Button variant="outline" size="lg" onClick={handleBack}>
+          Back
+        </Button>
         <Button size="lg" disabled={!isComplete} onClick={handleContinue}>
           Continue
         </Button>

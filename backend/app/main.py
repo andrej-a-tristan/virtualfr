@@ -21,7 +21,6 @@ from app.api.routes import (
     auth,
     billing,
     chat,
-    check,
     girlfriends,
     health,
     images,
@@ -87,7 +86,6 @@ app.include_router(chat.router, prefix="/api")
 app.include_router(images.router, prefix="/api")
 app.include_router(billing.router, prefix="/api")
 app.include_router(moderation.router, prefix="/api")
-app.include_router(check.router, prefix="/api")
 app.include_router(memory.router, prefix="/api")
 app.include_router(onboarding.router, prefix="/api")
 

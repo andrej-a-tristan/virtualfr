@@ -1,8 +1,6 @@
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
-import { useQueryClient } from "@tanstack/react-query"
 import { useAppStore } from "@/lib/store/useAppStore"
-import { createGirlfriend } from "@/lib/api/endpoints"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -157,13 +155,12 @@ const STEPS = TRAIT_CONFIGS.map((c, i) => ({ id: c.key, label: `Trait ${i + 1}` 
 
 export default function OnboardingTraits() {
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
   const {
     onboardingDraft,
-    setGirlfriend,
     updateTrait,
     setDisplayName,
-    clearOnboardingDraft,
+    setOnboardingTraits,
+    setGirlfriendName,
   } = useAppStore()
   const [currentStep, setCurrentStep] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -184,16 +181,20 @@ export default function OnboardingTraits() {
     setError(null)
     setLoading(true)
     try {
-      const payload = {
-        displayName: name,
-        traits: traits as TraitSelection,
+      // Convert camelCase traits to snake_case for the extended onboarding flow
+      const snakeCaseTraits = {
+        emotional_style: traits.emotionalStyle!,
+        attachment_style: traits.attachmentStyle!,
+        reaction_to_absence: traits.reactionToAbsence!,
+        communication_style: traits.communicationStyle!,
+        relationship_pace: traits.relationshipPace!,
+        cultural_personality: traits.culturalPersonality!,
       }
-      const gf = await createGirlfriend(payload)
-      setGirlfriend(gf)
-      clearOnboardingDraft()
-      await queryClient.invalidateQueries({ queryKey: ["me"] })
-      await queryClient.invalidateQueries({ queryKey: ["girlfriend"] })
-      navigate("/onboarding/preview", { replace: true })
+      setOnboardingTraits(snakeCaseTraits)
+      setGirlfriendName(name)
+      // Move to next step (appearance)
+      // Girlfriend creation happens at the end of the full onboarding flow
+      navigate("/onboarding/appearance", { replace: true })
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong")
     } finally {
@@ -287,7 +288,7 @@ export default function OnboardingTraits() {
             disabled={!isComplete || loading}
             onClick={handleSubmit}
           >
-            {loading ? "Creating…" : "Create Her"}
+            {loading ? "Saving…" : "Continue"}
           </Button>
         </div>
       </div>
