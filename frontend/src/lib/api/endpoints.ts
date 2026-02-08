@@ -141,8 +141,22 @@ export async function getBillingStatus() {
 export async function createSetupIntent() {
   return apiPost<SetupIntentResponse>("/billing/setup-intent")
 }
-export async function confirmCard() {
-  return apiPost<{ ok: boolean; has_card_on_file: boolean }>("/billing/confirm-card")
+export async function confirmCard(paymentMethodId?: string) {
+  return apiPost<{ ok: boolean; has_card_on_file: boolean }>("/billing/confirm-card", {
+    payment_method_id: paymentMethodId,
+  })
+}
+export async function subscribeToPlan(plan: string) {
+  return apiPost<{
+    ok: boolean
+    plan: string
+    subscription_id: string | null
+    status?: string
+    payment_intent_client_secret?: string
+  }>("/billing/subscribe", { plan })
+}
+export async function cancelSubscription() {
+  return apiPost<{ ok: boolean; plan: string }>("/billing/cancel")
 }
 export async function checkout() {
   return apiPost<{ checkout_url: string }>("/billing/checkout")
@@ -151,6 +165,17 @@ export async function checkout() {
 // Moderation
 export async function report() {
   return apiPost<{ ok: boolean }>("/moderation/report")
+}
+
+// Gifts
+export async function getGiftsList() {
+  return apiGet<import("./types").GiftListResponse>("/gifts/list")
+}
+export async function createGiftCheckout(giftId: string) {
+  return apiPost<import("./types").GiftCheckoutResponse>("/gifts/checkout", { gift_id: giftId })
+}
+export async function getGiftHistory() {
+  return apiGet<import("./types").GiftHistoryResponse>("/gifts/history")
 }
 
 // -----------------------------------------------------------------------------

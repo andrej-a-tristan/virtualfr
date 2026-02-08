@@ -169,3 +169,47 @@ CREATE POLICY emotional_memory_all ON public.emotional_memory FOR ALL USING (aut
 
 DROP POLICY IF EXISTS memory_notes_all ON public.memory_notes;
 CREATE POLICY memory_notes_all ON public.memory_notes FOR ALL USING (auth.uid() = user_id);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Gift Purchases
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS public.gift_purchases (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES public.users(id),
+  girlfriend_id uuid NOT NULL REFERENCES public.girlfriends(id),
+  gift_id text NOT NULL,
+  gift_name text NOT NULL,
+  amount_eur numeric(10,2) NOT NULL,
+  currency text NOT NULL DEFAULT 'eur',
+  stripe_session_id text UNIQUE,
+  stripe_payment_intent text,
+  status text NOT NULL DEFAULT 'pending',  -- pending | paid | failed
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_gift_purchases_user ON public.gift_purchases(user_id, girlfriend_id);
+CREATE INDEX IF NOT EXISTS idx_gift_purchases_stripe ON public.gift_purchases(stripe_session_id);
+
+-- Moment cards (optional keepsake from gift)
+CREATE TABLE IF NOT EXISTS public.moment_cards (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES public.users(id),
+  girlfriend_id uuid NOT NULL REFERENCES public.girlfriends(id),
+  gift_purchase_id uuid REFERENCES public.gift_purchases(id),
+  title text NOT NULL,
+  description text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_moment_cards_user ON public.moment_cards(user_id, girlfriend_id);
+
+-- RLS
+ALTER TABLE public.gift_purchases ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.moment_cards ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS gift_purchases_all ON public.gift_purchases;
+CREATE POLICY gift_purchases_all ON public.gift_purchases FOR ALL USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS moment_cards_all ON public.moment_cards;
+CREATE POLICY moment_cards_all ON public.moment_cards FOR ALL USING (auth.uid() = user_id);

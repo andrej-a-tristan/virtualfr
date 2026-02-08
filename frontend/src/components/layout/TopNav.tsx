@@ -14,7 +14,7 @@ import { User, LogOut } from "lucide-react"
 
 export default function TopNav() {
   const { user, logout } = useAuth()
-  const { data: billing } = useQuery({ queryKey: ["billing"], queryFn: getBillingStatus })
+  const { data: billing } = useQuery({ queryKey: ["billingStatus"], queryFn: getBillingStatus })
 
   return (
     <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-white/10 bg-background/80 px-4 backdrop-blur-sm md:px-6">
@@ -23,7 +23,16 @@ export default function TopNav() {
       </Link>
       <div className="flex items-center gap-3">
         {billing && (
-          <Badge variant={billing.plan === "pro" ? "default" : "secondary"} className="text-xs">
+          <Badge
+            variant={billing.plan !== "free" ? "default" : "secondary"}
+            className={`text-xs capitalize ${
+              billing.plan === "premium"
+                ? "bg-amber-500/20 text-amber-300 border-amber-500/30"
+                : billing.plan === "plus"
+                  ? "bg-primary/20 text-primary border-primary/30"
+                  : ""
+            }`}
+          >
             {billing.plan}
           </Badge>
         )}

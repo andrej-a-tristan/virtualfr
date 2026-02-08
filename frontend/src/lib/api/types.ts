@@ -231,3 +231,64 @@ export interface BigFiveProfile {
   values: BigFive
   source: BigFiveSource
 }
+
+// -----------------------------------------------------------------------------
+// Gift System
+// -----------------------------------------------------------------------------
+
+export interface GiftImageReward {
+  album_size: number
+  prompt_template: string
+  suggestive_level: string
+}
+
+export interface GiftRelationshipBoost {
+  trust: number
+  intimacy: number
+}
+
+export interface GiftDefinition {
+  id: string
+  name: string
+  description: string
+  price_eur: number
+  tier: "everyday" | "dates" | "luxury" | "legendary"
+  relationship_boost: GiftRelationshipBoost
+  memory_tag: string
+  image_reward: GiftImageReward
+  cooldown_days: number | null
+  rarity: "common" | "rare" | "legendary"
+  emoji: string
+}
+
+export interface GiftListResponse {
+  gifts: GiftDefinition[]
+}
+
+export interface GiftCheckoutResponse {
+  checkout_url: string
+  session_id: string
+}
+
+export interface GiftHistoryItem {
+  id: string
+  gift_id: string
+  gift_name: string
+  amount_eur: number
+  status: "pending" | "paid" | "failed"
+  created_at: string
+  emoji: string
+}
+
+export interface GiftHistoryResponse {
+  purchases: GiftHistoryItem[]
+}
+
+export interface GiftEventData {
+  gift_id: string
+  gift_name: string
+  emoji: string
+  tier: string
+  trust_gained: number
+  intimacy_gained: number
+}

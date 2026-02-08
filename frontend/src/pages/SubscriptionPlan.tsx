@@ -2,7 +2,7 @@ import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useAppStore } from "@/lib/store/useAppStore"
-import { getBillingStatus } from "@/lib/api/endpoints"
+import { getBillingStatus, subscribeToPlan } from "@/lib/api/endpoints"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { Check, Crown, Heart, Sparkles, CreditCard } from "lucide-react"
@@ -61,7 +61,9 @@ export default function SubscriptionPlan() {
   const girlfriend = useAppStore((s) => s.girlfriend)
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [showCardModal, setShowCardModal] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
 
   const { data: billing } = useQuery({
     queryKey: ["billingStatus"],
@@ -85,16 +87,36 @@ export default function SubscriptionPlan() {
       return
     }
 
-    // Card already saved — proceed
+    // Card already saved — for paid plans, show confirmation first
+    if (selectedPlan !== "free") {
+      setShowConfirm(true)
+      return
+    }
+
+    await finishSubscription()
+  }
+
+  const handleConfirmPurchase = async () => {
+    setShowConfirm(false)
     await finishSubscription()
   }
 
   const finishSubscription = async () => {
+    if (!selectedPlan) return
     setLoading(true)
-    // Simulate subscription processing
-    await new Promise((r) => setTimeout(r, 800))
-    setLoading(false)
-    navigate("/app/chat", { replace: true })
+    setError(null)
+    try {
+      if (selectedPlan !== "free") {
+        // Create a real Stripe subscription for paid plans
+        await subscribeToPlan(selectedPlan)
+      }
+      await queryClient.invalidateQueries({ queryKey: ["billingStatus"] })
+      navigate("/onboarding/reveal-success", { replace: true })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Subscription failed")
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleCardSaved = async () => {
@@ -219,6 +241,11 @@ export default function SubscriptionPlan() {
           })}
         </div>
 
+        {/* Error message */}
+        {error && (
+          <p className="text-sm text-destructive text-center">{error}</p>
+        )}
+
         {/* Subscribe button */}
         <div className="flex flex-col items-center gap-3 pt-2">
           <Button
@@ -230,11 +257,16 @@ export default function SubscriptionPlan() {
             {loading ? (
               "Processing…"
             ) : hasCard ? (
-              selectedPlan === "free" ? "Continue for free" : "Subscribe & reveal"
+              selectedPlan === "free" ? "Continue for free" : "Subscribe & pay"
+            ) : selectedPlan === "free" ? (
+              <>
+                <CreditCard className="h-4 w-4" />
+                Add card & continue
+              </>
             ) : (
               <>
                 <CreditCard className="h-4 w-4" />
-                {selectedPlan === "free" ? "Add card & continue" : "Add card & subscribe"}
+                Enter card & subscribe
               </>
             )}
           </Button>
@@ -253,6 +285,46 @@ export default function SubscriptionPlan() {
         onSaved={handleCardSaved}
         plan={selectedPlan ?? undefined}
       />
+
+      {/* Confirm purchase modal (when card already on file) */}
+      {showConfirm && selectedPlan && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+          <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-card p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200 space-y-5">
+            <div className="text-center space-y-2">
+              <h2 className="text-xl font-semibold">Confirm subscription</h2>
+              <p className="text-muted-foreground text-sm">
+                You&apos;ll be charged{" "}
+                <span className="font-semibold text-foreground">
+                  {PLANS.find((p) => p.id === selectedPlan)?.price}
+                  /month
+                </span>{" "}
+                for the{" "}
+                <span className="font-semibold text-foreground">
+                  {PLANS.find((p) => p.id === selectedPlan)?.name}
+                </span>{" "}
+                plan using your card on file.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                className="flex-1 rounded-xl"
+                onClick={() => setShowConfirm(false)}
+                disabled={loading}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="flex-1 rounded-xl"
+                onClick={handleConfirmPurchase}
+                disabled={loading}
+              >
+                {loading ? "Processing…" : "Confirm & pay"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

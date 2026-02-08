@@ -26,7 +26,8 @@ def signup(body: SignupRequest, response: Response):
 
 @router.post("/login")
 def login(body: LoginRequest, response: Response):
-    """Mock login: set session cookie."""
+    """Mock login: clear old session and start fresh."""
+    clear_session(SESSION_VALUE)
     user_id = f"user-{body.email.split('@')[0]}"
     set_session_user(SESSION_VALUE, {"id": user_id, "email": body.email, "display_name": None})
     response.set_cookie(

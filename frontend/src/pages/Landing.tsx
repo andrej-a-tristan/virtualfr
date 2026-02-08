@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
+import { useQueryClient } from "@tanstack/react-query"
 import { login, postAgeGate, getMe } from "@/lib/api/endpoints"
 import { useAppStore } from "@/lib/store/useAppStore"
 
 export default function Landing() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const setUser = useAppStore((s) => s.setUser)
   const setGirlfriend = useAppStore((s) => s.setGirlfriend)
   const clearOnboarding = useAppStore((s) => s.clearOnboarding)
@@ -14,9 +16,10 @@ export default function Landing() {
     let cancelled = false
     async function autoSetup() {
       try {
-        // Clear stale onboarding + girlfriend so we always start fresh
+        // Clear ALL stale state: onboarding, girlfriend, and React Query cache
         clearOnboarding()
         setGirlfriend(null)
+        queryClient.clear()
 
         if (!cancelled) setStatus("Signing in...")
         const randomId = `dev-${Date.now()}`

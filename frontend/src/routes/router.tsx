@@ -17,6 +17,7 @@ import OnboardingGenerating from "@/pages/OnboardingGenerating"
 import OnboardingIdentity from "@/pages/OnboardingIdentity"
 import GirlfriendReveal from "@/pages/GirlfriendReveal"
 import SubscriptionPlan from "@/pages/SubscriptionPlan"
+import RevealSuccess from "@/pages/RevealSuccess"
 import Chat from "@/pages/Chat"
 import Gallery from "@/pages/Gallery"
 import Profile from "@/pages/Profile"
@@ -133,6 +134,10 @@ const router = createBrowserRouter([
   {
     path: "/onboarding/subscribe",
     element: <SubscriptionPlan />,
+  },
+  {
+    path: "/onboarding/reveal-success",
+    element: <RevealSuccess />,
   },
   {
     path: "/onboarding/preview",

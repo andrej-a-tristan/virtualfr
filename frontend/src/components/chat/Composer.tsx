@@ -1,19 +1,23 @@
 import { useState, useRef } from "react"
 import { useSSEChat } from "@/lib/hooks/useSSEChat"
 import { useChatStore } from "@/lib/store/useChatStore"
+import { useAppStore } from "@/lib/store/useAppStore"
 import { useQuery } from "@tanstack/react-query"
 import { getBillingStatus } from "@/lib/api/endpoints"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import PaywallInlineCard from "./PaywallInlineCard"
-import { Send, ImagePlus } from "lucide-react"
+import GiftModal from "./GiftModal"
+import { Send, ImagePlus, Gift } from "lucide-react"
 
 export default function Composer() {
   const [text, setText] = useState("")
+  const [showGifts, setShowGifts] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const { sendMessage } = useSSEChat()
   const { isStreaming, appendMessage } = useChatStore()
-  const { data: billing } = useQuery({ queryKey: ["billing"], queryFn: getBillingStatus })
+  const girlfriend = useAppStore((s) => s.girlfriend)
+  const { data: billing } = useQuery({ queryKey: ["billingStatus"], queryFn: getBillingStatus })
 
   const canSend = text.trim().length > 0 && !isStreaming
   const imageCapReached = billing ? (billing.plan === "free" && false) : false
@@ -84,7 +88,22 @@ export default function Composer() {
         >
           <ImagePlus className="h-4 w-4" />
         </Button>
+        <Button
+          size="icon"
+          variant="outline"
+          className="rounded-xl text-primary border-primary/30 hover:bg-primary/10"
+          onClick={() => setShowGifts(true)}
+          aria-label="Buy her something"
+        >
+          <Gift className="h-4 w-4" />
+        </Button>
       </div>
+
+      <GiftModal
+        open={showGifts}
+        onClose={() => setShowGifts(false)}
+        girlfriendName={girlfriend?.display_name || girlfriend?.name}
+      />
     </div>
   )
 }

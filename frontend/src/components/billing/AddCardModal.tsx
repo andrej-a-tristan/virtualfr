@@ -10,13 +10,30 @@ import { createSetupIntent, confirmCard } from "@/lib/api/endpoints"
 import { Button } from "@/components/ui/button"
 import { CreditCard, ShieldCheck, X } from "lucide-react"
 
+// Plan display info for the modal
+const PLAN_INFO: Record<string, { name: string; price: string }> = {
+  plus: { name: "Plus", price: "€14.99/month" },
+  premium: { name: "Premium", price: "€29.99/month" },
+}
+
 // ── Inner form (rendered inside <Elements>) ─────────────────────────────────
 
-function CardForm({ onSaved, onCancel, plan }: { onSaved: () => void; onCancel: () => void; plan?: string }) {
+function CardForm({
+  onSaved,
+  onCancel,
+  plan,
+}: {
+  onSaved: () => void
+  onCancel: () => void
+  plan?: string
+}) {
   const stripe = useStripe()
   const elements = useElements()
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const isPaid = plan === "plus" || plan === "premium"
+  const planInfo = plan ? PLAN_INFO[plan] : undefined
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -36,9 +53,10 @@ function CardForm({ onSaved, onCancel, plan }: { onSaved: () => void; onCancel: 
       return
     }
 
-    // Optimistic: tell backend the card is saved (in case webhook is slow)
+    // Tell backend the card is saved with the payment method ID
+    const paymentMethodId = result.setupIntent?.payment_method as string | undefined
     try {
-      await confirmCard()
+      await confirmCard(paymentMethodId)
     } catch {
       // non-critical, webhook will handle it
     }
@@ -47,13 +65,15 @@ function CardForm({ onSaved, onCancel, plan }: { onSaved: () => void; onCancel: 
     onSaved()
   }
 
+  const submitLabel = submitting
+    ? "Processing…"
+    : isPaid
+      ? `Subscribe – ${planInfo?.price}`
+      : "Save card"
+
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      <PaymentElement
-        options={{
-          layout: "tabs",
-        }}
-      />
+      <PaymentElement options={{ layout: "tabs" }} />
 
       {error && (
         <p className="text-sm text-destructive text-center">{error}</p>
@@ -84,7 +104,7 @@ function CardForm({ onSaved, onCancel, plan }: { onSaved: () => void; onCancel: 
           className="flex-1 rounded-xl"
           disabled={!stripe || !elements || submitting}
         >
-          {submitting ? "Saving…" : "Save card"}
+          {submitLabel}
         </Button>
       </div>
     </form>
@@ -105,6 +125,9 @@ export default function AddCardModal({ open, onClose, onSaved, plan }: AddCardMo
   const [clientSecret, setClientSecret] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+
+  const isPaid = plan === "plus" || plan === "premium"
+  const planInfo = plan ? PLAN_INFO[plan] : undefined
 
   const init = useCallback(async () => {
     setLoading(true)
@@ -143,10 +166,12 @@ export default function AddCardModal({ open, onClose, onSaved, plan }: AddCardMo
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
       <div className="w-full max-w-md rounded-2xl border border-white/10 bg-card p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
         {/* Header */}
-        <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center justify-between mb-1">
           <div className="flex items-center gap-2">
             <CreditCard className="h-5 w-5 text-primary" />
-            <h2 className="text-lg font-semibold">Add payment card</h2>
+            <h2 className="text-lg font-semibold">
+              {isPaid ? `Subscribe to ${planInfo?.name}` : "Add payment card"}
+            </h2>
           </div>
           <button
             type="button"
@@ -156,6 +181,14 @@ export default function AddCardModal({ open, onClose, onSaved, plan }: AddCardMo
             <X className="h-5 w-5" />
           </button>
         </div>
+
+        {/* Subheading for paid plans */}
+        {isPaid && planInfo && (
+          <p className="text-sm text-muted-foreground mb-5">
+            {planInfo.price} — your card will be charged now.
+          </p>
+        )}
+        {!isPaid && <div className="mb-4" />}
 
         {/* Content */}
         {loading && (

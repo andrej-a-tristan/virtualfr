@@ -1,12 +1,23 @@
 import { useQuery } from "@tanstack/react-query"
-import { getCurrentGirlfriend } from "@/lib/api/endpoints"
+import { getCurrentGirlfriend, getBillingStatus } from "@/lib/api/endpoints"
 import { getChatState } from "@/lib/api/endpoints"
 import RelationshipMeter from "./RelationshipMeter"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Sparkles, Crown, Heart } from "lucide-react"
 
 export default function ChatHeader() {
   const { data: gf, isLoading: gfLoading } = useQuery({ queryKey: ["girlfriend"], queryFn: getCurrentGirlfriend })
   const { data: state, isLoading: stateLoading } = useQuery({ queryKey: ["chatState"], queryFn: getChatState })
+  const { data: billing } = useQuery({ queryKey: ["billingStatus"], queryFn: getBillingStatus, retry: false })
+
+  const plan = billing?.plan ?? "free"
+  const planMeta: Record<string, { icon: typeof Heart; label: string; color: string }> = {
+    free: { icon: Heart, label: "Free", color: "text-muted-foreground" },
+    plus: { icon: Sparkles, label: "Plus", color: "text-primary" },
+    premium: { icon: Crown, label: "Premium", color: "text-amber-400" },
+  }
+  const pm = planMeta[plan] ?? planMeta.free
+  const PlanIcon = pm.icon
 
   if (gfLoading || !gf) {
     return (
@@ -27,7 +38,10 @@ export default function ChatHeader() {
         />
         <div>
           <h1 className="font-semibold">{gf.display_name}</h1>
-          <p className="text-xs text-muted-foreground">Your companion</p>
+          <div className="flex items-center gap-1.5">
+            <PlanIcon className={`h-3 w-3 ${pm.color}`} />
+            <p className={`text-xs font-medium ${pm.color}`}>{pm.label}</p>
+          </div>
         </div>
       </div>
       {!stateLoading && state && <RelationshipMeter state={state} />}
