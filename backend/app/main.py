@@ -11,6 +11,10 @@ if _env_file.exists():
     from dotenv import load_dotenv
     load_dotenv(_env_file, override=True)
 
+# Force-reset the settings singleton so it picks up the .env we just loaded
+import app.core.config as _cfg
+_cfg._settings = None
+
 import logging
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
@@ -51,13 +55,20 @@ def global_exception_handler(request: Request, exc: Exception):
 @app.on_event("startup")
 def _log_api_key_status():
     from app.core import get_api_key
+    from app.core.config import get_settings
+    import logging
+    log = logging.getLogger("uvicorn.error")
     key = get_api_key()
     if key:
-        import logging
-        logging.getLogger("uvicorn.error").info("API_KEY loaded (OpenAI enabled)")
+        log.info("API_KEY loaded (OpenAI enabled)")
     else:
-        import logging
-        logging.getLogger("uvicorn.error").warning("API_KEY not set: add API_KEY=sk-... to backend/.env for AI chat")
+        log.warning("API_KEY not set: add API_KEY=sk-... to backend/.env for AI chat")
+    # Log Stripe config status
+    s = get_settings()
+    if s.stripe_secret_key and not s.stripe_secret_key.endswith("REPLACE_ME"):
+        log.info("STRIPE_SECRET_KEY loaded: %s...%s", s.stripe_secret_key[:12], s.stripe_secret_key[-4:])
+    else:
+        log.warning("STRIPE_SECRET_KEY not configured or still placeholder!")
 
 
 @app.get("/", response_class=HTMLResponse)

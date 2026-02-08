@@ -149,9 +149,15 @@ export interface GalleryItem {
 }
 
 export interface BillingStatus {
-  plan: "free" | "pro"
+  plan: "free" | "plus" | "premium"
+  has_card_on_file: boolean
   message_cap: number
   image_cap: number
+}
+
+export interface SetupIntentResponse {
+  client_secret: string
+  publishable_key: string
 }
 
 // -----------------------------------------------------------------------------

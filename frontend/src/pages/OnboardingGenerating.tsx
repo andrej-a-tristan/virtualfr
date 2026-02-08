@@ -1,4 +1,4 @@
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import { useNavigate } from "react-router-dom"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { completeOnboarding } from "@/lib/api/endpoints"
@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 export default function OnboardingGenerating() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const started = useRef(false)
   const {
     onboardingTraits,
     onboardingAppearance,
@@ -20,11 +21,14 @@ export default function OnboardingGenerating() {
 
   const mutation = useMutation({
     mutationFn: completeOnboarding,
-    onSuccess: async (gf) => {
+    onSuccess: (gf) => {
       setGirlfriend(gf)
       clearOnboarding()
-      await queryClient.invalidateQueries({ queryKey: ["me"] })
-      navigate("/onboarding/preview", { replace: true })
+      // Navigate first, then refresh auth in the background.
+      // Don't await invalidateQueries here — it causes guards to
+      // re-evaluate and flash a redirect before reveal loads.
+      navigate("/onboarding/reveal", { replace: true })
+      queryClient.invalidateQueries({ queryKey: ["me"] })
     },
     onError: () => {
       navigate("/onboarding/traits", { replace: true })
@@ -32,20 +36,21 @@ export default function OnboardingGenerating() {
   })
 
   useEffect(() => {
+    // Only run once
+    if (started.current) return
     if (!onboardingTraits || !onboardingAppearance || !onboardingContentPrefs || !onboardingIdentity) {
       navigate("/onboarding/traits", { replace: true })
       return
     }
-    if (!mutation.isPending && !mutation.isSuccess && !mutation.isError) {
-      mutation.mutate({
-        traits: onboardingTraits,
-        appearance_prefs: onboardingAppearance,
-        content_prefs: onboardingContentPrefs,
-        identity: onboardingIdentity,
-      })
-    }
+    started.current = true
+    mutation.mutate({
+      traits: onboardingTraits,
+      appearance_prefs: onboardingAppearance,
+      content_prefs: onboardingContentPrefs,
+      identity: onboardingIdentity,
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onboardingTraits, onboardingAppearance, onboardingContentPrefs, onboardingIdentity])
+  }, [])
 
   return (
     <div className="flex min-h-[60vh] items-center justify-center px-4 py-12">
@@ -71,4 +76,3 @@ export default function OnboardingGenerating() {
     </div>
   )
 }
-

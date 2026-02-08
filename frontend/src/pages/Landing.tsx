@@ -1,31 +1,46 @@
-import { Link } from "react-router-dom"
-import { Button } from "@/components/ui/button"
-import { Heart } from "lucide-react"
+import { useEffect, useState } from "react"
+import { useNavigate } from "react-router-dom"
+import { login, postAgeGate, getMe } from "@/lib/api/endpoints"
+import { useAppStore } from "@/lib/store/useAppStore"
 
 export default function Landing() {
+  const navigate = useNavigate()
+  const setUser = useAppStore((s) => s.setUser)
+  const setGirlfriend = useAppStore((s) => s.setGirlfriend)
+  const clearOnboarding = useAppStore((s) => s.clearOnboarding)
+  const [status, setStatus] = useState("Starting up...")
+
+  useEffect(() => {
+    let cancelled = false
+    async function autoSetup() {
+      try {
+        // Clear stale onboarding + girlfriend so we always start fresh
+        clearOnboarding()
+        setGirlfriend(null)
+
+        if (!cancelled) setStatus("Signing in...")
+        const randomId = `dev-${Date.now()}`
+        const { user } = await login(randomId + "@devtest.com", "dev123")
+        if (!cancelled) setUser(user)
+
+        if (!user.age_gate_passed) {
+          if (!cancelled) setStatus("Passing age gate...")
+          await postAgeGate()
+        }
+
+        if (!cancelled) navigate("/onboarding/appearance", { replace: true })
+      } catch (e) {
+        if (!cancelled) setStatus(`Error: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
+    autoSetup()
+    return () => { cancelled = true }
+  }, [navigate, setUser, setGirlfriend, clearOnboarding])
+
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-background to-background/95 px-6 py-12">
-      <div className="mx-auto max-w-2xl space-y-8 text-center">
-        <div className="flex justify-center">
-          <div className="rounded-2xl bg-primary/10 p-4">
-            <Heart className="h-12 w-12 text-primary" />
-          </div>
-        </div>
-        <h1 className="text-4xl font-bold tracking-tight text-foreground md:text-5xl">
-          Your companion, your way
-        </h1>
-        <p className="text-lg text-muted-foreground">
-          Create a personalized connection with a unique persona. Dark, premium, and built for adults.
-        </p>
-        <div className="flex flex-col gap-4 sm:flex-row sm:justify-center">
-          <Button asChild size="lg" className="rounded-xl">
-            <Link to="/signup">Get started</Link>
-          </Button>
-          <Button asChild variant="outline" size="lg" className="rounded-xl">
-            <Link to="/login">Sign in</Link>
-          </Button>
-        </div>
-      </div>
+    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-background to-background/95">
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+      <p className="mt-4 text-sm text-muted-foreground">{status}</p>
     </div>
   )
 }

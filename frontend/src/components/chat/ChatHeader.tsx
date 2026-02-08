@@ -20,9 +20,11 @@ export default function ChatHeader() {
   return (
     <header className="flex h-16 items-center justify-between gap-4 border-b border-white/10 px-4">
       <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/20 text-lg font-semibold text-primary">
-          {gf.display_name?.[0] ?? "?"}
-        </div>
+        <img
+          src="/assets/companion-avatar.png"
+          alt={gf.display_name ?? "Companion"}
+          className="h-10 w-10 shrink-0 rounded-full object-cover"
+        />
         <div>
           <h1 className="font-semibold">{gf.display_name}</h1>
           <p className="text-xs text-muted-foreground">Your companion</p>

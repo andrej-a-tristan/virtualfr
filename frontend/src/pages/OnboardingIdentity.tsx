@@ -12,6 +12,7 @@ import {
   getRandomName,
 } from "@/lib/constants/identity"
 import { Sparkles } from "lucide-react"
+import OnboardingSignIn from "@/components/onboarding/OnboardingSignIn"
 
 export default function OnboardingIdentity() {
   const navigate = useNavigate()
@@ -61,6 +62,7 @@ export default function OnboardingIdentity() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-8 px-4 py-8">
+      <OnboardingSignIn />
       <div className="text-center">
         <h1 className="text-3xl font-bold tracking-tight">Choose her identity</h1>
         <p className="mt-2 text-muted-foreground">

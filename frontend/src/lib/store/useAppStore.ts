@@ -126,7 +126,13 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: ONBOARDING_STORAGE_KEY,
-      partialize: (s) => ({ onboardingDraft: s.onboardingDraft }),
+      partialize: (s) => ({
+        onboardingDraft: s.onboardingDraft,
+        onboardingTraits: s.onboardingTraits,
+        onboardingAppearance: s.onboardingAppearance,
+        onboardingContentPrefs: s.onboardingContentPrefs,
+        onboardingIdentity: s.onboardingIdentity,
+      }),
     }
   )
 )

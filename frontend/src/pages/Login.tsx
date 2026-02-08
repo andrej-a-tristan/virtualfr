@@ -29,7 +29,7 @@ export default function Login() {
     try {
       const res = await login(data.email, data.password)
       setUser(res.user)
-      const from = (location.state as { from?: { pathname: string } })?.from?.pathname ?? "/age-gate"
+      const from = (location.state as { from?: { pathname: string } })?.from?.pathname ?? "/app/chat"
       navigate(from, { replace: true })
     } catch (e) {
       setError(e instanceof Error ? e.message : "Login failed")

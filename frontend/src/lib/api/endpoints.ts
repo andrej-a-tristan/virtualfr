@@ -8,6 +8,7 @@ import type {
   RelationshipState,
   GalleryItem,
   BillingStatus,
+  SetupIntentResponse,
   ImageJob,
   MemoryContext,
   MemorySummary,
@@ -136,6 +137,12 @@ export async function getGallery() {
 // Billing
 export async function getBillingStatus() {
   return apiGet<BillingStatus>("/billing/status")
+}
+export async function createSetupIntent() {
+  return apiPost<SetupIntentResponse>("/billing/setup-intent")
+}
+export async function confirmCard() {
+  return apiPost<{ ok: boolean; has_card_on_file: boolean }>("/billing/confirm-card")
 }
 export async function checkout() {
   return apiPost<{ checkout_url: string }>("/billing/checkout")

@@ -1,18 +1,6 @@
-# VirtualFR / Companion — Project Index
+# VirtualFR — Project Index
 
-Up-to-date index of the **virtualfr** repository structure, APIs, and key files.
-
----
-
-## Project Overview
-
-**Stack:** FastAPI (Python) backend + React (Vite, TypeScript) frontend. Dark-first UI. Mock APIs, SSE chat, in-memory session store.
-
-**Structure:**
-- `backend/` — FastAPI app, JSON APIs under `/api/*`
-- `frontend/` — Vite + React + TypeScript, TailwindCSS, shadcn/ui, React Router, TanStack Query, Zustand, Zod
-
-**Features:** Auth (signup/login), age gate, onboarding (traits → appearance → preferences → **identity** → generating → preview), girlfriend creation with single portrait + identity (name, job vibe, hobbies, origin vibe) + **identity canon** (backstory, daily_routine, favorites, memory_seeds — deterministically generated), prompt images per question/option (picsum placeholders), chat with SSE streaming, relationship state (trust, intimacy, level), gallery, billing, safety/moderation. **Chat gateway:** `POST /api/chat/stream` proxies to an **internal OpenAI-compatible** `POST /v1/chat/completions` service (mock or vLLM). **Step C:** CPU-only vLLM container in `backend/inference/`; pytest tests in `backend/tests/` hit `/v1/chat/completions`.
+> AI companion web app: FastAPI backend + React/Vite frontend.
 
 ---
 
@@ -22,197 +10,342 @@ Up-to-date index of the **virtualfr** repository structure, APIs, and key files.
 virtualfr/
 ├── .gitignore
 ├── README.md
-├── GEMINI_INDEX.md          # Legacy full index for Gemini
-├── PROJECT_INDEX.md         # This file
+├── PROJECT_INDEX.md
 ├── onboarding_questions.md.txt
+│
 ├── backend/
 │   ├── .env.example
 │   ├── requirements.txt
-│   ├── inference/           # Step C: CPU-only vLLM container
-│   │   ├── Dockerfile      # vllm-cpu image; serves /v1/chat/completions on :8000
-│   │   └── README.md       # Build, run, point gateway at container
+│   ├── supabase_schema.sql
+│   ├── docs/
+│   │   ├── BIG_FIVE_MIGRATION.md
+│   │   └── SETUP_SUPABASE.md
+│   ├── inference/
+│   │   ├── Dockerfile
+│   │   └── README.md
+│   ├── scripts/
+│   │   ├── check_api_key.py
+│   │   └── check_config.py
 │   ├── tests/
-│   │   ├── test_openai_contract.py  # POST /v1/chat/completions (stream=false, stream=true)
-│   │   └── test_identity_canon.py   # Identity canon generation tests
+│   │   ├── test_chat_canon_injection.py
+│   │   ├── test_identity_canon.py
+│   │   └── test_openai_contract.py
+│   ├── logs/
+│   │   └── chat.jsonl
 │   └── app/
 │       ├── main.py
-│       ├── mock_main.py        # Internal LLM mock server entrypoint (run on :8001)
-│       ├── core/             # config.py, cors.py, auth.py, rate_limit.py, chat_logging.py
+│       ├── mock_main.py
+│       ├── core/
+│       │   ├── config.py          — Settings (env vars, CORS, LLM URL, etc.)
+│       │   ├── cors.py            — CORS middleware setup
+│       │   ├── auth.py            — Auth helpers
+│       │   ├── rate_limit.py      — Rate limiting
+│       │   ├── chat_logging.py    — JSONL chat logger
+│       │   └── supabase_client.py — Supabase client init
 │       ├── api/
-│       │   ├── store.py      # In-memory sessions + girlfriends
-│       │   └── routes/       # health, auth, me, girlfriends, chat, images, billing, moderation, onboarding
-│       ├── routers/         # Chat gateway + mock model
-│       │   ├── chat.py      # POST /v1/chat/stream (auth, rate limit, SSE proxy, logging)
-│       │   └── mock_model.py # POST /v1/chat/completions (OpenAI-like), plus legacy GET /mock-model/stream
-│       ├── schemas/          # auth, chat, girlfriend, image, relationship
-│       └── utils/            # sse.py, identity_canon.py
+│       │   ├── store.py           — In-memory session/girlfriend store
+│       │   ├── supabase_store.py  — Supabase-backed store
+│       │   ├── request_context.py — Request context helpers
+│       │   └── routes/
+│       │       ├── auth.py        — Signup, login, logout
+│       │       ├── billing.py     — Plan status, checkout
+│       │       ├── chat.py        — Chat history, state, send, app_open
+│       │       ├── girlfriends.py — Create/get girlfriend
+│       │       ├── health.py      — Health check
+│       │       ├── images.py      — Image jobs, gallery
+│       │       ├── me.py          — Current user, age gate
+│       │       ├── memory.py      — Memory summary/items/stats
+│       │       ├── moderation.py  — Content reports
+│       │       └── onboarding.py  — Prompt images, complete onboarding
+│       ├── routers/
+│       │   ├── chat.py            — Chat gateway (SSE proxy + canon injection)
+│       │   └── mock_model.py      — Internal mock LLM (/v1/chat/completions)
+│       ├── schemas/
+│       │   ├── auth.py            — SignupRequest, LoginRequest, UserResponse
+│       │   ├── chat.py            — ChatMessage, SendMessageRequest, RelationshipState
+│       │   ├── girlfriend.py      — TraitsPayload, AppearancePrefs, IdentityCanon, etc.
+│       │   ├── image.py           — ImageJobResponse, GalleryItem
+│       │   └── relationship.py    — Relationship schemas
+│       ├── services/
+│       │   ├── big_five.py             — Trait → Big Five mapping
+│       │   ├── big_five_modulation.py  — Big Five → behavior modulation
+│       │   ├── trait_behavior_rules.py — Trait → BehaviorProfile
+│       │   ├── relationship_state.py   — Trust/intimacy/level tracking, decay, milestones
+│       │   ├── memory.py               — Factual & emotional memory extraction/context
+│       │   ├── habits.py               — User habit profiling
+│       │   ├── initiation_engine.py    — Girlfriend-initiated messages
+│       │   └── time_utils.py           — Time helpers
+│       └── utils/
+│           ├── identity_canon.py  — Deterministic identity canon generation
+│           ├── prompt_identity.py — Builds canon system prompt for LLM injection
+│           ├── moderation.py      — Content moderation
+│           └── sse.py             — SSE event formatter
+│
 └── frontend/
     ├── index.html
     ├── package.json
     ├── vite.config.ts
     ├── tailwind.config.ts
-    ├── postcss.config.js
     ├── tsconfig.json
+    ├── public/assets/
+    │   └── companion-avatar.png
     └── src/
         ├── main.tsx
         ├── App.tsx
-        ├── styles/globals.css
-        ├── routes/           # router.tsx, guards.tsx
+        ├── styles/globals.css        — Theme (dark, pink primary)
+        ├── routes/
+        │   ├── router.tsx             — All routes
+        │   └── guards.tsx             — RequireAuth, RequireAgeGate, RequireGirlfriend
         ├── lib/
-        │   ├── api/          # client.ts, endpoints.ts, types.ts, zod.ts
-        │   ├── constants/    # identity.ts (job vibes, hobbies, city vibes, safe names)
-        │   ├── hooks/        # useAuth.ts, useSSEChat.ts
-        │   ├── store/        # useAppStore.ts, useChatStore.ts
-        │   └── utils.ts
+        │   ├── api/
+        │   │   ├── client.ts          — Axios/fetch wrapper
+        │   │   ├── endpoints.ts       — All API call functions
+        │   │   ├── types.ts           — TypeScript types
+        │   │   └── zod.ts             — Zod schemas for forms
+        │   ├── constants/identity.ts  — Job vibes, hobbies, city vibes, name validation
+        │   ├── engines/               — Frontend personality/memory/relationship engines
+        │   ├── hooks/
+        │   │   ├── useAuth.ts         — Auth hook (react-query + store)
+        │   │   └── useSSEChat.ts      — SSE chat streaming hook
+        │   ├── store/
+        │   │   ├── useAppStore.ts     — Main Zustand store (user, girlfriend, onboarding)
+        │   │   └── useChatStore.ts    — Chat Zustand store (messages, streaming)
+        │   └── utils.ts               — cn() utility
         ├── pages/
-        │   # Public
-        │   ├── Landing.tsx
-        │   ├── Login.tsx
-        │   ├── Signup.tsx
-        │   # Onboarding (RequireAuth + RequireAgeGate)
-        │   ├── OnboardingTraits.tsx
-        │   ├── OnboardingAppearance.tsx
-        │   ├── OnboardingPreferences.tsx
-        │   ├── OnboardingIdentity.tsx   # Name, job vibe, hobbies (3), origin vibe
-        │   ├── OnboardingGenerating.tsx
-        │   ├── PersonaPreview.tsx    # RequireGirlfriend
-        │   # Guarded
-        │   ├── AgeGate.tsx
-        │   ├── Chat.tsx
-        │   ├── Gallery.tsx
-        │   ├── Profile.tsx
-        │   ├── Settings.tsx
-        │   ├── Billing.tsx
-        │   ├── Safety.tsx
+        │   ├── Landing.tsx            — Auto-login, redirect to onboarding or chat
+        │   ├── Login.tsx              — Email/password login
+        │   ├── Signup.tsx             — Email/password signup
+        │   ├── AgeGate.tsx            — 18+ confirmation
+        │   ├── OnboardingAppearance.tsx — Vibe selection (first onboarding page)
+        │   ├── appearance/
+        │   │   ├── AppearanceAge.tsx          — Age range selection
+        │   │   ├── AppearanceEthnicity.tsx    — Ethnicity selection
+        │   │   ├── AppearanceBodyDetails.tsx  — Body type + breast + butt (combined)
+        │   │   └── AppearanceHairEyes.tsx     — Hair color + hair style + eyes (combined)
+        │   ├── OnboardingTraits.tsx      — 6 personality trait questions
+        │   ├── OnboardingPreferences.tsx — Spicy photos + age confirmation
+        │   ├── OnboardingIdentity.tsx    — Name, job vibe, hobbies, origin
+        │   ├── OnboardingGenerating.tsx  — Calls completeOnboarding, shows spinner
+        │   ├── GirlfriendReveal.tsx      — Blurred photo + signup form
+        │   ├── SubscriptionPlan.tsx      — 3-tier subscription paywall
+        │   ├── PersonaPreview.tsx        — Final persona summary
+        │   ├── Chat.tsx                  — Main chat interface
+        │   ├── Gallery.tsx               — Photo gallery
+        │   ├── Profile.tsx               — Girlfriend profile
+        │   ├── Settings.tsx              — User settings
+        │   ├── Billing.tsx               — Billing/plans
+        │   └── Safety.tsx                — Safety/moderation
         └── components/
-            ├── chat/         # ChatHeader, Composer, MessageList, RelationshipMeter, etc.
-            ├── gallery/      # GalleryGrid, ImageViewerModal
-            ├── layout/       # AppShell, SideNav, TopNav, Footer, MobileNav
-            ├── onboarding/   # TraitSelector, PersonaPreviewCard, TraitCard, ProgressStepper
-            ├── safety/       # ContentPreferences, ReportDialog
-            └── ui/           # shadcn: button, card, dialog, input, tabs, etc.
+            ├── onboarding/
+            │   ├── AppearanceStepPage.tsx   — Reusable appearance step wrapper
+            │   ├── OnboardingSignIn.tsx     — Persistent "Sign in" button (fixed, top-right)
+            │   ├── PersonaPreviewCard.tsx   — Companion preview card
+            │   ├── ProgressStepper.tsx      — Step progress indicator
+            │   ├── TraitCard.tsx            — Single trait option card
+            │   └── TraitSelector.tsx        — Trait question + options
+            ├── chat/
+            │   ├── ChatHeader.tsx           — Header with avatar + name
+            │   ├── Composer.tsx             — Message input
+            │   ├── MessageBubble.tsx        — Message bubble with avatar
+            │   ├── MessageList.tsx          — Scrollable message list
+            │   ├── ImageMessage.tsx         — Image message display
+            │   ├── PaywallInlineCard.tsx    — In-chat paywall card
+            │   ├── RelationshipMeter.tsx    — Trust/intimacy meter
+            │   └── TypingIndicator.tsx      — Typing animation
+            ├── gallery/
+            │   ├── GalleryGrid.tsx          — Image grid layout
+            │   └── ImageViewerModal.tsx     — Fullscreen image viewer
+            ├── layout/
+            │   ├── AppShell.tsx             — App shell with side/top nav
+            │   ├── SideNav.tsx              — Desktop sidebar
+            │   ├── TopNav.tsx               — Top navigation bar
+            │   ├── MobileNav.tsx            — Mobile bottom nav
+            │   └── Footer.tsx               — Footer
+            ├── safety/
+            │   ├── ContentPreferences.tsx   — Content pref toggles
+            │   └── ReportDialog.tsx         — Report content dialog
+            └── ui/                          — shadcn/ui primitives
 ```
 
 ---
 
 ## Backend API Summary
 
-| Prefix | Route | Method | Description |
-|--------|--------|--------|-------------|
-| `/api` | `/health` | GET | Health check |
-| `/api/auth` | `/signup`, `/login`, `/logout` | POST | Auth (session cookie `session`) |
-| `/api/me` | `` | GET | Current user (id, email, age_gate_passed, has_girlfriend) |
-| `/api/me` | `/age-gate` | POST | Set age_gate_passed |
-| `/api/girlfriends` | `` | POST | Create girlfriend from traits (legacy) |
-| `/api/girlfriends` | `/current` | GET | Get current girlfriend |
-| `/api/onboarding` | `/prompt-images` | GET | Map of prompt keys → image URLs (question + per-option) |
-| `/api/onboarding` | `/complete` | POST | Complete onboarding; body: traits + appearance_prefs + content_prefs + identity; generates identity_canon; returns girlfriend with identity + identity_canon |
-| `/api/chat` | `/history` | GET | Chat messages |
-| `/api/chat` | `/state` | GET | RelationshipState (trust, intimacy, level, last_interaction_at) |
-| `/api/chat` | `/send` | POST | Send message (SSE stream) |
-| `/api/images` | `/request`, `/jobs/{id}`, `/gallery` | POST/GET | Image request, job status, gallery |
-| `/api/billing` | `/status`, `/checkout` | GET/POST | Plan, caps, checkout URL |
-| `/api/moderation` | `/report` | POST | Report |
-| `/api/chat` | `/stream` | POST | Chat gateway: SSE stream; Bearer auth; rate limit 30/min; timeouts; JSONL logging |
-| `/v1/chat` | `/stream` | POST | Chat gateway (alias): same as `/api/chat/stream` |
-| — | `/v1/chat/completions` | POST | Internal LLM contract (OpenAI-like). Served by `app.mock_main` (dev) or vLLM container (Step C). |
-| — | `/mock-model/stream` | GET | Legacy mock SSE stream `?text=...` (backward compatible; not used by gateway) |
-
-**Root:** `GET /` returns a small HTML page directing users to the frontend (e.g. localhost:5173) and linking to `/docs`.
-
----
-
-## Key Schemas (Backend)
-
-- **auth:** SignupRequest, LoginRequest, UserResponse
-- **chat:** ChatMessage, SendMessageRequest, **RelationshipState** (trust, intimacy, level, last_interaction_at)
-- **girlfriend:** TraitsPayload, AppearancePrefsPayload, ContentPrefsPayload, IdentityPayload (girlfriend_name, job_vibe, hobbies[], origin_vibe), **IdentityCanon** (backstory, daily_routine, favorites{music_vibe, comfort_food, weekend_idea}, memory_seeds[]), OnboardingCompletePayload, GirlfriendResponse (id, name, avatar_url, traits, appearance_prefs, content_prefs, identity, **identity_canon**, created_at)
-- **image:** ImageRequestResponse, ImageJobResponse, GalleryItem
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/health` | Health check |
+| `POST` | `/api/auth/signup` | Create account (mock session cookie) |
+| `POST` | `/api/auth/login` | Login (mock session cookie) |
+| `POST` | `/api/auth/logout` | Logout (clear cookie) |
+| `GET` | `/api/me` | Current user + flags |
+| `POST` | `/api/me/age-gate` | Set `age_gate_passed = true` |
+| `POST` | `/api/girlfriends` | Create girlfriend (legacy) |
+| `GET` | `/api/girlfriends/current` | Get current girlfriend |
+| `GET` | `/api/onboarding/prompt-images` | Prompt key → image URL map |
+| `POST` | `/api/onboarding/complete` | Complete onboarding; generates identity canon |
+| `GET` | `/api/chat/history` | Chat message history |
+| `GET` | `/api/chat/state` | Relationship state (trust, intimacy, level) |
+| `POST` | `/api/chat/send` | Send message (SSE) |
+| `POST` | `/api/chat/app_open` | App open event (initiation + jealousy) |
+| `POST` | `/api/chat/stream` | Chat gateway: SSE proxy + canon injection |
+| `GET` | `/api/memory/summary` | Memory context (facts, emotions, habits) |
+| `GET` | `/api/memory/items` | Raw memory items |
+| `GET` | `/api/memory/stats` | Memory statistics |
+| `POST` | `/api/images/request` | Request AI image job |
+| `GET` | `/api/images/jobs/{id}` | Image job status |
+| `GET` | `/api/images/gallery` | Gallery items |
+| `GET` | `/api/billing/status` | Plan + caps |
+| `POST` | `/api/billing/checkout` | Checkout URL |
+| `POST` | `/api/moderation/report` | Report content |
+| `POST` | `/v1/chat/completions` | Internal mock LLM (OpenAI contract) |
 
 ---
 
-## Frontend Routes (React Router)
+## Onboarding Flow
 
-| Path | Guards | Page |
-|------|--------|------|
-| `/` | — | Landing |
-| `/login`, `/signup` | — | Login, Signup |
-| `/age-gate` | RequireAuth | AgeGate |
-| `/onboarding/traits` | RequireAuth, RequireAgeGate | OnboardingTraits |
-| `/onboarding/appearance` | RequireAuth, RequireAgeGate | OnboardingAppearance |
-| `/onboarding/preferences` | RequireAuth, RequireAgeGate | OnboardingPreferences |
-| `/onboarding/identity` | RequireAuth, RequireAgeGate | OnboardingIdentity (name, job vibe, hobbies, origin vibe) |
-| `/onboarding/generating` | RequireAuth, RequireAgeGate | OnboardingGenerating |
-| `/onboarding/preview` | RequireAuth, RequireAgeGate, RequireGirlfriend | PersonaPreview |
-| `/app/*` | RequireAuth, RequireAgeGate, RequireGirlfriend | AppShell → Chat, Gallery, Profile, Settings, Billing, Safety |
+```
+Landing (auto-login)
+  ↓
+Appearance: Vibe → Age → Ethnicity → Body (type + breast + butt) → Hair & Eyes (color + style + eyes)
+  ↓
+Traits (6 personality questions)
+  ↓
+Preferences (spicy photos + age check if yes)
+  ↓
+Identity (name, job vibe, hobbies, origin)
+  ↓
+Generating (POST /api/onboarding/complete)
+  ↓
+Reveal (blurred photo + signup form)
+  ↓
+Subscribe (Free / Plus / Premium tiers)
+  ↓
+Chat
+```
 
----
-
-## Chat gateway
-
-- **Auth:** `Authorization: Bearer <token>`; token must equal `CHAT_API_KEY` (default `dev-key`). 401 if missing/invalid.
-- **Rate limit:** 30 requests/minute per token (in-memory); 429 + `Retry-After` when exceeded.
-- **Timeouts:** Overall stream `STREAM_TIMEOUT_SECONDS` (default 60); upstream token wait `UPSTREAM_TOKEN_TIMEOUT_SECONDS` (default 15). On timeout: SSE `event: error` then `event: done`.
-- **Logging:** One JSON line per request in `backend/logs/chat.jsonl`: request_id, timestamp_utc, session_id, user_id, client_ip, model, model_version, messages, output_text, num_tokens, latency_ms, status (ok \| error \| timeout \| rate_limited), error_message.
-- **Internal contract:** Gateway calls `POST {INTERNAL_LLM_BASE_URL}/v1/chat/completions` (OpenAI streaming style) and **translates** OpenAI `data:` chunks into the app’s SSE contract (`event: token` / `event: done`). Keepalive comments every 15s.
-- **Internal auth (optional):** If `INTERNAL_LLM_API_KEY` is set, gateway sends `Authorization: Bearer <key>` to the internal LLM.
+**Sign in** button is visible on every onboarding page (top-right, fixed) so returning users can skip to login.
 
 ---
 
-## Step C: CPU-only inference container + tests
+## Subscription Tiers
 
-- **`backend/inference/`:** Dockerfile builds a CPU-only vLLM image (base `python:3.12-slim`, `vllm-cpu`, default model `Qwen/Qwen2.5-0.5B-Instruct`). Container runs `vllm serve $MODEL --host 0.0.0.0 --port 8000 --api-key $VLLM_API_KEY` and exposes `POST /v1/chat/completions`. See `backend/inference/README.md` for build/run and how to set `INTERNAL_LLM_BASE_URL` / `INTERNAL_LLM_API_KEY`.
-- **`backend/tests/test_openai_contract.py`:** Pytest tests that call `POST {INTERNAL_LLM_BASE_URL}/v1/chat/completions` (default `http://127.0.0.1:8001`). One test uses `stream: false` and asserts 200 and `choices[0].message.content`; one uses `stream: true` and asserts at least one `data: ` line and stream end with `data: [DONE]`. If the server is unreachable, tests skip with a message. Run: `cd backend && export INTERNAL_LLM_BASE_URL=... INTERNAL_LLM_API_KEY=... && pytest -q`.
+| Tier | Price | Tagline | Features |
+|------|-------|---------|----------|
+| **Free** | €0.00/mo | "Meet [name] and chat to her" | Reveal photo, Unlimited messaging |
+| **Plus** | €14.99/mo | "Your sweetheart" | Everything in Free, Voice messages, 30 photos/month, Nude photos |
+| **Premium** | €29.99/mo | "Exclusive relationship" | Everything in Plus, 80 photos/month, More intimate moments, More nude photos |
+
+---
+
+## Key Schemas
+
+### Backend (`schemas/girlfriend.py`)
+
+- **TraitsPayload**: `emotional_style`, `attachment_style`, `reaction_to_absence`, `communication_style`, `relationship_pace`, `cultural_personality`
+- **AppearancePrefsPayload**: `vibe`, `age_range`, `ethnicity`, `breast_size`, `butt_size`, `hair_color`, `hair_style`, `eye_color`, `body_type`
+- **ContentPrefsPayload**: `wants_spicy_photos`
+- **IdentityPayload**: `girlfriend_name`, `job_vibe`, `hobbies`, `origin_vibe`
+- **IdentityCanon**: `backstory`, `daily_routine`, `favorites` (music_vibe, comfort_food, weekend_idea), `memory_seeds`
+
+### Frontend (`lib/api/types.ts`)
+
+- **User**: `id`, `email`, `display_name`, `age_gate_passed`, `has_girlfriend`
+- **Girlfriend**: `id`, `display_name`, `name`, `avatar_url`, `traits`, `appearance_prefs`, `content_prefs`, `identity`, `identity_canon`
+- **ChatMessage**: `id`, `role`, `content`, `image_url`, `event_type`
+- **RelationshipState**: `trust`, `intimacy`, `level`, `milestones_reached`
+- **BigFive**: `openness`, `conscientiousness`, `extraversion`, `agreeableness`, `neuroticism` (0–100)
+
+---
+
+## Zustand Stores
+
+### `useAppStore` (persisted to localStorage)
+
+- `user`, `girlfriend` — current session
+- `onboardingDraft` — legacy trait draft
+- `onboardingTraits`, `onboardingAppearance`, `onboardingContentPrefs`, `onboardingIdentity` — extended onboarding state (all persisted)
+- `clearOnboarding()` — resets all onboarding state
+
+### `useChatStore`
+
+- `messages`, `streamingContent`, `isStreaming`
 
 ---
 
 ## Identity Canon Generation
 
-When onboarding completes (`POST /api/onboarding/complete`), the backend generates an **identity canon** deterministically from the identity anchors (name, job_vibe, hobbies, origin_vibe) using a seeded random generator.
+Deterministic, seeded from `girlfriend_name + job_vibe + hobbies + origin_vibe`.
 
-- **Seed:** `int(sha256(girlfriend_id)[:8], 16)` — ensures consistent output for the same girlfriend.
-- **Generator:** `backend/app/utils/identity_canon.py` → `generate_identity_canon()`
-- **Output fields:**
-  - `backstory` — 2 paragraphs separated by `\n\n`, templated by job_vibe, weaves in hobbies and origin
-  - `daily_routine` — templated by job_vibe, includes 1–2 hobbies
-  - `favorites` — `{music_vibe, comfort_food, weekend_idea}`; biased by job/hobbies/origin (e.g., nightlife → electronic, beach-town → beach weekend ideas)
-  - `memory_seeds` — 3–6 "cute facts" using templates like "I learned {hobby} from someone I admire"
-- **Note:** Values and boundaries are **not** included in identity canon; they are handled by the personality engine elsewhere.
-- **Tests:** `backend/tests/test_identity_canon.py` (10 tests: determinism, field presence, no values/boundaries, etc.)
+Generates:
+- **Backstory** — 2-paragraph character backstory
+- **Daily routine** — typical day description
+- **Favorites** — music_vibe, comfort_food, weekend_idea
+- **Memory seeds** — 3–6 conversation starters
+
+Canon is injected as a system message into every LLM chat request via `build_girlfriend_canon_system_prompt()`.
 
 ---
 
-## Relationship State
+## Personality Engine
 
-Used for chat/companion UX (e.g. RelationshipMeter). Fetched via `GET /api/chat/state`.
-
-- **trust** (number)
-- **intimacy** (number)
-- **level** (number)
-- **last_interaction_at** (string | null)
-
-Currently mocked in `backend/app/api/routes/chat.py` (e.g. trust=72, intimacy=65, level=3).
+- **Trait → Big Five mapping** (`services/big_five.py`)
+- **Big Five → behavior modulation** (`services/big_five_modulation.py`)
+- **Trait → BehaviorProfile** (`services/trait_behavior_rules.py`)
+- **Relationship tracking** — trust/intimacy/level with decay and milestones
+- **Memory system** — factual + emotional memory extraction and context building
+- **Habit profiling** — preferred hours, typical message gaps
+- **Initiation engine** — girlfriend-initiated messages based on relationship state
 
 ---
 
-## Store (Zustand)
+## Configuration
 
-**useAppStore:** user, girlfriend, onboardingTraits, onboardingAppearance, onboardingContentPrefs, onboardingIdentity; setUser, setGirlfriend, setOnboardingTraits, setOnboardingAppearance, setOnboardingContentPrefs, setGirlfriendName, setJobVibe, toggleHobby, setOriginVibe, clearOnboarding, reset.
+### Backend (`backend/.env`)
 
-**useChatStore:** messages, streamingContent, isStreaming, appendMessage, setStreamingContent, setMessages.
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `USE_MOCK_MODEL` | `true` | Use internal mock LLM |
+| `INTERNAL_LLM_BASE_URL` | `http://127.0.0.1:8000` | LLM endpoint |
+| `INTERNAL_LLM_PATH` | `/v1/chat/completions` | LLM path |
+| `INTERNAL_LLM_API_KEY` | — | Optional LLM auth |
+| `API_KEY` | — | External API key |
+| `CHAT_API_KEY` | `dev-key` | Chat gateway auth |
+| `SUPABASE_URL` | — | Supabase URL (optional) |
+| `SUPABASE_ANON_KEY` | — | Supabase key (optional) |
+
+### Frontend (`vite.config.ts`)
+
+- Dev server: `http://localhost:5173`
+- API proxy: `/api` → `http://localhost:8000`
+- Path alias: `@` → `./src`
 
 ---
 
 ## How to Run
 
-- **Internal mock LLM (dev):** `cd backend` then `uvicorn app.mock_main:app --reload --port 8001`
-- **vLLM CPU container (Step C):** From `backend/`: `docker build -t virtualfr-vllm-cpu -f inference/Dockerfile .` then `docker run --rm -p 8001:8000 -e MODEL=Qwen/Qwen2.5-0.5B-Instruct -e VLLM_API_KEY=token-abc123 virtualfr-vllm-cpu`
-- **Gateway backend:** `cd backend` then `export CHAT_API_KEY=dev-key INTERNAL_LLM_BASE_URL=http://127.0.0.1:8001` (and `INTERNAL_LLM_API_KEY=token-abc123` if using vLLM), then `uvicorn app.main:app --reload --host 0.0.0.0 --port 8000`
-- **Frontend:** `cd frontend` then `npm run dev` → e.g. http://localhost:5173
-- Open the frontend URL in a browser; API is at http://localhost:8000 (proxy in dev via Vite).
-- **Chat gateway test:** `curl -N -X POST http://localhost:8000/api/chat/stream -H "Authorization: Bearer dev-key" -H "Content-Type: application/json" -d '{"session_id":"abc","model":"mock-1","model_version":"2026-02-03","messages":[{"role":"user","content":"Hi"}]}'`
-- **OpenAI contract tests:** `cd backend` then `export INTERNAL_LLM_BASE_URL=http://127.0.0.1:8001 INTERNAL_LLM_API_KEY=token-abc123` (if needed) and `pytest -q`
+```bash
+# Backend
+cd backend
+pip install -r requirements.txt
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# Frontend
+cd frontend
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173` in browser.
 
 ---
 
-*Generated for the virtualfr / Companion repo. Update when adding or changing major features.*
+## Tests
+
+```bash
+cd backend
+pytest tests/ -v
+```
+
+- **test_identity_canon.py** — 10 tests: determinism, field validation, edge cases
+- **test_chat_canon_injection.py** — 4 tests: injection with/without girlfriend, message preservation
+- **test_openai_contract.py** — 2 tests: LLM stream/non-stream contract

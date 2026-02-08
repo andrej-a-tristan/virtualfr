@@ -2,14 +2,13 @@ import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { useAppStore } from "@/lib/store/useAppStore"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import TraitSelector, { type TraitSelectorConfig } from "@/components/onboarding/TraitSelector"
 import PersonaPreviewCard from "@/components/onboarding/PersonaPreviewCard"
 import ProgressStepper from "@/components/onboarding/ProgressStepper"
 import type { TraitSelection } from "@/lib/api/types"
 import { Heart, Link2, Clock, MessageCircle, Sparkles, Globe } from "lucide-react"
+import OnboardingSignIn from "@/components/onboarding/OnboardingSignIn"
 
 const TRAIT_CONFIGS: TraitSelectorConfig[] = [
   {
@@ -158,15 +157,13 @@ export default function OnboardingTraits() {
   const {
     onboardingDraft,
     updateTrait,
-    setDisplayName,
     setOnboardingTraits,
-    setGirlfriendName,
   } = useAppStore()
   const [currentStep, setCurrentStep] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
-  const { displayName, traits } = onboardingDraft
+  const { traits } = onboardingDraft
   const completedCount = TRAIT_CONFIGS.filter((c) => traits[c.key]).length
   const isComplete = TRAIT_CONFIGS.every((c) => traits[c.key])
 
@@ -176,8 +173,6 @@ export default function OnboardingTraits() {
 
   const handleSubmit = async () => {
     if (!isComplete) return
-    const name = (displayName || "My Girl").trim()
-    if (!name) return
     setError(null)
     setLoading(true)
     try {
@@ -191,10 +186,9 @@ export default function OnboardingTraits() {
         cultural_personality: traits.culturalPersonality!,
       }
       setOnboardingTraits(snakeCaseTraits)
-      setGirlfriendName(name)
-      // Move to next step (appearance)
-      // Girlfriend creation happens at the end of the full onboarding flow
-      navigate("/onboarding/appearance", { replace: true })
+      // Move to next step (preferences)
+      // Girlfriend name is set in the identity step
+      navigate("/onboarding/preferences", { replace: true })
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong")
     } finally {
@@ -209,6 +203,7 @@ export default function OnboardingTraits() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-background/95">
+      <OnboardingSignIn />
       <div className="mx-auto max-w-6xl px-4 py-6 md:py-8">
         <div className="mb-6 text-center">
           <h1 className="text-2xl font-bold tracking-tight text-foreground md:text-3xl">
@@ -231,19 +226,6 @@ export default function OnboardingTraits() {
           {/* Left: wizard */}
           <Card className="rounded-2xl border-white/10 bg-card/60">
             <CardHeader className="space-y-4">
-              <div>
-                <Label htmlFor="displayName" className="text-sm font-medium">
-                  Her name (optional but recommended)
-                </Label>
-                <Input
-                  id="displayName"
-                  placeholder="My Girl"
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
-                  className="mt-1.5 max-w-xs rounded-xl border-white/10 bg-background/80"
-                  maxLength={24}
-                />
-              </div>
               <CardTitle className="text-lg">Personality</CardTitle>
               <CardDescription>
                 Pick one option per question. Her personality stays consistent, but she opens up more as you get closer.
@@ -268,7 +250,7 @@ export default function OnboardingTraits() {
                 Live preview
               </p>
               <PersonaPreviewCard
-                displayName={displayName || "My Girl"}
+                displayName="Your Girl"
                 traits={traits}
                 compact
                 className="border-0 bg-transparent shadow-none lg:border lg:border-white/10 lg:bg-card/80 lg:shadow-xl"

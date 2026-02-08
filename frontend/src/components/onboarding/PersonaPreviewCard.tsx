@@ -24,12 +24,21 @@ export default function PersonaPreviewCard({
   return (
     <Card className={cn("rounded-2xl border-white/10 bg-card/80 shadow-xl", className)}>
       <CardHeader className={cn("space-y-1", compact ? "p-4 pb-2" : "p-6 pb-2")}>
-        <h3 className="text-lg font-semibold text-foreground">
-          {displayName || "My Girl"}
-        </h3>
-        <p className="text-xs text-muted-foreground">
-          All choices still care — only the style changes.
-        </p>
+        <div className="flex items-center gap-3">
+          <img
+            src="/assets/companion-avatar.png"
+            alt={displayName || "Companion"}
+            className="h-12 w-12 rounded-full object-cover"
+          />
+          <div>
+            <h3 className="text-lg font-semibold text-foreground">
+              {displayName || "My Girl"}
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              All choices still care — only the style changes.
+            </p>
+          </div>
+        </div>
       </CardHeader>
       <CardContent className={cn("space-y-4", compact ? "p-4 pt-0" : "p-6 pt-0")}>
         {hasAny ? (

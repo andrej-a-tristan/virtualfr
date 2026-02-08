@@ -23,9 +23,11 @@ export default function Profile() {
       <h1 className="text-2xl font-bold tracking-tight">Profile</h1>
       <Card className="rounded-2xl border-white/10">
         <CardHeader className="flex flex-row items-center gap-4">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/20 text-2xl font-semibold text-primary">
-            {gf?.display_name?.[0] ?? "?"}
-          </div>
+          <img
+            src="/assets/companion-avatar.png"
+            alt={gf?.display_name ?? "Companion"}
+            className="h-16 w-16 rounded-full object-cover"
+          />
           <div>
             <h2 className="text-xl font-semibold">{gf?.display_name ?? "Companion"}</h2>
             <Badge variant="secondary" className="mt-1">Your companion</Badge>

@@ -32,6 +32,13 @@ class Settings(BaseSettings):
     internal_llm_api_key: str = ""
     internal_llm_path: str = "/v1/chat/completions"
 
+    # Stripe
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+    stripe_publishable_key: str = ""
+    stripe_price_plus: str = ""      # price ID for Plus tier (optional, for later)
+    stripe_price_premium: str = ""   # price ID for Premium tier (optional, for later)
+
     @property
     def is_production(self) -> bool:
         return self.env.lower() == "production"

@@ -8,9 +8,15 @@ import AgeGate from "@/pages/AgeGate"
 import OnboardingTraits from "@/pages/OnboardingTraits"
 import PersonaPreview from "@/pages/PersonaPreview"
 import OnboardingAppearance from "@/pages/OnboardingAppearance"
+import AppearanceAge from "@/pages/appearance/AppearanceAge"
+import AppearanceEthnicity from "@/pages/appearance/AppearanceEthnicity"
+import AppearanceBodyDetails from "@/pages/appearance/AppearanceBodyDetails"
+import AppearanceHairEyes from "@/pages/appearance/AppearanceHairEyes"
 import OnboardingPreferences from "@/pages/OnboardingPreferences"
 import OnboardingGenerating from "@/pages/OnboardingGenerating"
 import OnboardingIdentity from "@/pages/OnboardingIdentity"
+import GirlfriendReveal from "@/pages/GirlfriendReveal"
+import SubscriptionPlan from "@/pages/SubscriptionPlan"
 import Chat from "@/pages/Chat"
 import Gallery from "@/pages/Gallery"
 import Profile from "@/pages/Profile"
@@ -51,6 +57,46 @@ const router = createBrowserRouter([
     ),
   },
   {
+    path: "/onboarding/appearance/age",
+    element: (
+      <RequireAuth>
+        <RequireAgeGate>
+          <AppearanceAge />
+        </RequireAgeGate>
+      </RequireAuth>
+    ),
+  },
+  {
+    path: "/onboarding/appearance/ethnicity",
+    element: (
+      <RequireAuth>
+        <RequireAgeGate>
+          <AppearanceEthnicity />
+        </RequireAgeGate>
+      </RequireAuth>
+    ),
+  },
+  {
+    path: "/onboarding/appearance/body",
+    element: (
+      <RequireAuth>
+        <RequireAgeGate>
+          <AppearanceBodyDetails />
+        </RequireAgeGate>
+      </RequireAuth>
+    ),
+  },
+  {
+    path: "/onboarding/appearance/hair-eyes",
+    element: (
+      <RequireAuth>
+        <RequireAgeGate>
+          <AppearanceHairEyes />
+        </RequireAgeGate>
+      </RequireAuth>
+    ),
+  },
+  {
     path: "/onboarding/preferences",
     element: (
       <RequireAuth>
@@ -79,6 +125,14 @@ const router = createBrowserRouter([
         </RequireAgeGate>
       </RequireAuth>
     ),
+  },
+  {
+    path: "/onboarding/reveal",
+    element: <GirlfriendReveal />,
+  },
+  {
+    path: "/onboarding/subscribe",
+    element: <SubscriptionPlan />,
   },
   {
     path: "/onboarding/preview",
