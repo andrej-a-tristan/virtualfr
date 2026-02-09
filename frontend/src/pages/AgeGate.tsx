@@ -26,7 +26,7 @@ export default function AgeGate() {
       await postAgeGate()
       if (user) setUser({ ...user, age_gate_passed: true })
       await queryClient.invalidateQueries({ queryKey: ["me"] })
-      navigate(user?.has_girlfriend ? "/app/chat" : "/onboarding/traits", { replace: true })
+      navigate(user?.has_girlfriend ? "/app/girl" : "/onboarding/traits", { replace: true })
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong")
     } finally {

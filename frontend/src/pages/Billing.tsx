@@ -2,9 +2,9 @@ import { useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   getBillingStatus,
-  subscribeToPlan,
   cancelSubscription,
 } from "@/lib/api/endpoints"
+import type { Plan } from "@/lib/api/types"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -17,12 +17,14 @@ import {
   Sparkles,
   ArrowUpCircle,
   XCircle,
+  Info,
+  CalendarDays,
 } from "lucide-react"
-import AddCardModal from "@/components/billing/AddCardModal"
+import UpgradeModal from "@/components/billing/UpgradeModal"
 
 const PLANS = [
   {
-    id: "free",
+    id: "free" as Plan,
     name: "Free",
     price: "€0.00",
     period: "/month",
@@ -35,7 +37,7 @@ const PLANS = [
     ],
   },
   {
-    id: "plus",
+    id: "plus" as Plan,
     name: "Plus",
     price: "€14.99",
     period: "/month",
@@ -51,7 +53,7 @@ const PLANS = [
     ],
   },
   {
-    id: "premium",
+    id: "premium" as Plan,
     name: "Premium",
     price: "€29.99",
     period: "/month",
@@ -67,6 +69,24 @@ const PLANS = [
   },
 ] as const
 
+function formatDate(iso: string | null | undefined): string {
+  if (!iso) return ""
+  try {
+    return new Date(iso).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    })
+  } catch {
+    return ""
+  }
+}
+
+function formatCents(cents: number | null | undefined): string {
+  if (cents == null) return ""
+  return `€${(cents / 100).toFixed(2)}`
+}
+
 export default function Billing() {
   const queryClient = useQueryClient()
   const {
@@ -74,67 +94,30 @@ export default function Billing() {
     isLoading,
   } = useQuery({ queryKey: ["billingStatus"], queryFn: getBillingStatus })
 
-  const [changingTo, setChangingTo] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [showCardModal, setShowCardModal] = useState(false)
-  const [pendingPlan, setPendingPlan] = useState<string | null>(null)
   const [showCancelConfirm, setShowCancelConfirm] = useState(false)
-  const [showUpgradeConfirm, setShowUpgradeConfirm] = useState(false)
-  const [upgradePlanId, setUpgradePlanId] = useState<string | null>(null)
+
+  // Unified upgrade modal state
+  const [upgradeOpen, setUpgradeOpen] = useState(false)
+  const [upgradePlan, setUpgradePlan] = useState<Plan>("premium")
 
   const currentPlan = billing?.plan ?? "free"
-  const hasCard = billing?.has_card_on_file ?? false
   const currentPlanMeta = PLANS.find((p) => p.id === currentPlan) ?? PLANS[0]
   const CurrentIcon = currentPlanMeta.icon
-
   const planIndex = (id: string) => PLANS.findIndex((p) => p.id === id)
-  const upgradePlanMeta = upgradePlanId ? PLANS.find((p) => p.id === upgradePlanId) : null
 
-  // ── Change plan ──────────────────────────────────────────────────────
-  const handleUpgradeClick = (planId: string) => {
+  // ── Open unified upgrade modal ────────────────────────────────────────
+  const handleUpgradeClick = (planId: Plan) => {
     if (planId === currentPlan || planIndex(planId) <= planIndex(currentPlan)) return
     setError(null)
-
-    // No card? Open card modal first
-    if (!hasCard) {
-      setPendingPlan(planId)
-      setShowCardModal(true)
-      return
-    }
-
-    // Card on file — show confirmation with price
-    setUpgradePlanId(planId)
-    setShowUpgradeConfirm(true)
+    setUpgradePlan(planId)
+    setUpgradeOpen(true)
   }
 
-  const confirmUpgrade = async () => {
-    if (!upgradePlanId) return
-    setShowUpgradeConfirm(false)
-    setChangingTo(upgradePlanId)
-    setLoading(true)
-    setError(null)
-    try {
-      await subscribeToPlan(upgradePlanId)
-      await queryClient.invalidateQueries({ queryKey: ["billingStatus"] })
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to upgrade plan")
-    } finally {
-      setLoading(false)
-      setChangingTo(null)
-      setUpgradePlanId(null)
-    }
-  }
-
-  const handleCardSaved = async () => {
-    setShowCardModal(false)
-    await queryClient.invalidateQueries({ queryKey: ["billingStatus"] })
-    // Card saved — now show upgrade confirmation
-    if (pendingPlan) {
-      setUpgradePlanId(pendingPlan)
-      setPendingPlan(null)
-      setShowUpgradeConfirm(true)
-    }
+  const handleUpgradeSuccess = () => {
+    queryClient.invalidateQueries({ queryKey: ["billingStatus"] })
+    queryClient.invalidateQueries({ queryKey: ["girlfriendsList"] })
   }
 
   // ── Cancel subscription ──────────────────────────────────────────────
@@ -219,6 +202,19 @@ export default function Billing() {
             ))}
           </ul>
 
+          {/* Renewal info */}
+          {currentPlan !== "free" && billing?.next_renewal_date && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground rounded-lg bg-white/5 p-3">
+              <CalendarDays className="h-4 w-4 shrink-0" />
+              <span>
+                Next renewal: <span className="font-medium text-foreground">{formatDate(billing.next_renewal_date)}</span>
+                {billing.next_invoice_amount != null && (
+                  <> — {formatCents(billing.next_invoice_amount)}</>
+                )}
+              </span>
+            </div>
+          )}
+
           {currentPlan !== "free" && (
             <Button
               variant="outline"
@@ -239,6 +235,15 @@ export default function Billing() {
         <div className="space-y-4">
           <h2 className="text-lg font-semibold">Upgrade your plan</h2>
 
+          {/* Proration notice */}
+          <div className="flex items-start gap-2 rounded-lg bg-blue-500/5 border border-blue-500/10 p-3">
+            <Info className="h-4 w-4 mt-0.5 shrink-0 text-blue-400" />
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Upgrades are prorated: unused time on your current plan is credited.
+              You&apos;ll only pay the difference.
+            </p>
+          </div>
+
           <div className={cn(
             "grid gap-4",
             PLANS.filter((p) => planIndex(p.id) > planIndex(currentPlan)).length === 1
@@ -247,7 +252,6 @@ export default function Billing() {
           )}>
             {PLANS.filter((p) => planIndex(p.id) > planIndex(currentPlan)).map((plan) => {
               const Icon = plan.icon
-              const isProcessing = changingTo === plan.id && loading
 
               return (
                 <div
@@ -291,14 +295,8 @@ export default function Billing() {
                     disabled={loading}
                     onClick={() => handleUpgradeClick(plan.id)}
                   >
-                    {isProcessing ? (
-                      "Processing…"
-                    ) : (
-                      <>
-                        <ArrowUpCircle className="h-4 w-4" />
-                        Upgrade to {plan.name} – {plan.price}{plan.period}
-                      </>
-                    )}
+                    <ArrowUpCircle className="h-4 w-4" />
+                    Upgrade to {plan.name} – {plan.price}{plan.period}
                   </Button>
                 </div>
               )
@@ -312,57 +310,13 @@ export default function Billing() {
         <p className="text-sm text-destructive text-center">{error}</p>
       )}
 
-      {/* ── Card modal (when switching to paid without card) ─────────── */}
-      <AddCardModal
-        open={showCardModal}
-        onClose={() => {
-          setShowCardModal(false)
-          setPendingPlan(null)
-        }}
-        onSaved={handleCardSaved}
-        plan={pendingPlan ?? undefined}
+      {/* ── Unified upgrade modal ────────────────────────────────────────── */}
+      <UpgradeModal
+        open={upgradeOpen}
+        onClose={() => setUpgradeOpen(false)}
+        targetPlan={upgradePlan}
+        onSuccess={handleUpgradeSuccess}
       />
-
-      {/* ── Upgrade confirmation modal ─────────────────────────────────── */}
-      {showUpgradeConfirm && upgradePlanMeta && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
-          <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-card p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200 space-y-5">
-            <div className="text-center space-y-2">
-              <div className={cn(
-                "mx-auto flex h-12 w-12 items-center justify-center rounded-full",
-                upgradePlanMeta.id === "premium" ? "bg-amber-500/15" : "bg-primary/15"
-              )}>
-                <upgradePlanMeta.icon className={cn("h-6 w-6", upgradePlanMeta.color)} />
-              </div>
-              <h2 className="text-xl font-semibold">Upgrade to {upgradePlanMeta.name}</h2>
-              <p className="text-muted-foreground text-sm">
-                You&apos;ll be charged{" "}
-                <span className="font-semibold text-foreground">
-                  {upgradePlanMeta.price}{upgradePlanMeta.period}
-                </span>{" "}
-                starting now. You can cancel anytime from this page.
-              </p>
-            </div>
-            <div className="flex gap-3">
-              <Button
-                variant="outline"
-                className="flex-1 rounded-xl"
-                onClick={() => { setShowUpgradeConfirm(false); setUpgradePlanId(null) }}
-                disabled={loading}
-              >
-                Cancel
-              </Button>
-              <Button
-                className="flex-1 rounded-xl gap-2"
-                onClick={confirmUpgrade}
-                disabled={loading}
-              >
-                {loading ? "Processing…" : `Confirm & pay ${upgradePlanMeta.price}`}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── Cancel confirmation modal ──────────────────────────────────── */}
       {showCancelConfirm && (

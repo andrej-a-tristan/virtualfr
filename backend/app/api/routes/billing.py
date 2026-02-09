@@ -1,5 +1,7 @@
-"""Billing: plan status, Stripe SetupIntent for card saving, subscriptions, webhook."""
+"""Billing: plan status, Stripe SetupIntent for card saving, subscriptions,
+plan changes with proration, proration previews, payment methods, webhook."""
 import logging
+from datetime import datetime, timezone
 
 import stripe
 from fastapi import APIRouter, Request, HTTPException
@@ -7,7 +9,17 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.core.config import get_settings
-from app.api.store import get_session_user, set_session_user
+from app.api.store import get_session_user, set_session_user, get_girlfriend_count
+from app.schemas.payment_method import PaymentMethodCardSummary, PaymentMethodResponse
+from app.schemas.billing import (
+    ChangePlanRequest,
+    ChangePlanResponse,
+    PreviewChangeRequest,
+    PreviewChangeResponse,
+    BillingStatusResponse,
+    InvoiceSummary,
+    ProrationLineItem,
+)
 
 router = APIRouter(prefix="/billing", tags=["billing"])
 logger = logging.getLogger(__name__)
@@ -18,6 +30,11 @@ PLAN_PRICE_MAP = {
     "plus": "stripe_price_plus",
     "premium": "stripe_price_premium",
 }
+
+PLAN_ORDER = {"free": 0, "plus": 1, "premium": 2}
+
+# Monthly amounts (cents) for display/fallback when no Stripe subscription exists
+PLAN_MONTHLY_CENTS = {"free": 0, "plus": 1499, "premium": 2999}
 
 
 def _session_id(request: Request) -> str | None:
@@ -55,9 +72,47 @@ def _get_price_id(plan: str) -> str:
     return price_id
 
 
+def _price_id_to_plan(price_id: str) -> str:
+    """Reverse-lookup: Stripe Price ID → plan name."""
+    s = get_settings()
+    if price_id == s.stripe_price_plus:
+        return "plus"
+    if price_id == s.stripe_price_premium:
+        return "premium"
+    return "free"
+
+
+def _ensure_customer_and_pm(sid: str, user: dict) -> tuple[str, str]:
+    """Return (customer_id, default_payment_method_id) or raise."""
+    customer_id = user.get("stripe_customer_id")
+    if not customer_id:
+        raise HTTPException(status_code=409, detail="NO_PAYMENT_METHOD")
+
+    default_pm = user.get("default_payment_method_id")
+    if not default_pm:
+        try:
+            pms = stripe.Customer.list_payment_methods(customer_id, type="card", limit=1)
+            if pms.data:
+                default_pm = pms.data[0].id
+                set_session_user(sid, {**user, "default_payment_method_id": default_pm})
+        except Exception as e:
+            logger.warning("Failed to fetch PMs from Stripe: %s", e)
+
+    if not default_pm:
+        raise HTTPException(status_code=409, detail="NO_PAYMENT_METHOD")
+
+    return customer_id, default_pm
+
+
+def _ts_to_iso(ts: int | None) -> str | None:
+    if not ts:
+        return None
+    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 # ── GET /api/billing/status ──────────────────────────────────────────────────
 
-@router.get("/status")
+@router.get("/status", response_model=BillingStatusResponse)
 def billing_status(request: Request):
     sid = _session_id(request)
     if not sid:
@@ -65,12 +120,97 @@ def billing_status(request: Request):
     user = get_session_user(sid)
     plan = (user or {}).get("plan", "free")
     has_card = (user or {}).get("has_card_on_file", False)
-    return {
-        "plan": plan,
-        "has_card_on_file": has_card,
-        "message_cap": 50 if plan == "free" else 999,
-        "image_cap": 0 if plan == "free" else 30 if plan == "plus" else 80,
-    }
+    girls_max = 5 if plan == "premium" else 1
+    girls_count = get_girlfriend_count(sid)
+
+    # Try to fetch subscription period info from Stripe
+    current_period_end: str | None = None
+    subscription_status: str | None = None
+    next_invoice_amount: int | None = None
+
+    sub_id = (user or {}).get("stripe_subscription_id")
+    if sub_id:
+        try:
+            _init_stripe()
+            sub = stripe.Subscription.retrieve(sub_id)
+            current_period_end = _ts_to_iso(sub.get("current_period_end"))
+            subscription_status = sub.get("status")
+            # Try to get upcoming invoice amount
+            customer_id = (user or {}).get("stripe_customer_id")
+            if customer_id:
+                try:
+                    upcoming = stripe.Invoice.upcoming(customer=customer_id, subscription=sub_id)
+                    next_invoice_amount = upcoming.get("amount_due")
+                except Exception:
+                    next_invoice_amount = PLAN_MONTHLY_CENTS.get(plan)
+        except Exception as e:
+            logger.warning("Failed to fetch subscription info: %s", e)
+
+    return BillingStatusResponse(
+        plan=plan,
+        has_card_on_file=has_card,
+        message_cap=50 if plan == "free" else 999,
+        image_cap=0 if plan == "free" else 30 if plan == "plus" else 80,
+        girls_max=girls_max,
+        girls_count=girls_count,
+        can_create_more_girls=girls_count < girls_max,
+        current_period_end=current_period_end,
+        next_renewal_date=current_period_end,
+        next_invoice_amount=next_invoice_amount,
+        subscription_status=subscription_status,
+    )
+
+
+# ── GET /api/billing/stripe-key ─────────────────────────────────────────────
+
+@router.get("/stripe-key")
+def get_stripe_key():
+    """Return the Stripe publishable key for frontend use."""
+    settings = get_settings()
+    return {"publishable_key": settings.stripe_publishable_key}
+
+
+# ── GET /api/billing/payment-method ─────────────────────────────────────────
+
+@router.get("/payment-method", response_model=PaymentMethodResponse)
+def get_payment_method(request: Request):
+    """Return a safe summary of the user's default saved card."""
+    _init_stripe()
+    sid, user = _require_user(request)
+
+    customer_id = user.get("stripe_customer_id")
+    if not customer_id:
+        return PaymentMethodResponse(has_card=False)
+
+    try:
+        customer = stripe.Customer.retrieve(customer_id)
+        default_pm_id = None
+        inv_settings = customer.get("invoice_settings")
+        if inv_settings:
+            default_pm_id = inv_settings.get("default_payment_method")
+
+        if not default_pm_id:
+            pms = stripe.Customer.list_payment_methods(customer_id, type="card", limit=1)
+            if pms.data:
+                default_pm_id = pms.data[0].id
+
+        if not default_pm_id:
+            return PaymentMethodResponse(has_card=False)
+
+        pm = stripe.PaymentMethod.retrieve(default_pm_id)
+        card_data = pm.get("card", {})
+        return PaymentMethodResponse(
+            has_card=True,
+            card=PaymentMethodCardSummary(
+                brand=card_data.get("brand", "unknown"),
+                last4=card_data.get("last4", "????"),
+                exp_month=card_data.get("exp_month", 0),
+                exp_year=card_data.get("exp_year", 0),
+            ),
+        )
+    except Exception as e:
+        logger.warning("Failed to fetch payment method: %s", e)
+        return PaymentMethodResponse(has_card=False)
 
 
 # ── POST /api/billing/setup-intent ──────────────────────────────────────────
@@ -82,7 +222,6 @@ def create_setup_intent(request: Request):
     settings = get_settings()
     sid, user = _require_user(request)
 
-    # Create or reuse Stripe Customer
     customer_id = user.get("stripe_customer_id")
     if not customer_id:
         customer = stripe.Customer.create(
@@ -93,7 +232,6 @@ def create_setup_intent(request: Request):
         set_session_user(sid, {**user, "stripe_customer_id": customer_id})
         logger.info("Created Stripe customer %s for user %s", customer_id, user.get("id"))
 
-    # Create SetupIntent
     si = stripe.SetupIntent.create(
         customer=customer_id,
         payment_method_types=["card"],
@@ -107,56 +245,190 @@ def create_setup_intent(request: Request):
     }
 
 
-# ── POST /api/billing/subscribe ──────────────────────────────────────────────
+# ── POST /api/billing/preview-change ────────────────────────────────────────
 
-class SubscribeRequest(BaseModel):
-    plan: str  # "plus" or "premium"
-
-
-@router.post("/subscribe")
-def subscribe(request: Request, body: SubscribeRequest):
-    """Create a Stripe Subscription for a paid plan using the saved card."""
+@router.post("/preview-change", response_model=PreviewChangeResponse)
+def preview_plan_change(request: Request, body: PreviewChangeRequest):
+    """Preview the proration cost of switching to a different plan.
+    Uses Stripe Invoice.upcoming to compute the prorated amount."""
     _init_stripe()
     sid, user = _require_user(request)
 
     if body.plan == "free":
-        # Free plan: no subscription needed, just set the plan
-        set_session_user(sid, {**user, "plan": "free"})
-        return {"ok": True, "plan": "free", "subscription_id": None}
+        # Downgrading to free — no charge
+        return PreviewChangeResponse(
+            amount_due_now=0,
+            currency="eur",
+            next_recurring_amount=0,
+            next_renewal_date="",
+            proration_line_items=[],
+        )
 
-    # Ensure customer + payment method exist
     customer_id = user.get("stripe_customer_id")
-    if not customer_id:
-        raise HTTPException(status_code=400, detail="No Stripe customer. Save a card first.")
-
-    default_pm = user.get("default_payment_method_id")
-
-    # If we don't have the PM ID locally, fetch it from Stripe
-    if not default_pm:
-        try:
-            pms = stripe.Customer.list_payment_methods(customer_id, type="card", limit=1)
-            if pms.data:
-                default_pm = pms.data[0].id
-                set_session_user(sid, {**user, "default_payment_method_id": default_pm})
-                logger.info("Fetched PM from Stripe: %s", default_pm)
-        except Exception as e:
-            logger.warning("Failed to fetch PMs from Stripe: %s", e)
-
-    if not default_pm:
-        raise HTTPException(status_code=400, detail="No card on file. Save a card first.")
-
+    sub_id = user.get("stripe_subscription_id")
     price_id = _get_price_id(body.plan)
 
-    # Cancel existing subscription if upgrading/changing
-    existing_sub_id = user.get("stripe_subscription_id")
-    if existing_sub_id:
-        try:
-            stripe.Subscription.cancel(existing_sub_id)
-            logger.info("Cancelled old subscription %s", existing_sub_id)
-        except Exception as e:
-            logger.warning("Failed to cancel old subscription: %s", e)
+    if not customer_id or not sub_id:
+        # No existing subscription — full price, no proration
+        monthly = PLAN_MONTHLY_CENTS.get(body.plan, 0)
+        return PreviewChangeResponse(
+            amount_due_now=monthly,
+            currency="eur",
+            next_recurring_amount=monthly,
+            next_renewal_date="",
+            proration_line_items=[],
+        )
 
-    # Create subscription — card is already saved as default, Stripe charges it immediately
+    try:
+        # Retrieve current subscription to get the item id
+        sub = stripe.Subscription.retrieve(sub_id)
+        if sub.status not in ("active", "trialing"):
+            monthly = PLAN_MONTHLY_CENTS.get(body.plan, 0)
+            return PreviewChangeResponse(
+                amount_due_now=monthly,
+                currency="eur",
+                next_recurring_amount=monthly,
+                next_renewal_date="",
+                proration_line_items=[],
+            )
+
+        sub_item_id = sub["items"]["data"][0]["id"]
+
+        # Use Invoice.upcoming with subscription_items to preview proration
+        upcoming = stripe.Invoice.upcoming(
+            customer=customer_id,
+            subscription=sub_id,
+            subscription_items=[{
+                "id": sub_item_id,
+                "price": price_id,
+            }],
+            subscription_proration_date=int(datetime.now(timezone.utc).timestamp()),
+        )
+
+        # Extract line items that are proration-related
+        proration_items: list[ProrationLineItem] = []
+        for line in upcoming.get("lines", {}).get("data", []):
+            if line.get("proration"):
+                proration_items.append(ProrationLineItem(
+                    description=line.get("description", ""),
+                    amount=line.get("amount", 0),
+                    currency=line.get("currency", "eur"),
+                ))
+
+        # Next recurring = the plan's monthly price
+        next_recurring = PLAN_MONTHLY_CENTS.get(body.plan, 0)
+        next_renewal = _ts_to_iso(sub.get("current_period_end")) or ""
+
+        return PreviewChangeResponse(
+            amount_due_now=upcoming.get("amount_due", 0),
+            currency=upcoming.get("currency", "eur"),
+            next_recurring_amount=next_recurring,
+            next_renewal_date=next_renewal,
+            proration_line_items=proration_items,
+        )
+
+    except stripe.InvalidRequestError as e:
+        logger.warning("Preview proration failed: %s", e)
+        raise HTTPException(status_code=400, detail=str(e.user_message or e))
+    except Exception as e:
+        logger.warning("Preview proration error: %s", e)
+        monthly = PLAN_MONTHLY_CENTS.get(body.plan, 0)
+        return PreviewChangeResponse(
+            amount_due_now=monthly,
+            currency="eur",
+            next_recurring_amount=monthly,
+            next_renewal_date="",
+            proration_line_items=[],
+        )
+
+
+# ── POST /api/billing/change-plan ───────────────────────────────────────────
+
+@router.post("/change-plan", response_model=ChangePlanResponse)
+def change_plan(request: Request, body: ChangePlanRequest):
+    """Change the user's subscription plan with correct proration.
+    - Upgrade: credit unused time on old plan, charge remaining time on new plan.
+    - Downgrade to free: cancel subscription immediately.
+    - If no subscription exists: create a new one.
+    Returns 409 with code NO_PAYMENT_METHOD if no card is on file."""
+    _init_stripe()
+    sid, user = _require_user(request)
+
+    current_plan = user.get("plan", "free")
+
+    # ── Same plan → no-op ────────────────────────────────────────────────
+    if body.plan == current_plan:
+        return ChangePlanResponse(
+            plan=current_plan,
+            previous_plan=current_plan,
+            subscription_id=user.get("stripe_subscription_id"),
+        )
+
+    # ── Downgrade to free → cancel subscription ──────────────────────────
+    if body.plan == "free":
+        sub_id = user.get("stripe_subscription_id")
+        if sub_id:
+            try:
+                stripe.Subscription.cancel(sub_id)
+                logger.info("Cancelled subscription %s (downgrade to free)", sub_id)
+            except Exception as e:
+                logger.warning("Failed to cancel subscription %s: %s", sub_id, e)
+        set_session_user(sid, {**user, "plan": "free", "stripe_subscription_id": None})
+        return ChangePlanResponse(
+            plan="free",
+            previous_plan=current_plan,
+            subscription_id=None,
+        )
+
+    # ── Paid plan change (upgrade or cross-grade) ────────────────────────
+    customer_id, default_pm = _ensure_customer_and_pm(sid, user)
+    price_id = _get_price_id(body.plan)
+    sub_id = user.get("stripe_subscription_id")
+
+    # Try to modify existing active subscription
+    if sub_id:
+        try:
+            existing_sub = stripe.Subscription.retrieve(sub_id)
+            if existing_sub.status in ("active", "trialing"):
+                sub_item_id = existing_sub["items"]["data"][0]["id"]
+                sub = stripe.Subscription.modify(
+                    sub_id,
+                    items=[{"id": sub_item_id, "price": price_id}],
+                    proration_behavior="create_prorations",
+                    default_payment_method=default_pm,
+                    cancel_at_period_end=False,
+                    metadata={"user_id": user.get("id", ""), "session_id": sid},
+                )
+                logger.info("Changed plan %s → %s (sub=%s)", current_plan, body.plan, sub.id)
+
+                # Try to pay any proration invoice immediately
+                invoice_summary = _try_pay_proration_invoice(sub.get("latest_invoice"), customer_id)
+
+                set_session_user(sid, {
+                    **user,
+                    "plan": body.plan,
+                    "stripe_subscription_id": sub.id,
+                })
+
+                return ChangePlanResponse(
+                    plan=body.plan,
+                    previous_plan=current_plan,
+                    subscription_id=sub.id,
+                    current_period_end=_ts_to_iso(sub.get("current_period_end")),
+                    invoice=invoice_summary,
+                )
+            else:
+                # Subscription not active — cancel it and create new
+                try:
+                    stripe.Subscription.cancel(sub_id)
+                except Exception:
+                    pass
+        except stripe.InvalidRequestError:
+            logger.info("Previous subscription %s no longer exists", sub_id)
+        except Exception as e:
+            logger.warning("Failed to modify subscription: %s", e)
+
+    # No active subscription — create a new one
     sub = stripe.Subscription.create(
         customer=customer_id,
         items=[{"price": price_id}],
@@ -164,17 +436,125 @@ def subscribe(request: Request, body: SubscribeRequest):
         metadata={"user_id": user.get("id", ""), "session_id": sid},
     )
 
-    status = sub.status
-    logger.info("Created subscription %s status=%s for plan=%s", sub.id, status, body.plan)
+    logger.info("Created subscription %s status=%s for plan=%s", sub.id, sub.status, body.plan)
 
-    # Update user record
+    invoice_summary = _try_pay_proration_invoice(sub.get("latest_invoice"), customer_id)
+
     set_session_user(sid, {
         **user,
         "plan": body.plan,
         "stripe_subscription_id": sub.id,
     })
 
-    return {"ok": True, "plan": body.plan, "subscription_id": sub.id, "status": status}
+    return ChangePlanResponse(
+        plan=body.plan,
+        previous_plan=current_plan,
+        subscription_id=sub.id,
+        current_period_end=_ts_to_iso(sub.get("current_period_end")),
+        invoice=invoice_summary,
+    )
+
+
+def _try_pay_proration_invoice(latest_invoice_id: str | None, customer_id: str) -> InvoiceSummary | None:
+    """If the subscription has a pending proration invoice, try to pay it."""
+    if not latest_invoice_id:
+        return None
+    try:
+        inv = stripe.Invoice.retrieve(latest_invoice_id)
+        if inv.status == "open" and inv.amount_due > 0:
+            # Pay using the customer's default payment method
+            inv = stripe.Invoice.pay(latest_invoice_id)
+        return InvoiceSummary(
+            amount_due=inv.get("amount_due", 0),
+            currency=inv.get("currency", "eur"),
+            paid=inv.get("paid", False),
+            hosted_invoice_url=inv.get("hosted_invoice_url"),
+        )
+    except Exception as e:
+        logger.warning("Failed to pay proration invoice %s: %s", latest_invoice_id, e)
+        return None
+
+
+# ── POST /api/billing/subscribe (kept for backward compat) ──────────────────
+
+class SubscribeRequest(BaseModel):
+    plan: str  # "plus" or "premium"
+
+
+@router.post("/subscribe")
+def subscribe(request: Request, body: SubscribeRequest):
+    """Create or upgrade a Stripe Subscription for a paid plan using the saved card.
+    Delegates to change-plan internally for consistency."""
+    _init_stripe()
+    sid, user = _require_user(request)
+
+    if body.plan == "free":
+        set_session_user(sid, {**user, "plan": "free"})
+        return {"ok": True, "plan": "free", "subscription_id": None}
+
+    customer_id = user.get("stripe_customer_id")
+    if not customer_id:
+        raise HTTPException(status_code=400, detail="No Stripe customer. Save a card first.")
+
+    default_pm = user.get("default_payment_method_id")
+    if not default_pm:
+        try:
+            pms = stripe.Customer.list_payment_methods(customer_id, type="card", limit=1)
+            if pms.data:
+                default_pm = pms.data[0].id
+                set_session_user(sid, {**user, "default_payment_method_id": default_pm})
+        except Exception as e:
+            logger.warning("Failed to fetch PMs from Stripe: %s", e)
+
+    if not default_pm:
+        raise HTTPException(status_code=400, detail="No default payment method; please add a card.")
+
+    price_id = _get_price_id(body.plan)
+
+    existing_sub_id = user.get("stripe_subscription_id")
+    if existing_sub_id:
+        try:
+            existing_sub = stripe.Subscription.retrieve(existing_sub_id)
+            if existing_sub.status in ("active", "trialing"):
+                sub_item_id = existing_sub["items"]["data"][0]["id"]
+                sub = stripe.Subscription.modify(
+                    existing_sub_id,
+                    items=[{"id": sub_item_id, "price": price_id}],
+                    proration_behavior="create_prorations",
+                    default_payment_method=default_pm,
+                    metadata={"user_id": user.get("id", ""), "session_id": sid},
+                )
+                logger.info("Upgraded subscription %s to plan=%s", sub.id, body.plan)
+                set_session_user(sid, {
+                    **user,
+                    "plan": body.plan,
+                    "stripe_subscription_id": sub.id,
+                })
+                return {"ok": True, "plan": body.plan, "subscription_id": sub.id, "status": sub.status}
+            else:
+                try:
+                    stripe.Subscription.cancel(existing_sub_id)
+                except Exception:
+                    pass
+        except stripe.InvalidRequestError:
+            pass
+        except Exception as e:
+            logger.warning("Failed to modify subscription: %s", e)
+
+    sub = stripe.Subscription.create(
+        customer=customer_id,
+        items=[{"price": price_id}],
+        default_payment_method=default_pm,
+        metadata={"user_id": user.get("id", ""), "session_id": sid},
+    )
+
+    set_session_user(sid, {
+        **user,
+        "plan": body.plan,
+        "stripe_subscription_id": sub.id,
+    })
+
+    return {"ok": True, "plan": body.plan, "subscription_id": sub.id, "status": sub.status}
 
 
 # ── POST /api/billing/cancel ─────────────────────────────────────────────────
@@ -187,7 +567,6 @@ def cancel_subscription(request: Request):
 
     sub_id = user.get("stripe_subscription_id")
     if not sub_id:
-        # No active subscription — just ensure plan is free
         set_session_user(sid, {**user, "plan": "free", "stripe_subscription_id": None})
         return {"ok": True, "plan": "free"}
 
@@ -199,6 +578,47 @@ def cancel_subscription(request: Request):
 
     set_session_user(sid, {**user, "plan": "free", "stripe_subscription_id": None})
     return {"ok": True, "plan": "free"}
+
+
+# ── POST /api/billing/checkout ───────────────────────────────────────────────
+
+@router.post("/checkout")
+def create_checkout_session(request: Request):
+    """Create a Stripe Checkout Session to upgrade to Premium.
+    Returns checkout_url for frontend redirect."""
+    _init_stripe()
+    sid, user = _require_user(request)
+    settings = get_settings()
+
+    customer_id = user.get("stripe_customer_id")
+    if not customer_id:
+        customer = stripe.Customer.create(
+            email=user.get("email", ""),
+            metadata={"user_id": user.get("id", ""), "session_id": sid},
+        )
+        customer_id = customer.id
+        set_session_user(sid, {**user, "stripe_customer_id": customer_id})
+
+    price_id = _get_price_id("premium")
+
+    base = "http://localhost:5173"
+    if settings.stripe_success_url:
+        from urllib.parse import urlparse
+        parsed = urlparse(settings.stripe_success_url)
+        base = f"{parsed.scheme}://{parsed.netloc}"
+    success = f"{base}/app/chat?upgraded=1"
+    cancel = f"{base}/app/chat"
+
+    checkout_session = stripe.checkout.Session.create(
+        customer=customer_id,
+        mode="subscription",
+        line_items=[{"price": price_id, "quantity": 1}],
+        success_url=success,
+        cancel_url=cancel,
+        metadata={"session_id": sid, "user_id": user.get("id", "")},
+        subscription_data={"metadata": {"session_id": sid, "user_id": user.get("id", "")}},
+    )
+    return {"checkout_url": checkout_session.url}
 
 
 # ── POST /api/billing/webhook ────────────────────────────────────────────────
@@ -259,9 +679,17 @@ async def stripe_webhook(request: Request):
         invoice = event["data"]["object"]
         customer_id = invoice.get("customer")
         sub_id = invoice.get("subscription")
-        logger.info("Invoice paid: customer=%s subscription=%s", customer_id, sub_id)
+        logger.info("Invoice paid: customer=%s subscription=%s amount=%s",
+                     customer_id, sub_id, invoice.get("amount_paid"))
 
-    # ── Subscription updated (plan change, cancellation, etc.) ───────────
+    # ── Invoice payment failed ───────────────────────────────────────────
+    elif event_type == "invoice.payment_failed":
+        invoice = event["data"]["object"]
+        sub_id = invoice.get("subscription")
+        logger.warning("Invoice payment failed: subscription=%s", sub_id)
+        # Could notify user or mark subscription as past_due
+
+    # ── Subscription created/updated ─────────────────────────────────────
     elif event_type in (
         "customer.subscription.created",
         "customer.subscription.updated",
@@ -272,32 +700,41 @@ async def stripe_webhook(request: Request):
         status = sub.get("status")
         logger.info("Subscription %s status=%s", sub.get("id"), status)
 
-        if session_id and status == "active":
+        if session_id and status in ("active", "trialing"):
             user = get_session_user(session_id)
             if user:
-                # Determine plan from price
                 items = sub.get("items", {}).get("data", [])
                 plan = user.get("plan", "free")
                 if items:
                     price_id = items[0].get("price", {}).get("id", "")
-                    s = get_settings()
-                    if price_id == s.stripe_price_plus:
-                        plan = "plus"
-                    elif price_id == s.stripe_price_premium:
-                        plan = "premium"
+                    plan = _price_id_to_plan(price_id)
                 set_session_user(session_id, {
                     **user,
                     "plan": plan,
                     "stripe_subscription_id": sub.get("id"),
                 })
 
-    # ── Checkout session completed (gift purchases) ────────────────────
+    # ── Subscription deleted ─────────────────────────────────────────────
+    elif event_type == "customer.subscription.deleted":
+        sub = event["data"]["object"]
+        metadata = sub.get("metadata", {})
+        session_id = metadata.get("session_id", "")
+        if session_id:
+            user = get_session_user(session_id)
+            if user:
+                set_session_user(session_id, {
+                    **user,
+                    "plan": "free",
+                    "stripe_subscription_id": None,
+                })
+                logger.info("Subscription cancelled, reverted to free")
+
+    # ── Checkout session completed (gift purchases) ──────────────────────
     elif event_type == "checkout.session.completed":
         session_obj = event["data"]["object"]
         metadata = session_obj.get("metadata", {})
         gift_id = metadata.get("gift_id")
         if gift_id:
-            # Delegate to the gift delivery handler
             try:
                 from app.api.routes.gifts import _deliver_gift, _processed_sessions, _update_purchase_status
                 stripe_session_id = session_obj.get("id", "")
@@ -316,21 +753,6 @@ async def stripe_webhook(request: Request):
             except Exception as e:
                 logger.warning("Failed to process gift checkout: %s", e)
 
-    # ── Subscription deleted ─────────────────────────────────────────────
-    elif event_type == "customer.subscription.deleted":
-        sub = event["data"]["object"]
-        metadata = sub.get("metadata", {})
-        session_id = metadata.get("session_id", "")
-        if session_id:
-            user = get_session_user(session_id)
-            if user:
-                set_session_user(session_id, {
-                    **user,
-                    "plan": "free",
-                    "stripe_subscription_id": None,
-                })
-                logger.info("Subscription cancelled, reverted to free")
-
     return {"ok": True}
 
 
@@ -348,7 +770,6 @@ def confirm_card(request: Request, body: ConfirmCardRequest):
     updates: dict = {"has_card_on_file": True}
     if body.payment_method_id:
         updates["default_payment_method_id"] = body.payment_method_id
-        # Also set it as default on the Stripe Customer
         customer_id = user.get("stripe_customer_id")
         if customer_id:
             try:

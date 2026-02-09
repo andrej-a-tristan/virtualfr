@@ -2,15 +2,16 @@ import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useAppStore } from "@/lib/store/useAppStore"
-import { getBillingStatus, subscribeToPlan } from "@/lib/api/endpoints"
+import { getBillingStatus, changePlan, previewPlanChange } from "@/lib/api/endpoints"
+import type { Plan, PreviewPlanChangeResponse } from "@/lib/api/types"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { Check, Crown, Heart, Sparkles, CreditCard } from "lucide-react"
+import { Check, Crown, Heart, Sparkles, CreditCard, Info, ArrowUpCircle } from "lucide-react"
 import AddCardModal from "@/components/billing/AddCardModal"
 
 const PLANS = [
   {
-    id: "free",
+    id: "free" as Plan,
     name: "Free",
     price: "€0.00",
     period: "/month",
@@ -23,7 +24,7 @@ const PLANS = [
     ],
   },
   {
-    id: "plus",
+    id: "plus" as Plan,
     name: "Plus",
     price: "€14.99",
     period: "/month",
@@ -39,7 +40,7 @@ const PLANS = [
     ],
   },
   {
-    id: "premium",
+    id: "premium" as Plan,
     name: "Premium",
     price: "€29.99",
     period: "/month",
@@ -55,15 +56,37 @@ const PLANS = [
   },
 ] as const
 
+function formatCents(cents: number, currency = "eur"): string {
+  const abs = Math.abs(cents)
+  const symbol = currency === "eur" ? "€" : currency === "usd" ? "$" : currency.toUpperCase() + " "
+  const str = `${symbol}${(abs / 100).toFixed(2)}`
+  return cents < 0 ? `-${str}` : str
+}
+
+function formatDate(iso: string): string {
+  if (!iso) return "your next billing date"
+  try {
+    return new Date(iso).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    })
+  } catch {
+    return iso
+  }
+}
+
 export default function SubscriptionPlan() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const girlfriend = useAppStore((s) => s.girlfriend)
-  const [selectedPlan, setSelectedPlan] = useState<string | null>(null)
+  const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showCardModal, setShowCardModal] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
+  const [preview, setPreview] = useState<PreviewPlanChangeResponse | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
 
   const { data: billing } = useQuery({
     queryKey: ["billingStatus"],
@@ -76,7 +99,7 @@ export default function SubscriptionPlan() {
 
   const girlfriendName =
     girlfriend?.display_name || girlfriend?.name || "Your Girl"
-  const avatarUrl = girlfriend?.avatar_url || "/assets/companion-avatar.png"
+  const avatarUrl = girlfriend?.avatar_url || null
 
   const handleSubscribe = async () => {
     if (!selectedPlan) return
@@ -87,13 +110,23 @@ export default function SubscriptionPlan() {
       return
     }
 
-    // Card already saved — for paid plans, show confirmation first
-    if (selectedPlan !== "free") {
-      setShowConfirm(true)
+    // Free plan — no payment needed
+    if (selectedPlan === "free") {
+      await finishSubscription()
       return
     }
 
-    await finishSubscription()
+    // Paid plan — load proration preview and show confirmation
+    setPreviewLoading(true)
+    try {
+      const data = await previewPlanChange(selectedPlan)
+      setPreview(data)
+    } catch {
+      setPreview(null)
+    } finally {
+      setPreviewLoading(false)
+    }
+    setShowConfirm(true)
   }
 
   const handleConfirmPurchase = async () => {
@@ -107,13 +140,18 @@ export default function SubscriptionPlan() {
     setError(null)
     try {
       if (selectedPlan !== "free") {
-        // Create a real Stripe subscription for paid plans
-        await subscribeToPlan(selectedPlan)
+        await changePlan(selectedPlan)
       }
       await queryClient.invalidateQueries({ queryKey: ["billingStatus"] })
       navigate("/onboarding/reveal-success", { replace: true })
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Subscription failed")
+    } catch (e: any) {
+      const msg = e?.response?.data?.detail || e?.message || ""
+      if (msg === "NO_PAYMENT_METHOD" || msg.includes("card") || msg.includes("payment method")) {
+        setShowCardModal(true)
+        setError(null)
+      } else {
+        setError(msg || "Subscription failed")
+      }
     } finally {
       setLoading(false)
     }
@@ -121,9 +159,7 @@ export default function SubscriptionPlan() {
 
   const handleCardSaved = async () => {
     setShowCardModal(false)
-    // Refetch billing status to confirm card is on file
     await queryClient.invalidateQueries({ queryKey: ["billingStatus"] })
-    // Card saved — now finish the subscription
     await finishSubscription()
   }
 
@@ -134,12 +170,21 @@ export default function SubscriptionPlan() {
         <div className="flex flex-col items-center gap-6">
           <div className="relative w-40 overflow-hidden rounded-2xl border-2 border-white/10 shadow-xl shadow-primary/10">
             <div className="aspect-[3/4] w-full overflow-hidden bg-muted">
-              <img
-                src={avatarUrl}
-                alt={girlfriendName}
-                className="h-full w-full object-cover blur-lg scale-110"
-              />
+              {avatarUrl ? (
+                <img
+                  src={avatarUrl}
+                  alt={girlfriendName}
+                  className="h-full w-full object-cover blur-lg scale-110"
+                />
+              ) : (
+                <div className="h-full w-full bg-gradient-to-br from-primary/30 via-primary/10 to-background blur-lg scale-110" />
+              )}
             </div>
+            {!avatarUrl && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-5xl font-bold text-white/20">{(girlfriendName ?? "?")[0]}</span>
+              </div>
+            )}
             <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
             <div className="absolute bottom-0 left-0 right-0 p-3 text-center">
               <p className="text-sm font-semibold text-white">{girlfriendName}</p>
@@ -241,6 +286,16 @@ export default function SubscriptionPlan() {
           })}
         </div>
 
+        {/* Proration notice */}
+        {billing?.plan !== "free" && (
+          <div className="flex items-start gap-2 rounded-lg bg-blue-500/5 border border-blue-500/10 p-3 max-w-sm mx-auto">
+            <Info className="h-4 w-4 mt-0.5 shrink-0 text-blue-400" />
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Upgrades are prorated: unused time on your current plan is credited.
+            </p>
+          </div>
+        )}
+
         {/* Error message */}
         {error && (
           <p className="text-sm text-destructive text-center">{error}</p>
@@ -251,13 +306,18 @@ export default function SubscriptionPlan() {
           <Button
             size="lg"
             className="w-full max-w-sm rounded-xl text-base gap-2"
-            disabled={!selectedPlan || loading}
+            disabled={!selectedPlan || loading || previewLoading}
             onClick={handleSubscribe}
           >
-            {loading ? (
+            {loading || previewLoading ? (
               "Processing…"
             ) : hasCard ? (
-              selectedPlan === "free" ? "Continue for free" : "Subscribe & pay"
+              selectedPlan === "free" ? "Continue for free" : (
+                <>
+                  <ArrowUpCircle className="h-4 w-4" />
+                  Subscribe & pay
+                </>
+              )
             ) : selectedPlan === "free" ? (
               <>
                 <CreditCard className="h-4 w-4" />
@@ -273,7 +333,7 @@ export default function SubscriptionPlan() {
           <p className="text-xs text-muted-foreground text-center max-w-sm">
             {selectedPlan === "free"
               ? "You won\u2019t be charged unless you upgrade. You can cancel anytime from settings."
-              : "You can cancel anytime from settings."}
+              : "Upgrades are prorated. You can cancel anytime from settings."}
           </p>
         </div>
       </div>
@@ -292,34 +352,68 @@ export default function SubscriptionPlan() {
           <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-card p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200 space-y-5">
             <div className="text-center space-y-2">
               <h2 className="text-xl font-semibold">Confirm subscription</h2>
-              <p className="text-muted-foreground text-sm">
-                You&apos;ll be charged{" "}
-                <span className="font-semibold text-foreground">
-                  {PLANS.find((p) => p.id === selectedPlan)?.price}
-                  /month
-                </span>{" "}
-                for the{" "}
-                <span className="font-semibold text-foreground">
-                  {PLANS.find((p) => p.id === selectedPlan)?.name}
-                </span>{" "}
-                plan using your card on file.
-              </p>
+
+              {preview ? (
+                <div className="space-y-3 text-left">
+                  <div className="rounded-lg bg-white/5 p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">Due today</span>
+                      <span className="font-bold">{formatCents(preview.amount_due_now, preview.currency)}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">Then monthly</span>
+                      <span className="text-sm font-semibold">{formatCents(preview.next_recurring_amount, preview.currency)}/mo</span>
+                    </div>
+                    {preview.next_renewal_date && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">Next renewal</span>
+                        <span className="text-sm">{formatDate(preview.next_renewal_date)}</span>
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground text-center">
+                    Using your card on file for the{" "}
+                    <span className="font-semibold text-foreground">
+                      {PLANS.find((p) => p.id === selectedPlan)?.name}
+                    </span>{" "}
+                    plan.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-muted-foreground text-sm">
+                  You&apos;ll be charged{" "}
+                  <span className="font-semibold text-foreground">
+                    {PLANS.find((p) => p.id === selectedPlan)?.price}
+                    /month
+                  </span>{" "}
+                  for the{" "}
+                  <span className="font-semibold text-foreground">
+                    {PLANS.find((p) => p.id === selectedPlan)?.name}
+                  </span>{" "}
+                  plan using your card on file.
+                </p>
+              )}
             </div>
             <div className="flex gap-3">
               <Button
                 variant="outline"
                 className="flex-1 rounded-xl"
-                onClick={() => setShowConfirm(false)}
+                onClick={() => { setShowConfirm(false); setPreview(null) }}
                 disabled={loading}
               >
                 Cancel
               </Button>
               <Button
-                className="flex-1 rounded-xl"
+                className="flex-1 rounded-xl gap-2"
                 onClick={handleConfirmPurchase}
                 disabled={loading}
               >
-                {loading ? "Processing…" : "Confirm & pay"}
+                {loading ? "Processing…" : preview ? (
+                  <>
+                    <ArrowUpCircle className="h-4 w-4" />
+                    Confirm & pay {formatCents(preview.amount_due_now, preview.currency)}
+                  </>
+                ) : "Confirm & pay"}
               </Button>
             </div>
           </div>

@@ -30,7 +30,7 @@ export default function GirlfriendReveal() {
 
   const girlfriendName =
     girlfriend?.display_name || girlfriend?.name || "Your Girl"
-  const avatarUrl = girlfriend?.avatar_url || "/assets/companion-avatar.png"
+  const avatarUrl = girlfriend?.avatar_url || null
 
   const onSubmit = async (data: SignupInput) => {
     setError(null)
@@ -70,13 +70,20 @@ export default function GirlfriendReveal() {
         {/* Blurred photo card */}
         <div className="relative mx-auto w-72 overflow-hidden rounded-3xl border-2 border-white/10 shadow-2xl shadow-primary/10">
           <div className="aspect-[3/4] w-full overflow-hidden bg-muted">
-            <img
-              src={avatarUrl}
-              alt={girlfriendName}
-              className="h-full w-full object-cover blur-xl scale-110"
-            />
+            {avatarUrl ? (
+              <img
+                src={avatarUrl}
+                alt={girlfriendName}
+                className="h-full w-full object-cover blur-xl scale-110"
+              />
+            ) : (
+              <div className="h-full w-full bg-gradient-to-br from-primary/30 via-primary/10 to-background blur-xl scale-110" />
+            )}
           </div>
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="text-7xl font-bold text-white/20">{(girlfriendName ?? "?")[0]}</span>
+          </div>
           <div className="absolute bottom-0 left-0 right-0 p-6 text-center">
             <p className="text-lg font-semibold text-white">{girlfriendName}</p>
             <p className="mt-1 text-sm text-white/60">Create an account to continue</p>

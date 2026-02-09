@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { getGallery } from "@/lib/api/endpoints"
+import { useAppStore } from "@/lib/store/useAppStore"
 import GalleryGrid from "@/components/gallery/GalleryGrid"
 import ImageViewerModal from "@/components/gallery/ImageViewerModal"
 import type { GalleryItem } from "@/lib/api/types"
@@ -9,7 +10,11 @@ import { Skeleton } from "@/components/ui/skeleton"
 export default function Gallery() {
   const [selected, setSelected] = useState<GalleryItem | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
-  const { data, isLoading } = useQuery({ queryKey: ["gallery"], queryFn: getGallery })
+  const currentGirlfriendId = useAppStore((s) => s.currentGirlfriendId)
+  const { data, isLoading } = useQuery({
+    queryKey: ["gallery", currentGirlfriendId],
+    queryFn: () => getGallery(currentGirlfriendId ?? undefined),
+  })
 
   const handleSelect = (item: GalleryItem) => {
     setSelected(item)

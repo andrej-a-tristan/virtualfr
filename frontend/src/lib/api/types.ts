@@ -148,16 +148,96 @@ export interface GalleryItem {
   caption: string | null
 }
 
+export type Plan = "free" | "plus" | "premium"
+
 export interface BillingStatus {
-  plan: "free" | "plus" | "premium"
+  plan: Plan
   has_card_on_file: boolean
   message_cap: number
   image_cap: number
+  girls_max: number
+  girls_count: number
+  can_create_more_girls: boolean
+  current_period_end: string | null
+  next_renewal_date: string | null
+  next_invoice_amount: number | null
+  subscription_status: string | null
+}
+
+// ── Plan change (proration) types ─────────────────────────────────────────
+
+export interface ProrationLineItem {
+  description: string
+  amount: number // cents
+  currency: string
+}
+
+export interface InvoiceSummary {
+  amount_due: number // cents
+  currency: string
+  paid: boolean
+  hosted_invoice_url?: string | null
+}
+
+export interface PreviewPlanChangeResponse {
+  amount_due_now: number // cents
+  currency: string
+  next_recurring_amount: number // cents
+  next_renewal_date: string
+  proration_line_items: ProrationLineItem[]
+}
+
+export interface ChangePlanResponse {
+  ok: boolean
+  plan: Plan
+  previous_plan: Plan
+  subscription_id: string | null
+  current_period_end: string | null
+  invoice?: InvoiceSummary | null
+}
+
+// Multi-girl
+export interface GirlfriendListResponse {
+  girlfriends: Girlfriend[]
+  current_girlfriend_id: string | null
+  girls_max: number
+  can_create_more: boolean
+}
+
+export interface SetCurrentGirlfriendRequest {
+  girlfriend_id: string
+}
+
+export interface SwitchGirlfriendResponse {
+  girlfriends: Girlfriend[]
+  current_girlfriend_id: string
+}
+
+export interface CreateGirlfriendResponse {
+  girlfriend: Girlfriend
+  girlfriends: Girlfriend[]
+  current_girlfriend_id: string
 }
 
 export interface SetupIntentResponse {
   client_secret: string
   publishable_key: string
+}
+
+// -----------------------------------------------------------------------------
+// Payment Method
+// -----------------------------------------------------------------------------
+
+export interface PaymentMethodCardSummary {
+  brand: string
+  last4: string
+  exp_month: number
+  exp_year: number
+}
+
+export interface PaymentMethodResponse {
+  has_card: boolean
+  card: PaymentMethodCardSummary | null
 }
 
 // -----------------------------------------------------------------------------
@@ -259,6 +339,8 @@ export interface GiftDefinition {
   cooldown_days: number | null
   rarity: "common" | "rare" | "legendary"
   emoji: string
+  unique_effect_name: string
+  unique_effect_description: string
 }
 
 export interface GiftListResponse {
@@ -266,8 +348,10 @@ export interface GiftListResponse {
 }
 
 export interface GiftCheckoutResponse {
-  checkout_url: string
-  session_id: string
+  status: "succeeded" | "requires_action" | "failed" | "no_card"
+  client_secret?: string
+  payment_intent_id?: string
+  error?: string
 }
 
 export interface GiftHistoryItem {
@@ -291,4 +375,6 @@ export interface GiftEventData {
   tier: string
   trust_gained: number
   intimacy_gained: number
+  unique_effect_name: string
+  unique_effect_description: string
 }

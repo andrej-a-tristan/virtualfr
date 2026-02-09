@@ -4,7 +4,6 @@
  * Use flushSync so each token paints immediately (React 18 would otherwise batch updates).
  */
 import { flushSync } from "react-dom"
-import type { ChatMessage } from "@/lib/api/types"
 import { useChatStore } from "@/lib/store/useChatStore"
 import { useAppStore } from "@/lib/store/useAppStore"
 
@@ -13,6 +12,7 @@ const CHAT_GATEWAY_KEY = import.meta.env.VITE_CHAT_GATEWAY_KEY ?? "dev-key"
 export async function sendChatMessage(message: string): Promise<void> {
   const { messages, appendMessage, setStreamingContent, setIsStreaming } = useChatStore.getState()
   const user = useAppStore.getState().user
+  const girlfriendId = useAppStore.getState().currentGirlfriendId
   const sessionId = user?.id ?? "anonymous"
 
   setStreamingContent("")
@@ -25,6 +25,7 @@ export async function sendChatMessage(message: string): Promise<void> {
       model: "mock-1",
       model_version: "local",
       messages: history,
+      girlfriend_id: girlfriendId,
     }
     const res = await fetch("/api/chat/stream", {
       method: "POST",

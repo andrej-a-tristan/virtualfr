@@ -1,11 +1,18 @@
 import { Link } from "react-router-dom"
 import { LogIn } from "lucide-react"
+import { useAppStore } from "@/lib/store/useAppStore"
 
 /**
  * Persistent "Sign in" button shown in the top-right corner
- * throughout the entire onboarding flow.
+ * throughout the first-time onboarding flow only.
+ * Hidden when creating additional girls (user is already signed in).
  */
 export default function OnboardingSignIn() {
+  const onboardingMode = useAppStore((s) => s.onboardingMode)
+
+  // Don't show "Sign in" when the user is already logged in and adding more girls
+  if (onboardingMode === "additional") return null
+
   return (
     <Link
       to="/login"

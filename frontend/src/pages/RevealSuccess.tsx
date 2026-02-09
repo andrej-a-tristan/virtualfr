@@ -23,7 +23,7 @@ export default function RevealSuccess() {
 
   const girlfriendName =
     girlfriend?.display_name || girlfriend?.name || "Your Girl"
-  const avatarUrl = girlfriend?.avatar_url || "/assets/companion-avatar.png"
+  const avatarUrl = girlfriend?.avatar_url || null
   const plan = billing?.plan ?? "free"
   const planInfo = PLAN_LABELS[plan] ?? PLAN_LABELS.free
   const PlanIcon = planInfo.icon
@@ -47,12 +47,21 @@ export default function RevealSuccess() {
         {/* Unblurred photo */}
         <div className="relative mx-auto w-72 overflow-hidden rounded-3xl border-2 border-white/10 shadow-2xl shadow-primary/20 animate-in fade-in zoom-in-95 duration-700">
           <div className="aspect-[3/4] w-full overflow-hidden bg-muted">
-            <img
-              src={avatarUrl}
-              alt={girlfriendName}
-              className="h-full w-full object-cover"
-            />
+            {avatarUrl ? (
+              <img
+                src={avatarUrl}
+                alt={girlfriendName}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <div className="h-full w-full bg-gradient-to-br from-primary/40 via-primary/15 to-background" />
+            )}
           </div>
+          {!avatarUrl && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <span className="text-8xl font-bold text-white/25">{(girlfriendName ?? "?")[0]}</span>
+            </div>
+          )}
           <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
           <div className="absolute bottom-0 left-0 right-0 p-5">
             <p className="text-xl font-bold text-white">{girlfriendName}</p>
@@ -70,7 +79,7 @@ export default function RevealSuccess() {
           <Button
             size="lg"
             className="w-full max-w-xs rounded-xl gap-2 text-base"
-            onClick={() => navigate("/app/chat", { replace: true })}
+            onClick={() => navigate("/app/girl", { replace: true })}
           >
             <MessageCircle className="h-5 w-5" />
             Let&apos;s chat

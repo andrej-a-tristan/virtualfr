@@ -1,6 +1,7 @@
 # VirtualFR — Project Index
 
 > AI companion web app: FastAPI backend + React/Vite frontend.
+> Multi-girlfriend support with per-girl chat, gallery, relationship state, and gifting.
 
 ---
 
@@ -36,40 +37,45 @@ virtualfr/
 │       ├── main.py
 │       ├── mock_main.py
 │       ├── core/
-│       │   ├── config.py          — Settings (env vars, CORS, LLM URL, etc.)
+│       │   ├── config.py          — Settings (env vars, CORS, LLM URL, Stripe, etc.)
 │       │   ├── cors.py            — CORS middleware setup
 │       │   ├── auth.py            — Auth helpers
 │       │   ├── rate_limit.py      — Rate limiting
 │       │   ├── chat_logging.py    — JSONL chat logger
 │       │   └── supabase_client.py — Supabase client init
 │       ├── api/
-│       │   ├── store.py           — In-memory session/girlfriend store
+│       │   ├── store.py           — In-memory session store (multi-girl: messages, gallery, relationship, habits per girlfriend)
 │       │   ├── supabase_store.py  — Supabase-backed store
 │       │   ├── request_context.py — Request context helpers
 │       │   └── routes/
-│       │       ├── auth.py        — Signup, login, logout
-│       │       ├── billing.py     — Plan status, checkout
-│       │       ├── chat.py        — Chat history, state, send, app_open
-│       │       ├── girlfriends.py — Create/get girlfriend
+│       │       ├── auth.py        — Signup, login (preserves session data), logout
+│       │       ├── billing.py     — Plan status, setup-intent, subscribe, cancel, payment-method, Stripe webhook
+│       │       ├── chat.py        — Chat history, state, send (SSE), app_open — all per-girlfriend
+│       │       ├── gifts.py       — Gift catalog, checkout (inline Stripe), confirm, history — per-girlfriend
+│       │       ├── girlfriends.py — List, create, switch, get current — multi-girl CRUD with plan limits
 │       │       ├── health.py      — Health check
-│       │       ├── images.py      — Image jobs, gallery
+│       │       ├── images.py      — Image jobs, gallery — per-girlfriend
 │       │       ├── me.py          — Current user, age gate
 │       │       ├── memory.py      — Memory summary/items/stats
 │       │       ├── moderation.py  — Content reports
-│       │       └── onboarding.py  — Prompt images, complete onboarding
+│       │       └── onboarding.py  — Prompt images, complete onboarding (first girl)
 │       ├── routers/
-│       │   ├── chat.py            — Chat gateway (SSE proxy + canon injection)
+│       │   ├── chat.py            — Chat gateway (SSE proxy + canon injection, accepts girlfriend_id)
 │       │   └── mock_model.py      — Internal mock LLM (/v1/chat/completions)
 │       ├── schemas/
 │       │   ├── auth.py            — SignupRequest, LoginRequest, UserResponse
-│       │   ├── chat.py            — ChatMessage, SendMessageRequest, RelationshipState
-│       │   ├── girlfriend.py      — TraitsPayload, AppearancePrefs, IdentityCanon, etc.
+│       │   ├── chat.py            — ChatMessage, SendMessageRequest (with girlfriend_id), RelationshipState
+│       │   ├── gift.py            — GiftDefinition, GiftCheckoutRequest/Response, GiftHistoryItem
+│       │   ├── girlfriend.py      — TraitsPayload, AppearancePrefs, IdentityCanon, GirlfriendListResponse, OnboardingCompletePayload
 │       │   ├── image.py           — ImageJobResponse, GalleryItem
+│       │   ├── payment_method.py  — PaymentMethodResponse
 │       │   └── relationship.py    — Relationship schemas
 │       ├── services/
 │       │   ├── big_five.py             — Trait → Big Five mapping
 │       │   ├── big_five_modulation.py  — Big Five → behavior modulation
+│       │   ├── big_five_mapping.json   — Big Five mapping data
 │       │   ├── trait_behavior_rules.py — Trait → BehaviorProfile
+│       │   ├── gifting.py              — Gift catalog, effects, checkout, webhook handling
 │       │   ├── relationship_state.py   — Trust/intimacy/level tracking, decay, milestones
 │       │   ├── memory.py               — Factual & emotional memory extraction/context
 │       │   ├── habits.py               — User habit profiling
@@ -99,21 +105,30 @@ virtualfr/
         ├── lib/
         │   ├── api/
         │   │   ├── client.ts          — Axios/fetch wrapper
-        │   │   ├── endpoints.ts       — All API call functions
-        │   │   ├── types.ts           — TypeScript types
+        │   │   ├── endpoints.ts       — All API call functions (multi-girl, gifts, billing, gallery)
+        │   │   ├── types.ts           — TypeScript types (Girlfriend, GirlfriendListResponse, gifts, billing, memory, Big Five)
         │   │   └── zod.ts             — Zod schemas for forms
         │   ├── constants/identity.ts  — Job vibes, hobbies, city vibes, name validation
         │   ├── engines/               — Frontend personality/memory/relationship engines
+        │   │   ├── big_five_modulation.ts
+        │   │   ├── habits.ts
+        │   │   ├── index.ts
+        │   │   ├── initiation_engine.ts
+        │   │   ├── memory.ts
+        │   │   ├── relationship_state.ts
+        │   │   └── trait_behavior_rules.ts
         │   ├── hooks/
         │   │   ├── useAuth.ts         — Auth hook (react-query + store)
-        │   │   └── useSSEChat.ts      — SSE chat streaming hook
+        │   │   └── useSSEChat.ts      — SSE chat streaming hook (sends girlfriend_id)
+        │   ├── onboarding/
+        │   │   └── vibe.ts            — Vibe helpers
         │   ├── store/
-        │   │   ├── useAppStore.ts     — Main Zustand store (user, girlfriend, onboarding)
+        │   │   ├── useAppStore.ts     — Main Zustand store (user, girlfriends[], currentGirlfriendId, onboarding, persisted)
         │   │   └── useChatStore.ts    — Chat Zustand store (messages, streaming)
         │   └── utils.ts               — cn() utility
         ├── pages/
         │   ├── Landing.tsx            — Auto-login, redirect to onboarding or chat
-        │   ├── Login.tsx              — Email/password login
+        │   ├── Login.tsx              — Email/password login (smart redirect based on user state)
         │   ├── Signup.tsx             — Email/password signup
         │   ├── AgeGate.tsx            — 18+ confirmation
         │   ├── OnboardingAppearance.tsx — Vibe selection (first onboarding page)
@@ -121,83 +136,188 @@ virtualfr/
         │   │   ├── AppearanceAge.tsx          — Age range selection
         │   │   ├── AppearanceEthnicity.tsx    — Ethnicity selection
         │   │   ├── AppearanceBodyDetails.tsx  — Body type + breast + butt (combined)
-        │   │   └── AppearanceHairEyes.tsx     — Hair color + hair style + eyes (combined)
+        │   │   ├── AppearanceHairEyes.tsx     — Hair color + hair style + eyes (combined)
+        │   │   ├── AppearanceBody.tsx         — (legacy) Body type
+        │   │   ├── AppearanceBreast.tsx       — (legacy) Breast size
+        │   │   ├── AppearanceButt.tsx         — (legacy) Butt size
+        │   │   ├── AppearanceEyes.tsx         — (legacy) Eye color
+        │   │   ├── AppearanceHairColor.tsx    — (legacy) Hair color
+        │   │   └── AppearanceHairStyle.tsx    — (legacy) Hair style
         │   ├── OnboardingTraits.tsx      — 6 personality trait questions
         │   ├── OnboardingPreferences.tsx — Spicy photos + age confirmation
         │   ├── OnboardingIdentity.tsx    — Name, job vibe, hobbies, origin
-        │   ├── OnboardingGenerating.tsx  — Calls completeOnboarding, shows spinner
+        │   ├── OnboardingGenerating.tsx  — Calls completeOnboarding or createAdditionalGirlfriend, shows spinner
         │   ├── GirlfriendReveal.tsx      — Blurred photo + signup form
         │   ├── SubscriptionPlan.tsx      — 3-tier subscription paywall
+        │   ├── RevealSuccess.tsx         — Unblurred photo + "Let's chat" after subscribing
         │   ├── PersonaPreview.tsx        — Final persona summary
-        │   ├── Chat.tsx                  — Main chat interface
-        │   ├── Gallery.tsx               — Photo gallery
+        │   ├── Chat.tsx                  — Main chat interface (per-girlfriend history)
+        │   ├── Gallery.tsx               — Photo gallery (per-girlfriend)
         │   ├── Profile.tsx               — Girlfriend profile
         │   ├── Settings.tsx              — User settings
-        │   ├── Billing.tsx               — Billing/plans
+        │   ├── Billing.tsx               — Billing/plans management (upgrade, cancel)
+        │   ├── PaymentOptions.tsx        — View/update saved card
         │   └── Safety.tsx                — Safety/moderation
         └── components/
-            ├── onboarding/
-            │   ├── AppearanceStepPage.tsx   — Reusable appearance step wrapper
-            │   ├── OnboardingSignIn.tsx     — Persistent "Sign in" button (fixed, top-right)
-            │   ├── PersonaPreviewCard.tsx   — Companion preview card
-            │   ├── ProgressStepper.tsx      — Step progress indicator
-            │   ├── TraitCard.tsx            — Single trait option card
-            │   └── TraitSelector.tsx        — Trait question + options
+            ├── billing/
+            │   ├── AddCardModal.tsx        — Stripe Elements card-saving modal
+            │   └── UpgradeModal.tsx        — Inline Premium upgrade (uses saved card)
             ├── chat/
-            │   ├── ChatHeader.tsx           — Header with avatar + name
-            │   ├── Composer.tsx             — Message input
-            │   ├── MessageBubble.tsx        — Message bubble with avatar
-            │   ├── MessageList.tsx          — Scrollable message list
-            │   ├── ImageMessage.tsx         — Image message display
-            │   ├── PaywallInlineCard.tsx    — In-chat paywall card
-            │   ├── RelationshipMeter.tsx    — Trust/intimacy meter
-            │   └── TypingIndicator.tsx      — Typing animation
+            │   ├── ChatHeader.tsx          — Header with avatar, name, girl switcher dropdown, plan badge
+            │   ├── Composer.tsx            — Message input + gift button
+            │   ├── GiftModal.tsx           — Gift catalog modal with tabs + preview + inline Stripe payment
+            │   ├── MessageBubble.tsx       — Message bubble with avatar
+            │   ├── MessageList.tsx         — Scrollable message list
+            │   ├── ImageMessage.tsx        — Image message display
+            │   ├── PaywallInlineCard.tsx   — In-chat paywall card
+            │   ├── RelationshipMeter.tsx   — Intimacy-based level meter
+            │   └── TypingIndicator.tsx     — Typing animation
             ├── gallery/
-            │   ├── GalleryGrid.tsx          — Image grid layout
-            │   └── ImageViewerModal.tsx     — Fullscreen image viewer
+            │   ├── GalleryGrid.tsx         — Image grid layout
+            │   └── ImageViewerModal.tsx    — Fullscreen image viewer
             ├── layout/
-            │   ├── AppShell.tsx             — App shell with side/top nav
-            │   ├── SideNav.tsx              — Desktop sidebar
-            │   ├── TopNav.tsx               — Top navigation bar
-            │   ├── MobileNav.tsx            — Mobile bottom nav
-            │   └── Footer.tsx               — Footer
+            │   ├── AppShell.tsx            — App shell (fetches & syncs girlfriends list)
+            │   ├── SideNav.tsx             — Desktop sidebar with "My Girls" section + girl switcher + create CTA
+            │   ├── TopNav.tsx              — Top navigation bar
+            │   ├── MobileNav.tsx           — Mobile bottom nav
+            │   └── Footer.tsx              — Footer
+            ├── onboarding/
+            │   ├── AppearanceStepPage.tsx  — Reusable appearance step wrapper
+            │   ├── OnboardingSignIn.tsx    — "Sign in" button (hidden in additional-girl mode)
+            │   ├── PersonaPreviewCard.tsx  — Companion preview card
+            │   ├── ProgressStepper.tsx     — Step progress indicator
+            │   ├── TraitCard.tsx           — Single trait option card
+            │   └── TraitSelector.tsx       — Trait question + options
             ├── safety/
-            │   ├── ContentPreferences.tsx   — Content pref toggles
-            │   └── ReportDialog.tsx         — Report content dialog
-            └── ui/                          — shadcn/ui primitives
+            │   ├── ContentPreferences.tsx  — Content pref toggles
+            │   └── ReportDialog.tsx        — Report content dialog
+            └── ui/
+                ├── AvatarCircle.tsx        — Avatar with image or gradient initial fallback
+                ├── badge.tsx, button.tsx, card.tsx, checkbox.tsx, dialog.tsx
+                ├── dropdown-menu.tsx, input.tsx, label.tsx, separator.tsx
+                ├── skeleton.tsx, tabs.tsx, tooltip.tsx
 ```
 
 ---
 
 ## Backend API Summary
 
+### Auth & User
+
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/health` | Health check |
 | `POST` | `/api/auth/signup` | Create account (mock session cookie) |
-| `POST` | `/api/auth/login` | Login (mock session cookie) |
-| `POST` | `/api/auth/logout` | Logout (clear cookie) |
-| `GET` | `/api/me` | Current user + flags |
+| `POST` | `/api/auth/login` | Login (preserves girlfriend/plan data) |
+| `POST` | `/api/auth/logout` | Logout (clears all session data) |
+| `GET` | `/api/me` | Current user + flags (has_girlfriend, age_gate_passed) |
 | `POST` | `/api/me/age-gate` | Set `age_gate_passed = true` |
-| `POST` | `/api/girlfriends` | Create girlfriend (legacy) |
+
+### Girlfriends (Multi-Girl)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/girlfriends` | List all girlfriends + current_id + girls_max + can_create_more |
+| `POST` | `/api/girlfriends` | Create girlfriend (first onboarding, legacy) |
 | `GET` | `/api/girlfriends/current` | Get current girlfriend |
+| `POST` | `/api/girlfriends/current` | Switch to a different girlfriend |
+| `POST` | `/api/girlfriends/create` | Create additional girlfriend (plan-gated: Free=1, Premium=5) |
+
+### Onboarding
+
+| Method | Path | Description |
+|--------|------|-------------|
 | `GET` | `/api/onboarding/prompt-images` | Prompt key → image URL map |
 | `POST` | `/api/onboarding/complete` | Complete onboarding; generates identity canon |
-| `GET` | `/api/chat/history` | Chat message history |
-| `GET` | `/api/chat/state` | Relationship state (trust, intimacy, level) |
-| `POST` | `/api/chat/send` | Send message (SSE) |
+
+### Chat (per-girlfriend)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/chat/history` | Chat message history (`?girlfriend_id=`) |
+| `GET` | `/api/chat/state` | Relationship state (`?girlfriend_id=`) |
+| `POST` | `/api/chat/send` | Send message (SSE) — uses `girlfriend_id` from body |
 | `POST` | `/api/chat/app_open` | App open event (initiation + jealousy) |
-| `POST` | `/api/chat/stream` | Chat gateway: SSE proxy + canon injection |
+| `POST` | `/api/chat/stream` | Chat gateway: SSE proxy + canon injection (accepts `girlfriend_id`) |
+
+### Images & Gallery (per-girlfriend)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/images/request` | Request AI image job (accepts `girlfriend_id`) |
+| `GET` | `/api/images/jobs/{id}` | Image job status |
+| `GET` | `/api/images/gallery` | Gallery items (`?girlfriend_id=`) |
+
+### Billing & Payments
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/billing/status` | Plan + caps + girls_max + girls_count |
+| `POST` | `/api/billing/setup-intent` | Create Stripe SetupIntent for card saving |
+| `POST` | `/api/billing/confirm-card` | Confirm saved card |
+| `POST` | `/api/billing/subscribe` | Subscribe to plan (inline, uses saved card) |
+| `POST` | `/api/billing/cancel` | Cancel subscription |
+| `GET` | `/api/billing/payment-method` | Get saved card details |
+| `GET` | `/api/billing/stripe-key` | Get Stripe publishable key |
+| `POST` | `/api/billing/checkout` | Create Stripe Checkout session (redirect) |
+| `POST` | `/api/billing/webhook` | Stripe webhook handler |
+
+### Gifts (per-girlfriend)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/gifts/list` | Full gift catalog (4 tiers, 28 gifts, €2–€200) |
+| `POST` | `/api/gifts/checkout` | Create gift PaymentIntent (inline, saved card) |
+| `POST` | `/api/gifts/confirm-payment` | Confirm gift payment |
+| `GET` | `/api/gifts/history` | Gift purchase history for current girlfriend |
+| `POST` | `/api/gifts/webhook` | Stripe gift webhook |
+
+### Memory
+
+| Method | Path | Description |
+|--------|------|-------------|
 | `GET` | `/api/memory/summary` | Memory context (facts, emotions, habits) |
 | `GET` | `/api/memory/items` | Raw memory items |
 | `GET` | `/api/memory/stats` | Memory statistics |
-| `POST` | `/api/images/request` | Request AI image job |
-| `GET` | `/api/images/jobs/{id}` | Image job status |
-| `GET` | `/api/images/gallery` | Gallery items |
-| `GET` | `/api/billing/status` | Plan + caps |
-| `POST` | `/api/billing/checkout` | Checkout URL |
+
+### Other
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | Health check |
 | `POST` | `/api/moderation/report` | Report content |
 | `POST` | `/v1/chat/completions` | Internal mock LLM (OpenAI contract) |
+
+---
+
+## Multi-Girlfriend Architecture
+
+### Storage (In-Memory)
+
+All per-girlfriend data is keyed by `(session_id, girlfriend_id)`:
+
+| Store | Key | Description |
+|-------|-----|-------------|
+| `_all_girlfriends` | `session_id → list[dict]` | All girlfriends for a session |
+| `_messages` | `(session_id, girlfriend_id)` | Chat messages per girl |
+| `_relationship_state` | `(session_id, girlfriend_id)` | Trust, intimacy, level per girl |
+| `_habit_profile` | `(session_id, girlfriend_id)` | User habit data per girl |
+| `_gallery` | `(session_id, girlfriend_id)` | Gallery images per girl |
+
+### Plan Limits
+
+| Plan | Max Girls |
+|------|-----------|
+| Free | 1 |
+| Plus | 1 |
+| Premium | 5 |
+
+### Frontend State
+
+- `useAppStore.girlfriends[]` — all girls (persisted to localStorage)
+- `useAppStore.currentGirlfriendId` — active girl (persisted)
+- `useAppStore.onboardingMode` — `"first"` or `"additional"` (persisted)
+- Girl switching: SideNav "My Girls" section + ChatHeader dropdown
+- All queries (chat, gallery, state) include `currentGirlfriendId` in query keys
 
 ---
 
@@ -220,10 +340,12 @@ Reveal (blurred photo + signup form)
   ↓
 Subscribe (Free / Plus / Premium tiers)
   ↓
+Reveal Success (unblurred photo + "Let's chat")
+  ↓
 Chat
 ```
 
-**Sign in** button is visible on every onboarding page (top-right, fixed) so returning users can skip to login.
+**Additional girl onboarding** (Premium users): Same flow but skips signup/reveal/subscribe. Goes straight from Generating → Chat. Sign-in button is hidden.
 
 ---
 
@@ -231,9 +353,23 @@ Chat
 
 | Tier | Price | Tagline | Features |
 |------|-------|---------|----------|
-| **Free** | €0.00/mo | "Meet [name] and chat to her" | Reveal photo, Unlimited messaging |
-| **Plus** | €14.99/mo | "Your sweetheart" | Everything in Free, Voice messages, 30 photos/month, Nude photos |
-| **Premium** | €29.99/mo | "Exclusive relationship" | Everything in Plus, 80 photos/month, More intimate moments, More nude photos |
+| **Free** | €0.00/mo | "Meet [name] and chat to her" | Reveal photo, unlimited messaging |
+| **Plus** | €14.99/mo | "Your sweetheart" | Everything in Free, voice messages, 30 photos/month |
+| **Premium** | €29.99/mo | "Exclusive relationship" | Everything in Plus, 80 photos/month, up to 5 girls |
+
+---
+
+## Gift System
+
+28 gifts across 4 tiers (Everyday €2–€9, Dates €12–€35, Luxury €60–€140, Legendary €160–€200).
+
+Each gift has:
+- Unique emotional effect (stored in memory)
+- Relationship boost (trust + intimacy)
+- Optional image album reward
+- Cooldown (some gifts)
+
+Payment: Inline via saved Stripe card (PaymentIntent), no redirect.
 
 ---
 
@@ -246,13 +382,16 @@ Chat
 - **ContentPrefsPayload**: `wants_spicy_photos`
 - **IdentityPayload**: `girlfriend_name`, `job_vibe`, `hobbies`, `origin_vibe`
 - **IdentityCanon**: `backstory`, `daily_routine`, `favorites` (music_vibe, comfort_food, weekend_idea), `memory_seeds`
+- **GirlfriendListResponse**: `girlfriends[]`, `current_girlfriend_id`, `girls_max`, `can_create_more`
 
 ### Frontend (`lib/api/types.ts`)
 
-- **User**: `id`, `email`, `display_name`, `age_gate_passed`, `has_girlfriend`
+- **User**: `id`, `email`, `display_name`, `age_gate_passed`, `has_girlfriend`, `current_girlfriend_id`
 - **Girlfriend**: `id`, `display_name`, `name`, `avatar_url`, `traits`, `appearance_prefs`, `content_prefs`, `identity`, `identity_canon`
 - **ChatMessage**: `id`, `role`, `content`, `image_url`, `event_type`
 - **RelationshipState**: `trust`, `intimacy`, `level`, `milestones_reached`
+- **BillingStatus**: `plan`, `has_card_on_file`, `message_cap`, `image_cap`, `girls_max`, `girls_count`, `can_create_more_girls`
+- **GiftDefinition**: `id`, `name`, `price_eur`, `tier`, `relationship_boost`, `unique_effect_name`, `unique_effect_description`, `cooldown_days`
 - **BigFive**: `openness`, `conscientiousness`, `extraversion`, `agreeableness`, `neuroticism` (0–100)
 
 ---
@@ -262,8 +401,11 @@ Chat
 ### `useAppStore` (persisted to localStorage)
 
 - `user`, `girlfriend` — current session
+- `girlfriends[]`, `currentGirlfriendId` — multi-girl state (persisted)
+- `onboardingMode` — `"first"` | `"additional"` (persisted)
 - `onboardingDraft` — legacy trait draft
 - `onboardingTraits`, `onboardingAppearance`, `onboardingContentPrefs`, `onboardingIdentity` — extended onboarding state (all persisted)
+- `setGirlfriends()`, `setCurrentGirlfriend()`, `addGirlfriend()` — multi-girl actions
 - `clearOnboarding()` — resets all onboarding state
 
 ### `useChatStore`
@@ -291,9 +433,9 @@ Canon is injected as a system message into every LLM chat request via `build_gir
 - **Trait → Big Five mapping** (`services/big_five.py`)
 - **Big Five → behavior modulation** (`services/big_five_modulation.py`)
 - **Trait → BehaviorProfile** (`services/trait_behavior_rules.py`)
-- **Relationship tracking** — trust/intimacy/level with decay and milestones
+- **Relationship tracking** — trust/intimacy/level with decay and milestones (per-girlfriend)
 - **Memory system** — factual + emotional memory extraction and context building
-- **Habit profiling** — preferred hours, typical message gaps
+- **Habit profiling** — preferred hours, typical message gaps (per-girlfriend)
 - **Initiation engine** — girlfriend-initiated messages based on relationship state
 
 ---
@@ -310,6 +452,8 @@ Canon is injected as a system message into every LLM chat request via `build_gir
 | `INTERNAL_LLM_API_KEY` | — | Optional LLM auth |
 | `API_KEY` | — | External API key |
 | `CHAT_API_KEY` | `dev-key` | Chat gateway auth |
+| `STRIPE_SECRET_KEY` | — | Stripe secret key (test mode) |
+| `STRIPE_WEBHOOK_SECRET` | — | Stripe webhook signing secret |
 | `SUPABASE_URL` | — | Supabase URL (optional) |
 | `SUPABASE_ANON_KEY` | — | Supabase key (optional) |
 
@@ -327,7 +471,7 @@ Canon is injected as a system message into every LLM chat request via `build_gir
 # Backend
 cd backend
 pip install -r requirements.txt
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 # Frontend
 cd frontend

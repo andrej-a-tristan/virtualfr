@@ -66,7 +66,7 @@ export default function PersonaPreview() {
         <Button
           className="w-full rounded-xl"
           size="lg"
-          onClick={() => navigate("/app/chat", { replace: true })}
+          onClick={() => navigate("/app/girl", { replace: true })}
         >
           Start Chat
         </Button>

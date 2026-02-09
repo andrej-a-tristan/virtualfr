@@ -1,25 +1,63 @@
-"""Girlfriend CRUD (create, get current) with mock storage."""
+"""Girlfriend CRUD: create, list, get current, switch.
+Supports multiple girlfriends per user (Premium: up to 5, Free: max 1)."""
+import hashlib
+import json
 from datetime import datetime, timezone
-from fastapi import APIRouter, Request
+from uuid import uuid4
+
+from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import JSONResponse
-from app.schemas.girlfriend import CreateGirlfriendRequest, GirlfriendResponse
-from app.api.store import get_session_user, get_girlfriend, set_girlfriend
+from pydantic import BaseModel
+
+from app.schemas.girlfriend import (
+    CreateGirlfriendRequest,
+    GirlfriendResponse,
+    OnboardingCompletePayload,
+    IdentityResponse,
+)
+from app.api.store import (
+    get_session_user,
+    set_session_user,
+    get_girlfriend,
+    set_girlfriend,
+    get_all_girlfriends,
+    add_girlfriend,
+    get_girlfriend_count,
+    set_current_girlfriend_id,
+)
+from app.utils.identity_canon import generate_identity_canon
 
 router = APIRouter(prefix="/girlfriends", tags=["girlfriends"])
+
+PLAN_LIMITS = {"free": 1, "plus": 1, "premium": 5}
 
 
 def _session_id(request: Request) -> str | None:
     return request.cookies.get("session")
 
 
+def _require_user(request: Request) -> tuple[str, dict]:
+    sid = _session_id(request)
+    if not sid:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    user = get_session_user(sid)
+    if not user:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    return sid, user
+
+
+def _gf_to_response(gf: dict) -> GirlfriendResponse:
+    return GirlfriendResponse(**gf)
+
+
+# ── POST /api/girlfriends (create first girl — backward compat) ──────────────
+
 @router.post("")
 def create_girlfriend(request: Request, body: CreateGirlfriendRequest):
-    """Create current girlfriend from displayName + traits."""
-    sid = _session_id(request)
-    if not sid or not get_session_user(sid):
-        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    """Create current girlfriend from displayName + traits (first onboarding)."""
+    sid, user = _require_user(request)
     traits = body.traits.model_dump()
-    gf_id = "gf-1"
+    gf_id = f"gf-{uuid4().hex[:8]}"
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     gf = {
         "id": gf_id,
@@ -31,13 +69,120 @@ def create_girlfriend(request: Request, body: CreateGirlfriendRequest):
     return GirlfriendResponse(**gf)
 
 
+# ── GET /api/girlfriends (list all) ──────────────────────────────────────────
+
+@router.get("")
+def list_girlfriends(request: Request):
+    """Return all girlfriends for the current user."""
+    sid, user = _require_user(request)
+    gfs = get_all_girlfriends(sid)
+    current_id = user.get("current_girlfriend_id")
+    plan = user.get("plan", "free")
+    girls_max = PLAN_LIMITS.get(plan, 1)
+    return {
+        "girlfriends": [_gf_to_response(gf) for gf in gfs],
+        "current_girlfriend_id": current_id,
+        "girls_max": girls_max,
+        "can_create_more": len(gfs) < girls_max,
+    }
+
+
+# ── GET /api/girlfriends/current ─────────────────────────────────────────────
+
 @router.get("/current")
 def get_current_girlfriend(request: Request):
     """Return current girlfriend or 404."""
-    sid = _session_id(request)
-    if not sid or not get_session_user(sid):
-        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    sid, user = _require_user(request)
     gf = get_girlfriend(sid)
     if not gf:
         return JSONResponse(status_code=404, content={"error": "no_girlfriend"})
     return GirlfriendResponse(**gf)
+
+
+# ── POST /api/girlfriends/current (switch) ───────────────────────────────────
+
+class SetCurrentRequest(BaseModel):
+    girlfriend_id: str
+
+
+@router.post("/current")
+def switch_girlfriend(request: Request, body: SetCurrentRequest):
+    """Switch to a different girlfriend."""
+    sid, user = _require_user(request)
+    ok = set_current_girlfriend_id(sid, body.girlfriend_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Girlfriend not found")
+    gfs = get_all_girlfriends(sid)
+    return {
+        "girlfriends": [_gf_to_response(gf) for gf in gfs],
+        "current_girlfriend_id": body.girlfriend_id,
+    }
+
+
+# ── POST /api/girlfriends/create (additional girl — premium gated) ───────────
+
+@router.post("/create")
+def create_additional_girlfriend(request: Request, body: OnboardingCompletePayload):
+    """Create an additional girlfriend. Enforces plan limits (Free: 1, Premium: 5)."""
+    sid, user = _require_user(request)
+
+    plan = user.get("plan", "free")
+    girls_max = PLAN_LIMITS.get(plan, 1)
+    current_count = get_girlfriend_count(sid)
+
+    if current_count >= girls_max:
+        if plan == "premium":
+            raise HTTPException(status_code=403, detail=f"Premium users can have up to {girls_max} girls.")
+        else:
+            raise HTTPException(status_code=403, detail="Upgrade to Premium to create more girls.")
+
+    girlfriend_name = body.identity.girlfriend_name.strip()
+    traits = body.traits.model_dump()
+    appearance_prefs = body.appearance_prefs.model_dump()
+    content_prefs = body.content_prefs.model_dump()
+
+    identity = {
+        "name": girlfriend_name,
+        "job_vibe": body.identity.job_vibe,
+        "hobbies": body.identity.hobbies,
+        "origin_vibe": body.identity.origin_vibe,
+    }
+
+    gf_id = f"gf-{uuid4().hex[:8]}"
+    seed_source = f'{user["id"]}|{gf_id}|{json.dumps(appearance_prefs, sort_keys=True)}'
+    avatar_seed = hashlib.sha256(seed_source.encode("utf-8")).hexdigest()[:16]
+    avatar_url = f"https://picsum.photos/seed/{avatar_seed}/512/512"
+
+    canon_seed = int(hashlib.sha256(gf_id.encode("utf-8")).hexdigest()[:8], 16)
+    identity_canon = generate_identity_canon(
+        name=girlfriend_name,
+        job_vibe=body.identity.job_vibe or "in-between",
+        hobbies=body.identity.hobbies,
+        origin_vibe=body.identity.origin_vibe or "",
+        traits=traits,
+        content_prefs=content_prefs,
+        seed=canon_seed,
+    )
+
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    gf = {
+        "id": gf_id,
+        "name": girlfriend_name,
+        "display_name": girlfriend_name,
+        "avatar_url": avatar_url,
+        "traits": traits,
+        "appearance_prefs": appearance_prefs,
+        "content_prefs": content_prefs,
+        "identity": identity,
+        "identity_canon": identity_canon.model_dump(),
+        "created_at": now,
+    }
+
+    add_girlfriend(sid, gf)
+
+    gfs = get_all_girlfriends(sid)
+    return {
+        "girlfriend": _gf_to_response(gf),
+        "girlfriends": [_gf_to_response(g) for g in gfs],
+        "current_girlfriend_id": gf_id,
+    }

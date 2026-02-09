@@ -18,7 +18,7 @@ export default function TopNav() {
 
   return (
     <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-white/10 bg-background/80 px-4 backdrop-blur-sm md:px-6">
-      <Link to="/app/chat" className="flex items-center gap-2 font-semibold tracking-tight text-foreground">
+      <Link to="/app/girl" className="flex items-center gap-2 font-semibold tracking-tight text-foreground">
         <span className="text-lg">Companion</span>
       </Link>
       <div className="flex items-center gap-3">

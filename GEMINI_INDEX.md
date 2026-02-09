@@ -1,289 +1,650 @@
-# GEMINI_INDEX.md - VirtualFR Project Index
+# VirtualFR Project Index
 
-Comprehensive index of all source files in the VirtualFR monorepo (FastAPI backend + React frontend).
-
-## Root Directory
-
-- **README.md** - Main project documentation explaining the monorepo structure, development setup, production deployment, and features including auth, onboarding, chat, gallery, billing, and safety.
-- **.gitignore** - Git ignore patterns for dependencies (node_modules, __pycache__), build artifacts, IDE files, OS files, logs, and test coverage.
-- **onboarding_questions.md.txt** - Text file containing onboarding questions (likely used for reference or documentation).
-- **PROJECT_INDEX.md** - Existing project index file (may contain similar information).
-
-## Backend (`backend/`)
-
-### Configuration & Setup
-
-- **requirements.txt** - Python dependencies including FastAPI, uvicorn, pydantic, supabase, httpx, openai, stripe, and pytest.
-- **.env.example** - Environment variable template showing required configuration for Supabase, API keys, Stripe, and chat gateway settings.
-- **supabase_schema.sql** - SQL schema definitions for Supabase database tables (users, sessions, girlfriends, messages, relationship_state, memories, etc.).
-
-### Main Application (`backend/app/`)
-
-#### Entry Points
-
-- **main.py** - FastAPI application entry point that loads environment variables, sets up CORS, mounts API routers under `/api`, includes chat gateway routes, and serves static frontend files in production mode.
-- **mock_main.py** - Standalone entrypoint for internal LLM mock server providing OpenAI-compatible endpoints (`POST /v1/chat/completions`) for development and testing.
-
-#### Core (`backend/app/core/`)
-
-- **config.py** - Application settings loaded from environment variables including host/port, CORS origins, Supabase credentials, API keys, Stripe configuration, and chat gateway settings.
-- **auth.py** - Bearer token authentication for chat gateway endpoints using HTTPBearer security scheme and CHAT_API_KEY validation.
-- **cors.py** - CORS middleware configuration for FastAPI application allowing cross-origin requests from configured origins.
-- **rate_limit.py** - Rate limiting implementation for API endpoints to prevent abuse and ensure fair usage.
-- **supabase_client.py** - Supabase client initialization and management, providing functions to get Supabase client instances and check if Supabase is configured.
-- **chat_logging.py** - Chat request logging functionality that writes JSONL logs to `backend/logs/chat.jsonl` with request metadata, messages, responses, and performance metrics.
-- **__init__.py** - Core module initialization exporting settings and CORS setup functions.
-
-#### API Routes (`backend/app/api/routes/`)
-
-- **auth.py** - Authentication endpoints for signup, login, and logout using mock session cookies stored in-memory or Supabase.
-- **billing.py** - Billing endpoints for plan status, Stripe SetupIntent creation for card saving, subscription management (subscribe, cancel), webhook handling, and card confirmation.
-- **chat.py** - Chat endpoints for message history, relationship state, sending messages with SSE streaming, and app_open initiation/jealousy reactions with full personality and memory integration.
-- **girlfriends.py** - Girlfriend CRUD endpoints for creating and retrieving current girlfriend data with traits and display name.
-- **health.py** - Simple health check endpoint returning `{"ok": True}` to verify API availability.
-- **images.py** - Image request endpoints for creating image generation jobs, checking job status, and retrieving gallery items (currently using mock data).
-- **me.py** - Current user endpoint returning user information with age gate and girlfriend flags, plus age gate POST endpoint to mark age gate as passed.
-- **memory.py** - Memory API endpoints for accessing memory summary, raw memory items (factual/emotional), and memory statistics for debugging and UI display.
-- **moderation.py** - Moderation endpoint for reporting inappropriate content (currently returns success without processing).
-- **onboarding.py** - Onboarding endpoints for retrieving prompt images and completing onboarding by creating girlfriend avatar with identity canon generation.
-
-#### API Utilities (`backend/app/api/`)
-
-- **store.py** - In-memory session store for users, girlfriends, relationship state, messages, and habit profiles with Supabase persistence fallback when configured.
-- **supabase_store.py** - Supabase-specific storage functions for persisting sessions, girlfriends, messages, relationship state, habit profiles, and memories to Supabase database.
-- **request_context.py** - Request context utilities for extracting current user, session ID, and girlfriend ID from FastAPI requests.
-- **__init__.py** - API module initialization.
-
-#### Routers (`backend/app/routers/`)
-
-- **chat.py** - Chat gateway router providing `POST /v1/chat/stream` endpoint with Bearer auth, rate limiting, timeouts, SSE proxy to internal LLM, and JSONL logging.
-- **mock_model.py** - Mock LLM model router providing OpenAI-compatible `POST /v1/chat/completions` endpoint for development and testing without real LLM.
-- **__init__.py** - Routers module initialization.
-
-#### Schemas (`backend/app/schemas/`)
-
-- **auth.py** - Pydantic schemas for authentication requests (SignupRequest, LoginRequest) and user responses (UserResponse).
-- **chat.py** - Pydantic schemas for chat messages, relationship state, send message requests, and app open requests.
-- **girlfriend.py** - Pydantic schemas for girlfriend creation requests, responses, identity responses, and onboarding completion payloads.
-- **image.py** - Pydantic schemas for image request responses, job responses, and gallery items.
-- **relationship.py** - Pydantic schemas for relationship state representation.
-- **__init__.py** - Schemas module initialization.
-
-#### Services (`backend/app/services/`)
-
-- **big_five.py** - Big Five personality mapping service that converts 6 onboarding traits to Big Five scores (0.0-1.0) using JSON mapping configuration.
-- **big_five_mapping.json** - JSON configuration file mapping trait values to Big Five personality scores (Openness, Conscientiousness, Extraversion, Agreeableness, Neuroticism).
-- **big_five_modulation.py** - Big Five personality modulation service for adjusting personality traits based on relationship state and interactions.
-- **habits.py** - Habit profile service that analyzes user message timestamps to determine preferred hours, typical gap hours, and communication patterns.
-- **initiation_engine.py** - Initiation engine service that determines when the girlfriend should initiate conversations based on relationship state, attachment intensity, inactivity, and user habits.
-- **memory.py** - Memory system service providing short-term, long-term factual, and emotional memory storage and retrieval with Supabase persistence, including memory context building for prompt generation.
-- **relationship_state.py** - Relationship state engine managing trust/intimacy levels, relationship progression (STRANGER → FAMILIAR → CLOSE → INTIMATE → EXCLUSIVE), inactivity decay, milestones, and jealousy reactions.
-- **time_utils.py** - Time utility functions for ISO timestamp generation and calculating hours since last interaction.
-- **trait_behavior_rules.py** - Trait behavior rules service defining how personality traits influence conversation behavior and responses.
-- **__init__.py** - Services module initialization.
-
-#### Utils (`backend/app/utils/`)
-
-- **identity_canon.py** - Identity canon generation utility that creates deterministic personality descriptions and background stories for girlfriends based on traits and preferences.
-- **prompt_identity.py** - Prompt identity utility for building system prompts that include girlfriend identity canon for LLM context.
-- **moderation.py** - Moderation utilities for content filtering and safety checks (currently minimal implementation).
-- **sse.py** - Server-Sent Events (SSE) utility functions for formatting SSE event messages in the chat streaming protocol.
-- **__init__.py** - Utils module initialization.
-
-### Documentation (`backend/docs/`)
-
-- **SETUP_SUPABASE.md** - Setup guide for configuring Supabase connection and API keys in the backend, including environment variable configuration.
-- **BIG_FIVE_MIGRATION.md** - Documentation about Big Five personality system migration and architecture decisions.
-
-### Inference (`backend/inference/`)
-
-- **Dockerfile** - Dockerfile for building CPU-only vLLM inference container that serves OpenAI-compatible API endpoints.
-- **README.md** - Documentation for running CPU-only inference container with vLLM, including build instructions and configuration for pointing gateway at container.
-
-### Scripts (`backend/scripts/`)
-
-- **check_api_key.py** - Utility script for checking if API key is properly configured in environment.
-- **check_config.py** - Utility script for validating backend configuration settings.
-
-### Tests (`backend/tests/`)
-
-- **test_chat_canon_injection.py** - Tests for verifying identity canon injection into chat prompts.
-- **test_identity_canon.py** - Tests for identity canon generation functionality.
-- **test_openai_contract.py** - Tests for verifying OpenAI-compatible API contract compliance.
-
-## Frontend (`frontend/`)
-
-### Configuration
-
-- **package.json** - NPM package configuration with dependencies including React, Vite, TypeScript, TailwindCSS, React Router, TanStack Query, Zustand, Zod, Stripe, and shadcn/ui components.
-- **vite.config.ts** - Vite build configuration with React plugin, path aliases (@/), dev server proxy for `/api` and `/v1` endpoints, and port 5173.
-- **tsconfig.json** - TypeScript compiler configuration with strict mode, ES2020 target, React JSX, and path aliases.
-- **tsconfig.node.json** - TypeScript configuration for Node.js build tools.
-- **tailwind.config.ts** - TailwindCSS configuration with dark mode support, custom color variables, and animation plugin.
-- **postcss.config.js** - PostCSS configuration with TailwindCSS and Autoprefixer plugins.
-- **index.html** - HTML entry point for the React application.
-
-### Source (`frontend/src/`)
-
-#### Entry Points
-
-- **main.tsx** - React application entry point that renders the App component with React.StrictMode.
-- **App.tsx** - Main App component that sets up QueryClientProvider, TooltipProvider, and RouterProvider for the application.
-
-#### Pages (`frontend/src/pages/`)
-
-- **Landing.tsx** - Landing page that auto-signs in users, passes age gate, and redirects to onboarding (development convenience).
-- **Login.tsx** - Login page with email/password form that calls login API and redirects based on user state.
-- **Signup.tsx** - Signup page with email, password, and display name form that creates new user account.
-- **AgeGate.tsx** - Age gate page requiring users to confirm they are 18+ before accessing the app.
-- **Chat.tsx** - Main chat page that loads chat history, displays messages, and provides composer for sending messages.
-- **Gallery.tsx** - Gallery page displaying generated images in a grid with modal viewer.
-- **Profile.tsx** - User profile page showing girlfriend information and relationship details.
-- **Settings.tsx** - Settings page for user preferences and account configuration.
-- **Billing.tsx** - Billing management page showing current plan, upgrade/downgrade options across all tiers, and subscription cancellation with confirmation.
-- **Safety.tsx** - Safety page for content preferences and reporting functionality.
-- **SubscriptionPlan.tsx** - Onboarding subscription plan selection page for choosing free/plus/premium tiers with Stripe card collection.
-- **RevealSuccess.tsx** - Post-subscription reveal page showing unblurred girlfriend photo with plan badge and "Let's chat" button.
-- **GirlfriendReveal.tsx** - Girlfriend reveal page during onboarding for account creation before subscription selection.
-- **PersonaPreview.tsx** - Persona preview page showing girlfriend summary before starting chat.
-- **OnboardingTraits.tsx** - Onboarding traits page for selecting 6 relationship-style personality traits.
-- **OnboardingAppearance.tsx** - Onboarding appearance page serving as hub for appearance customization steps.
-- **OnboardingPreferences.tsx** - Onboarding preferences page for content and interaction preferences.
-- **OnboardingIdentity.tsx** - Onboarding identity page for setting girlfriend name, job vibe, hobbies, and origin.
-- **OnboardingGenerating.tsx** - Onboarding generating page showing loading state while girlfriend is being created.
-
-#### Appearance Pages (`frontend/src/pages/appearance/`)
-
-- **AppearanceAge.tsx** - Appearance age selection page for choosing girlfriend age range.
-- **AppearanceEthnicity.tsx** - Appearance ethnicity selection page for choosing girlfriend ethnicity.
-- **AppearanceBody.tsx** - Appearance body type selection page.
-- **AppearanceBodyDetails.tsx** - Appearance body details page for selecting body type, breast size, and butt size on a single page.
-- **AppearanceBreast.tsx** - Appearance breast size selection page.
-- **AppearanceButt.tsx** - Appearance butt size selection page.
-- **AppearanceHairColor.tsx** - Appearance hair color selection page.
-- **AppearanceHairStyle.tsx** - Appearance hair style selection page.
-- **AppearanceHairEyes.tsx** - Appearance hair and eye color/style selection page.
-- **AppearanceEyes.tsx** - Appearance eye color selection page.
-
-#### Components (`frontend/src/components/`)
-
-##### Chat Components (`frontend/src/components/chat/`)
-
-- **ChatHeader.tsx** - Chat header displaying girlfriend avatar, name, subscription plan badge, and relationship meter.
-- **Composer.tsx** - Message composer with input field, send button, and SSE streaming support with billing-aware message limits.
-- **MessageList.tsx** - Scrollable message list rendering chat messages in chronological order.
-- **MessageBubble.tsx** - Individual message bubble component for user and assistant messages.
-- **ImageMessage.tsx** - Image message component for displaying image attachments in chat.
-- **TypingIndicator.tsx** - Animated typing indicator shown when girlfriend is generating a response.
-- **RelationshipMeter.tsx** - Visual relationship meter showing trust/intimacy levels and relationship stage.
-- **PaywallInlineCard.tsx** - Paywall card displayed inline when user hits message/image limits.
-
-##### Layout Components (`frontend/src/components/layout/`)
-
-- **AppShell.tsx** - Main application shell providing layout with top nav, sidebar, content area, and mobile nav.
-- **TopNav.tsx** - Top navigation bar with app branding, subscription plan badge (color-coded by tier), and user dropdown menu.
-- **SideNav.tsx** - Desktop sidebar navigation with links to chat, gallery, profile, settings, billing, and safety.
-- **MobileNav.tsx** - Mobile bottom navigation bar for responsive layout.
-- **Footer.tsx** - Footer component with links and copyright information.
-
-##### Onboarding Components (`frontend/src/components/onboarding/`)
-
-- **TraitSelector.tsx** - Trait selector component for choosing personality traits during onboarding.
-- **TraitCard.tsx** - Individual trait card displaying trait option with description and selection state.
-- **PersonaPreviewCard.tsx** - Persona preview card showing girlfriend summary and personality description.
-- **ProgressStepper.tsx** - Progress stepper showing onboarding progress through numbered steps.
-- **AppearanceStepPage.tsx** - Reusable appearance step page with image previews and option selection grid.
-- **OnboardingSignIn.tsx** - Sign-in component displayed during onboarding flow for authentication.
-
-##### Gallery Components (`frontend/src/components/gallery/`)
-
-- **GalleryGrid.tsx** - Responsive image grid for the gallery page.
-- **ImageViewerModal.tsx** - Full-screen image viewer modal with navigation controls.
-
-##### Billing Components (`frontend/src/components/billing/`)
-
-- **AddCardModal.tsx** - Stripe Elements modal for collecting payment method using SetupIntent, with dynamic title/button text based on selected plan.
-
-##### Safety Components (`frontend/src/components/safety/`)
-
-- **ContentPreferences.tsx** - Content preferences component for setting safety and filtering options.
-- **ReportDialog.tsx** - Report dialog for flagging inappropriate content.
-
-##### UI Components (`frontend/src/components/ui/`)
-
-- **badge.tsx** - Badge component for labels and status indicators with variant styling.
-- **button.tsx** - Button component with variants (default, destructive, outline, ghost, link) and sizes.
-- **card.tsx** - Card container component with header, content, and footer sections.
-- **checkbox.tsx** - Checkbox form input component.
-- **dialog.tsx** - Dialog/modal overlay component.
-- **dropdown-menu.tsx** - Dropdown menu component for context menus.
-- **input.tsx** - Text input form component.
-- **label.tsx** - Form field label component.
-- **separator.tsx** - Visual divider component.
-- **skeleton.tsx** - Skeleton loading placeholder component.
-- **tabs.tsx** - Tabbed interface component.
-- **tooltip.tsx** - Hover tooltip component.
-
-#### Libraries (`frontend/src/lib/`)
-
-##### API (`frontend/src/lib/api/`)
-
-- **client.ts** - API client providing `apiGet` and `apiPost` with error handling and cookie credentials.
-- **endpoints.ts** - All backend API call functions (auth, chat, girlfriends, images, billing with subscribe/cancel, memory, onboarding) with TypeScript types.
-- **types.ts** - TypeScript type definitions for API request/response types including User, Girlfriend, ChatMessage, RelationshipState, BillingStatus, SetupIntentResponse, etc.
-- **zod.ts** - Zod schema definitions for runtime type validation of API responses.
-
-##### Engines (`frontend/src/lib/engines/`)
-
-- **big_five_modulation.ts** - Frontend Big Five personality modulation engine (mirrors backend logic).
-- **habits.ts** - Frontend habit analysis engine for user communication patterns.
-- **initiation_engine.ts** - Frontend initiation engine for conversation initiation timing.
-- **memory.ts** - Frontend memory engine utilities.
-- **relationship_state.ts** - Frontend relationship state engine for level calculations and progression.
-- **trait_behavior_rules.ts** - Frontend trait behavior rules defining personality-driven behaviors.
-- **index.ts** - Engines module barrel export.
-
-##### Hooks (`frontend/src/lib/hooks/`)
-
-- **useAuth.ts** - Authentication hook providing user state, auth status, and actions (login, logout, signup).
-- **useSSEChat.ts** - SSE chat hook for handling server-sent event streaming, parsing tokens and messages.
-
-##### Store (`frontend/src/lib/store/`)
-
-- **useAppStore.ts** - Zustand store for global state (user, girlfriend, onboarding traits/appearance/prefs/identity) with localStorage persistence.
-- **useChatStore.ts** - Zustand store for chat state (messages, streaming content, streaming status) with message manipulation actions.
-
-##### Constants (`frontend/src/lib/constants/`)
-
-- **identity.ts** - Identity-related constants including job vibes, hobbies, origin vibes, and identity options for onboarding.
-
-##### Onboarding (`frontend/src/lib/onboarding/`)
-
-- **vibe.ts** - Vibe generation utilities for personality descriptions and summaries.
-
-##### Utilities (`frontend/src/lib/`)
-
-- **utils.ts** - General utility functions including class name merging and helper functions.
-
-#### Routes (`frontend/src/routes/`)
-
-- **router.tsx** - React Router configuration with all routes, route guards, nested `/app` routes, and onboarding flow including reveal-success page.
-- **guards.tsx** - Route guard components (RequireAuth, RequireAgeGate, RequireGirlfriend) protecting routes with redirects.
-
-#### Styles (`frontend/src/styles/`)
-
-- **globals.css** - Global CSS with TailwindCSS directives, CSS custom properties for pink-themed dark mode, and base styles.
-
-### Public Assets (`frontend/public/`)
-
-- **assets/companion-avatar.png** - Default companion avatar placeholder image.
+**Comprehensive documentation of the VirtualFR codebase structure, APIs, and architecture.**
 
 ---
 
-## Architecture Summary
+## 1. Project Overview
 
-**VirtualFR** is a full-stack AI companion application:
+**VirtualFR** is an AI-powered virtual girlfriend companion application built as a monorepo with a FastAPI backend and React frontend. The app provides:
 
-- **Backend**: FastAPI with in-memory sessions (Supabase optional), Stripe billing (SetupIntent + Subscriptions), SSE chat streaming, Big Five personality engine, relationship state progression, memory system, and identity canon generation.
-- **Frontend**: React + TypeScript with Vite, TailwindCSS + shadcn/ui, React Router with route guards, TanStack Query for data fetching, Zustand for state management, and Stripe Elements for payment collection.
-- **Flow**: Landing → Age Gate → Onboarding (Traits → Appearance → Preferences → Identity → Generating) → Girlfriend Reveal → Account Creation → Subscription Plan → Reveal Success → Chat.
+- **Onboarding Flow**: Multi-step persona creation (traits, appearance, identity, preferences)
+- **Chat System**: Real-time SSE streaming chat with personality-aware responses
+- **Relationship Engine**: Dynamic trust/intimacy system with relationship levels (STRANGER → FAMILIAR → CLOSE → INTIMATE → EXCLUSIVE)
+- **Memory System**: Long-term factual and emotional memory extraction from conversations
+- **Gifting System**: Stripe-powered gift purchases (€2–€200) with unique effects and relationship boosts
+- **Billing**: Stripe subscriptions (Free, Plus, Premium tiers) with message/image caps
+- **Personality Engines**: Big Five personality mapping, trait behavior rules, initiation engine, habit profiling
+- **Gallery**: Image generation and storage
+- **Safety & Moderation**: Content preferences and reporting
+
+**Tech Stack:**
+- **Backend**: FastAPI (Python 3.11+), Supabase (optional PostgreSQL), Stripe
+- **Frontend**: React 18, Vite, TypeScript, TailwindCSS, shadcn/ui, React Router, TanStack Query, Zustand
+- **LLM**: OpenAI-compatible API gateway (supports mock, vLLM, or OpenAI)
+
+---
+
+## 2. Directory Structure
+
+```
+virtualfr/
+├── backend/
+│   ├── app/
+│   │   ├── api/
+│   │   │   ├── routes/          # API route handlers
+│   │   │   ├── store.py         # In-memory session store
+│   │   │   └── supabase_store.py # Supabase persistence layer
+│   │   ├── core/                # Core config, auth, CORS, rate limiting
+│   │   ├── routers/             # Chat gateway, mock model
+│   │   ├── schemas/             # Pydantic models
+│   │   ├── services/            # Business logic engines
+│   │   ├── utils/               # Utilities (SSE, moderation, identity canon)
+│   │   └── main.py              # FastAPI app entry point
+│   ├── docs/                    # Setup guides
+│   ├── inference/               # Docker inference container
+│   ├── logs/                    # Chat JSONL logs
+│   ├── scripts/                 # Utility scripts
+│   ├── tests/                   # Test suite
+│   ├── supabase_schema.sql      # Database schema
+│   ├── requirements.txt         # Python dependencies
+│   └── .env.example             # Environment template
+│
+└── frontend/
+    ├── src/
+    │   ├── components/          # React components
+    │   │   ├── billing/        # Stripe card collection
+    │   │   ├── chat/           # Chat UI components
+    │   │   ├── gallery/        # Image gallery
+    │   │   ├── layout/         # App shell, nav, footer
+    │   │   ├── onboarding/     # Onboarding wizard components
+    │   │   ├── safety/         # Content preferences, reporting
+    │   │   └── ui/              # shadcn/ui components
+    │   ├── lib/
+    │   │   ├── api/            # API client, endpoints, types
+    │   │   ├── engines/        # Frontend personality engines (mirrors backend)
+    │   │   ├── hooks/          # React hooks (auth, SSE chat)
+    │   │   ├── store/          # Zustand stores
+    │   │   └── constants/      # Identity constants
+    │   ├── pages/              # Route pages
+    │   ├── routes/             # React Router config + guards
+    │   └── styles/             # Global CSS
+    ├── package.json
+    └── vite.config.ts
+```
+
+---
+
+## 3. Backend (FastAPI)
+
+### 3.1 API Routes (`backend/app/api/routes/`)
+
+All routes are mounted under `/api` prefix.
+
+#### **`auth.py`** — Authentication
+- `POST /api/auth/signup` — Mock signup (sets session cookie)
+- `POST /api/auth/login` — Mock login (sets session cookie)
+- `POST /api/auth/logout` — Clear session cookie
+
+#### **`me.py`** — Current User
+- `GET /api/me` — Get current user + flags (age_gate_passed, has_girlfriend)
+- `POST /api/me/age-gate` — Set age_gate_passed=True
+
+#### **`girlfriends.py`** — Girlfriend CRUD
+- `POST /api/girlfriends` — Create girlfriend from displayName + traits
+- `GET /api/girlfriends/current` — Get current girlfriend (404 if none)
+
+#### **`chat.py`** — Chat System
+- `GET /api/chat/history` — Get message history
+- `GET /api/chat/state` — Get relationship state (trust, intimacy, level)
+- `POST /api/chat/send` — Send message (SSE stream response)
+- `POST /api/chat/app_open` — App open handler (initiation + jealousy reactions)
+
+#### **`onboarding.py`** — Onboarding
+- `GET /api/onboarding/prompt-images` — Get prompt image URLs for appearance steps
+- `POST /api/onboarding/complete` — Finalize onboarding (create girlfriend with identity canon)
+
+#### **`billing.py`** — Stripe Billing
+- `GET /api/billing/status` — Get plan, caps, card status
+- `POST /api/billing/setup-intent` — Create Stripe SetupIntent for card saving
+- `POST /api/billing/subscribe` — Create subscription (plus/premium)
+- `POST /api/billing/cancel` — Cancel subscription
+- `POST /api/billing/webhook` — Stripe webhook handler
+- `POST /api/billing/confirm-card` — Optimistic card confirmation
+
+#### **`gifts.py`** — Gift System
+- `GET /api/gifts/list` — Get full gift catalog
+- `POST /api/gifts/checkout` — Create Stripe Checkout Session for gift
+- `POST /api/gifts/webhook` — Stripe webhook for gift payments
+- `GET /api/gifts/history` — Get gift purchase history
+
+#### **`images.py`** — Image Generation
+- `POST /api/images/request` — Request image generation (returns job_id)
+- `GET /api/images/jobs/{job_id}` — Get job status
+- `GET /api/images/gallery` — Get gallery items
+
+#### **`memory.py`** — Memory System
+- `GET /api/memory/summary` — Get compact memory context (facts, emotions, habits)
+- `GET /api/memory/items` — Get raw memory items (factual/emotional)
+- `GET /api/memory/stats` — Get memory statistics
+
+#### **`moderation.py`** — Safety
+- `POST /api/moderation/report` — Report content
+
+#### **`health.py`** — Health Check
+- `GET /api/health` — Health check endpoint
+
+### 3.2 Chat Gateway (`backend/app/routers/chat.py`)
+
+**External-facing OpenAI-compatible gateway:**
+
+- `POST /v1/chat/stream` — SSE streaming chat endpoint
+  - Auth: Bearer token (`CHAT_API_KEY`)
+  - Rate limit: 30/min per token
+  - Proxies to internal LLM (`INTERNAL_LLM_BASE_URL`)
+  - Logs to `backend/logs/chat.jsonl`
+  - Injects girlfriend identity canon system prompt
+
+### 3.3 Services (`backend/app/services/`)
+
+#### **`relationship_state.py`**
+- `create_initial_relationship_state()` — Initialize trust=10, intimacy=5, level=STRANGER
+- `calculate_relationship_level(intimacy)` — Map intimacy to level
+- `register_interaction()` — Update trust/intimacy on message
+- `apply_inactivity_decay()` — Decay intimacy after 24h/72h inactivity
+- `get_jealousy_reaction()` — Generate jealousy messages based on absence
+- `check_for_milestone_event()` — Detect level transitions
+
+#### **`memory.py`**
+- `build_memory_context()` — Build compact context for prompts (facts, emotions, habits)
+- `write_memories_from_message()` — Extract factual/emotional memories from user messages
+- `get_factual_memory()` — Query factual memory items
+- `get_emotional_memory()` — Query emotional memory items
+- `get_memory_summary()` — Get memory statistics
+
+#### **`gifting.py`**
+- `get_gift_catalog()` — Return full gift catalog (24 gifts, €2–€200)
+- `get_gift_by_id()` — Get gift by ID
+- `validate_cooldown()` — Check gift cooldown (14–60 days for rare gifts)
+- `create_checkout_session()` — Create Stripe Checkout Session
+- `apply_relationship_boost()` — Apply trust/intimacy boost
+- `produce_gift_reaction_message()` — Generate personality-aware gift reaction
+- `build_memory_summary()` — Create memory entry for gift
+
+#### **`initiation_engine.py`**
+- `should_initiate_conversation()` — Decide if girlfriend should initiate
+- `get_initiation_message()` — Generate initiation message based on level/attachment
+
+#### **`habits.py`**
+- `build_habit_profile()` — Analyze user message timestamps (preferred hours, typical gap)
+
+#### **`big_five.py`**
+- `map_traits_to_big_five()` — Map 6 onboarding traits to Big Five scores (0.0–1.0)
+- `big_five_to_description()` — Convert scores to human-readable description
+
+#### **`big_five_modulation.py`**
+- Modulate Big Five scores based on relationship level and interactions
+
+#### **`trait_behavior_rules.py`**
+- Trait-specific behavior rules for personality expression
+
+### 3.4 Schemas (`backend/app/schemas/`)
+
+- **`auth.py`**: `SignupRequest`, `LoginRequest`, `UserResponse`
+- **`chat.py`**: `SendMessageRequest`, `AppOpenRequest`, `ChatMessage`, `RelationshipState`
+- **`girlfriend.py`**: `CreateGirlfriendRequest`, `GirlfriendResponse`, `IdentityResponse`, `OnboardingCompletePayload`
+- **`gift.py`**: `GiftDefinition`, `RelationshipBoost`, `ImageReward`
+- **`image.py`**: `ImageRequestResponse`, `ImageJobResponse`, `GalleryItem`
+- **`relationship.py`**: Relationship state models
+
+### 3.5 Core (`backend/app/core/`)
+
+- **`config.py`**: Settings from environment (Supabase, Stripe, LLM URLs, CORS)
+- **`auth.py`**: Chat gateway Bearer token auth
+- **`cors.py`**: CORS middleware setup
+- **`rate_limit.py`**: Rate limiting (30/min per token)
+- **`supabase_client.py`**: Supabase admin client initialization
+- **`chat_logging.py`**: JSONL chat log writer
+
+### 3.6 Store (`backend/app/api/store.py`)
+
+In-memory session store (falls back to Supabase if configured):
+- `get_session_user()` — Get user by session ID
+- `set_session_user()` — Update user data
+- `get_girlfriend()` — Get girlfriend data
+- `set_girlfriend()` — Set girlfriend data
+- `get_relationship_state()` — Get relationship state
+- `set_relationship_state()` — Update relationship state
+- `get_messages()` — Get message history
+- `append_message()` — Append message
+- `get_habit_profile()` — Get habit profile
+- `set_habit_profile()` — Update habit profile
+
+### 3.7 Database Schema (`backend/supabase_schema.sql`)
+
+**Tables:**
+- `sessions` — Session persistence (user_id, email, current_girlfriend_id)
+- `users_profile` — User profile extensions (language_pref)
+- `girlfriends` — Girlfriend records (traits, display_name)
+- `messages` — Chat messages (role, content, image_url, event_type)
+- `relationship_state` — Trust/intimacy/level/milestones
+- `habit_profile` — User habits + Big Five scores
+- `factual_memory` — Stable facts about user (name, city, preferences)
+- `emotional_memory` — Emotional events (stress, affection, etc.)
+- `memory_notes` — Optional manual notes
+- `gift_purchases` — Gift purchase records
+- `moment_cards` — Keepsake cards from gifts
+
+**RLS**: All tables have Row Level Security (user owns rows)
+
+---
+
+## 4. Frontend (React/Vite/TypeScript)
+
+### 4.1 Pages (`frontend/src/pages/`)
+
+#### **Auth & Onboarding**
+- `Landing.tsx` — Landing page
+- `Login.tsx` — Login page
+- `Signup.tsx` — Signup page
+- `AgeGate.tsx` — Age verification gate
+- `OnboardingTraits.tsx` — Trait selection (6 questions)
+- `OnboardingAppearance.tsx` — Appearance wizard entry
+- `AppearanceAge.tsx` — Age range selection
+- `AppearanceEthnicity.tsx` — Ethnicity selection
+- `AppearanceBodyDetails.tsx` — Body type, breast, butt size
+- `AppearanceHairEyes.tsx` — Hair color/style, eye color
+- `OnboardingPreferences.tsx` — Content preferences (spicy photos)
+- `OnboardingIdentity.tsx` — Identity (name, job, hobbies, origin)
+- `OnboardingGenerating.tsx` — Loading state during generation
+- `GirlfriendReveal.tsx` — Reveal animation
+- `SubscriptionPlan.tsx` — Subscription selection
+- `RevealSuccess.tsx` — Success page
+- `PersonaPreview.tsx` — Final persona preview
+
+#### **App Pages** (under `/app`)
+- `Chat.tsx` — Main chat interface with SSE streaming
+- `Gallery.tsx` — Image gallery grid
+- `Profile.tsx` — Girlfriend profile
+- `Settings.tsx` — User settings
+- `Billing.tsx` — Billing management (Stripe card, subscriptions)
+- `Safety.tsx` — Content preferences and reporting
+
+### 4.2 Components (`frontend/src/components/`)
+
+#### **Chat**
+- `ChatHeader.tsx` — Chat header with girlfriend info
+- `Composer.tsx` — Message input
+- `MessageBubble.tsx` — Message display
+- `MessageList.tsx` — Message list container
+- `GiftModal.tsx` — Gift purchase modal
+- `RelationshipMeter.tsx` — Trust/intimacy visualization
+- `TypingIndicator.tsx` — Typing animation
+- `ImageMessage.tsx` — Image message display
+- `PaywallInlineCard.tsx` — Paywall card for free tier limits
+
+#### **Onboarding**
+- `TraitSelector.tsx` — Trait selection UI
+- `TraitCard.tsx` — Individual trait card
+- `PersonaPreviewCard.tsx` — Live persona preview
+- `ProgressStepper.tsx` — Onboarding progress indicator
+- `AppearanceStepPage.tsx` — Appearance step wrapper
+- `OnboardingSignIn.tsx` — Sign-in prompt during onboarding
+
+#### **Billing**
+- `AddCardModal.tsx` — Stripe card collection modal
+
+#### **Gallery**
+- `GalleryGrid.tsx` — Image grid display
+- `ImageViewerModal.tsx` — Full-screen image viewer
+
+#### **Layout**
+- `AppShell.tsx` — Main app layout wrapper
+- `TopNav.tsx` — Top navigation bar
+- `SideNav.tsx` — Side navigation
+- `MobileNav.tsx` — Mobile navigation
+- `Footer.tsx` — Footer component
+
+#### **Safety**
+- `ContentPreferences.tsx` — Content preference settings
+- `ReportDialog.tsx` — Report dialog
+
+#### **UI** (shadcn/ui)
+- `AvatarCircle.tsx`, `badge.tsx`, `button.tsx`, `card.tsx`, `checkbox.tsx`, `dialog.tsx`, `dropdown-menu.tsx`, `input.tsx`, `label.tsx`, `separator.tsx`, `skeleton.tsx`, `tabs.tsx`, `tooltip.tsx`
+
+### 4.3 Lib (`frontend/src/lib/`)
+
+#### **API Client** (`lib/api/`)
+- **`client.ts`**: `apiGet()`, `apiPost()` helpers with cookie auth
+- **`endpoints.ts`**: All API endpoint functions (signup, login, chat, gifts, etc.)
+- **`types.ts`**: TypeScript types matching backend schemas
+- **`zod.ts`**: Zod validation schemas
+
+#### **Engines** (`lib/engines/`)
+Frontend mirrors of backend personality engines:
+- `relationship_state.ts` — Relationship level calculation
+- `initiation_engine.ts` — Initiation logic
+- `habits.ts` — Habit profiling
+- `memory.ts` — Memory context building
+- `trait_behavior_rules.ts` — Trait behavior rules
+- `big_five_modulation.ts` — Big Five modulation
+
+#### **Hooks** (`lib/hooks/`)
+- `useAuth.ts` — Authentication hook (getMe, logout)
+- `useSSEChat.ts` — SSE chat streaming hook
+
+#### **Stores** (`lib/store/`)
+- `useAppStore.ts` — Global app state (user, girlfriend, onboarding progress)
+- `useChatStore.ts` — Chat state (messages, relationship state)
+
+#### **Constants** (`lib/constants/`)
+- `identity.ts` — Identity-related constants
+
+### 4.4 Routing (`frontend/src/routes/`)
+
+- **`router.tsx`**: React Router config with route definitions
+- **`guards.tsx`**: Route guards (`RequireAuth`, `RequireAgeGate`, `RequireGirlfriend`)
+
+**Route Structure:**
+- `/` — Landing
+- `/login`, `/signup` — Auth
+- `/age-gate` — Age gate (requires auth)
+- `/onboarding/*` — Onboarding flow (requires auth + age gate)
+- `/app/*` — App pages (requires auth + age gate + girlfriend)
+  - `/app/chat` — Chat
+  - `/app/gallery` — Gallery
+  - `/app/profile` — Profile
+  - `/app/settings` — Settings
+  - `/app/billing` — Billing
+  - `/app/safety` — Safety
+
+---
+
+## 5. Key Integrations
+
+### 5.1 Stripe
+
+**Billing:**
+- SetupIntent for card saving (`/api/billing/setup-intent`)
+- Subscriptions (Plus, Premium tiers)
+- Webhook handler (`/api/billing/webhook`) for subscription events
+
+**Gifting:**
+- Checkout Sessions for one-time gift purchases (`/api/gifts/checkout`)
+- Webhook handler (`/api/gifts/webhook`) for gift payment completion
+- Gift delivery triggers relationship boosts, memory entries, image rewards, unique effects
+
+**Environment Variables:**
+- `STRIPE_SECRET_KEY` — Stripe secret key
+- `STRIPE_PUBLISHABLE_KEY` — Stripe publishable key
+- `STRIPE_WEBHOOK_SECRET` — Webhook signature verification
+- `STRIPE_PRICE_PLUS` — Plus tier price ID
+- `STRIPE_PRICE_PREMIUM` — Premium tier price ID
+- `STRIPE_SUCCESS_URL`, `STRIPE_CANCEL_URL` — Redirect URLs
+
+### 5.2 Supabase (Optional)
+
+**Database:**
+- PostgreSQL database with RLS (Row Level Security)
+- Tables: sessions, users_profile, girlfriends, messages, relationship_state, habit_profile, factual_memory, emotional_memory, gift_purchases
+
+**Environment Variables:**
+- `SUPABASE_URL` — Supabase project URL
+- `SUPABASE_ANON_KEY` — Supabase anon key
+
+**Fallback:**
+- If Supabase not configured, backend uses in-memory store (data lost on restart)
+
+### 5.3 OpenAI-Compatible LLM
+
+**Chat Gateway:**
+- `POST /v1/chat/stream` — External-facing gateway
+- Proxies to internal LLM (`INTERNAL_LLM_BASE_URL`)
+- Supports mock model (default), vLLM, or OpenAI
+
+**Environment Variables:**
+- `CHAT_API_KEY` — Bearer token for gateway clients
+- `INTERNAL_LLM_BASE_URL` — Internal LLM base URL (default: `http://127.0.0.1:8001`)
+- `INTERNAL_LLM_API_KEY` — Optional API key for internal LLM
+- `API_KEY` — OpenAI API key (if using OpenAI directly)
+
+**Mock Model:**
+- `backend/app/routers/mock_model.py` — Mock OpenAI-compatible endpoint
+- Returns personality-aware mock responses
+- Runs on same port as main app (or separate port 8001)
+
+---
+
+## 6. Environment Variables
+
+**Backend** (`backend/.env`):
+
+```bash
+# Server
+HOST=0.0.0.0
+PORT=8000
+ENV=development
+
+# CORS
+CORS_ORIGINS=http://localhost:5173,http://localhost:5174
+
+# Supabase (optional)
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your_anon_key_here
+
+# API Key (optional, for OpenAI)
+API_KEY=
+
+# Chat Gateway
+CHAT_API_KEY=dev-key
+INTERNAL_LLM_BASE_URL=http://127.0.0.1:8001
+INTERNAL_LLM_API_KEY=
+
+# Stripe
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_PUBLISHABLE_KEY=pk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_PRICE_PLUS=
+STRIPE_PRICE_PREMIUM=
+STRIPE_SUCCESS_URL=http://localhost:5173/app/chat?gift_success=1
+STRIPE_CANCEL_URL=http://localhost:5173/app/chat?gift_cancel=1
+```
+
+---
+
+## 7. How to Run
+
+### 7.1 Development Setup
+
+**Terminal 1 — Backend:**
+```bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Backend: http://localhost:8000  
+API docs: http://localhost:8000/docs
+
+**Terminal 2 — Frontend:**
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Frontend: http://localhost:5173  
+Vite proxies `/api` to `http://localhost:8000`
+
+### 7.2 Production Build
+
+**Build Frontend:**
+```bash
+cd frontend
+npm install
+npm run build
+```
+
+**Run Backend (Production Mode):**
+```bash
+cd backend
+source .venv/bin/activate
+export ENV=production
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+Backend serves `frontend/dist` at `/` in production mode.
+
+### 7.3 Chat Gateway + Mock Model
+
+**Terminal 1 — Mock Model (port 8001):**
+```bash
+cd backend
+uvicorn app.mock_main:app --reload --port 8001
+```
+
+**Terminal 2 — Gateway (port 8000):**
+```bash
+cd backend
+export CHAT_API_KEY=dev-key
+export INTERNAL_LLM_BASE_URL=http://127.0.0.1:8001
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+**Test Gateway:**
+```bash
+curl -N -X POST http://localhost:8000/v1/chat/stream \
+  -H "Authorization: Bearer dev-key" \
+  -H "Content-Type: application/json" \
+  -d '{"session_id":"abc","model":"mock-1","model_version":"2026-02-03","messages":[{"role":"user","content":"Hi"}]}'
+```
+
+### 7.4 Supabase Setup
+
+1. Create Supabase project
+2. Run `backend/supabase_schema.sql` in Supabase SQL editor
+3. Get project URL and anon key from Settings > API
+4. Add to `backend/.env`:
+   ```
+   SUPABASE_URL=https://your-project.supabase.co
+   SUPABASE_ANON_KEY=your_anon_key_here
+   ```
+
+---
+
+## 8. Architecture Highlights
+
+### 8.1 Relationship System
+
+- **Levels**: STRANGER (0-15 intimacy) → FAMILIAR (16-35) → CLOSE (36-60) → INTIMATE (61-80) → EXCLUSIVE (81-100)
+- **Trust/Intimacy**: 0-100 scale, updated on interactions
+- **Decay**: Intimacy decays after 24h/72h inactivity (based on attachment style)
+- **Milestones**: Automatic milestone detection on level transitions
+- **Jealousy**: Reactions based on absence duration and jealousy level trait
+
+### 8.2 Memory System
+
+- **Factual Memory**: Stable facts (name, city, preferences) extracted via regex patterns
+- **Emotional Memory**: Events + feelings (stress, affection, etc.) via keyword detection
+- **Memory Context**: Compact summaries for LLM prompts (max 8 facts, 5 emotions, habit hints)
+
+### 8.3 Personality Engines
+
+- **Big Five Mapping**: 6 onboarding traits → Big Five scores (Openness, Conscientiousness, Extraversion, Agreeableness, Neuroticism)
+- **Trait Behavior Rules**: Trait-specific behavior expressions
+- **Initiation Engine**: Decides when girlfriend should initiate conversations
+- **Habit Profiling**: Analyzes user message patterns (preferred hours, typical gaps)
+
+### 8.4 Gifting System
+
+- **24 Gifts**: €2–€200 range, 4 tiers (everyday, dates, luxury, legendary)
+- **Relationship Boosts**: Trust/intimacy gains per gift
+- **Unique Effects**: Gift-specific effects (patron badge, outfit era, theme song, etc.)
+- **Image Rewards**: Some gifts trigger image generation (1-6 images)
+- **Cooldowns**: Rare gifts have 14-60 day cooldowns
+
+### 8.5 Onboarding Flow
+
+1. **Traits** (6 questions): Emotional style, attachment, reaction to absence, communication style, relationship pace, cultural personality
+2. **Appearance**: Vibe, age, ethnicity, body details, hair/eyes
+3. **Preferences**: Content preferences (spicy photos)
+4. **Identity**: Name, job vibe, hobbies, origin vibe
+5. **Generation**: Creates identity canon (backstory, daily routine, favorites, memory seeds)
+6. **Reveal**: Animated reveal + subscription selection
+
+---
+
+## 9. Key Files Reference
+
+### Backend Entry Points
+- `backend/app/main.py` — Main FastAPI app
+- `backend/app/mock_main.py` — Mock model server
+- `backend/app/routers/chat.py` — Chat gateway
+
+### Frontend Entry Points
+- `frontend/src/main.tsx` — React app entry
+- `frontend/src/App.tsx` — Root component
+- `frontend/src/routes/router.tsx` — Router config
+
+### Configuration
+- `backend/app/core/config.py` — Settings singleton
+- `backend/.env.example` — Environment template
+- `frontend/vite.config.ts` — Vite config
+
+### Database
+- `backend/supabase_schema.sql` — Full database schema
+
+---
+
+## 10. Testing
+
+**Backend Tests:**
+```bash
+cd backend
+pytest
+```
+
+Test files:
+- `backend/tests/test_chat_canon_injection.py`
+- `backend/tests/test_identity_canon.py`
+- `backend/tests/test_openai_contract.py`
+
+---
+
+## 11. Logging
+
+- **Chat Logs**: `backend/logs/chat.jsonl` (JSONL format, one line per request)
+- **Fields**: request_id, timestamp_utc, session_id, user_id, client_ip, model, model_version, messages, output_text, num_tokens, latency_ms, status, error_message
+
+---
+
+## 12. Dependencies
+
+### Backend (`backend/requirements.txt`)
+- fastapi>=0.109.0
+- uvicorn[standard]>=0.27.0
+- pydantic[email]>=2.5.0
+- pydantic-settings>=2.1.0
+- python-dotenv>=1.0.0
+- supabase>=2.3.0
+- httpx>=0.27.0
+- openai>=1.0.0
+- stripe>=8.0.0
+- pytest
+
+### Frontend (`frontend/package.json`)
+- react, react-dom, react-router-dom
+- @tanstack/react-query
+- zustand
+- @stripe/react-stripe-js, @stripe/stripe-js
+- zod, react-hook-form
+- tailwindcss, shadcn/ui components
+- vite, typescript
+
+---
+
+**Last Updated**: February 9, 2026  
+**Project**: VirtualFR  
+**Repository**: `c:\Users\matej\OneDrive\Desktop\virtualfr`

@@ -26,6 +26,9 @@ class GiftDefinition(BaseModel):
     cooldown_days: Optional[int] = None
     rarity: str = "common"  # common | rare | legendary
     emoji: str = "🎁"
+    # New: unique effect system
+    unique_effect_name: str = ""
+    unique_effect_description: str = ""
 
 
 class GiftListResponse(BaseModel):
@@ -58,7 +61,11 @@ class GiftHistoryResponse(BaseModel):
 class GiftDeliverEvent(BaseModel):
     gift_id: str
     gift_name: str
+    emoji: str = "🎁"
+    tier: str = "everyday"
     reaction_text: str
+    unique_effect_name: str = ""
+    unique_effect_description: str = ""
     image_urls: list[str] = []
     trust_gained: int = 0
     intimacy_gained: int = 0

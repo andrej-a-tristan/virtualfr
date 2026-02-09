@@ -3,6 +3,7 @@ import { Separator } from "@/components/ui/separator"
 import { getVibeSummary, getHowSheTreatsYou } from "@/lib/onboarding/vibe"
 import type { TraitSelection } from "@/lib/api/types"
 import { cn } from "@/lib/utils"
+import AvatarCircle from "@/components/ui/AvatarCircle"
 
 interface PersonaPreviewCardProps {
   displayName: string
@@ -25,11 +26,7 @@ export default function PersonaPreviewCard({
     <Card className={cn("rounded-2xl border-white/10 bg-card/80 shadow-xl", className)}>
       <CardHeader className={cn("space-y-1", compact ? "p-4 pb-2" : "p-6 pb-2")}>
         <div className="flex items-center gap-3">
-          <img
-            src="/assets/companion-avatar.png"
-            alt={displayName || "Companion"}
-            className="h-12 w-12 rounded-full object-cover"
-          />
+          <AvatarCircle name={displayName} size="lg" />
           <div>
             <h3 className="text-lg font-semibold text-foreground">
               {displayName || "My Girl"}

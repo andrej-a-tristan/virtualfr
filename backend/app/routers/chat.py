@@ -33,6 +33,7 @@ class ChatStreamRequest(BaseModel):
     model: str
     model_version: str
     messages: list[ChatMessage]
+    girlfriend_id: str | None = None
     metadata: dict[str, Any] | None = Field(default_factory=dict)
 
 
@@ -228,7 +229,12 @@ async def chat_stream(
     messages_data = [m.model_dump() for m in body.messages]
 
     # Inject girlfriend canon system prompt if available
-    gf = get_girlfriend(body.session_id)
+    # Use explicit girlfriend_id if provided, otherwise fall back to current
+    if body.girlfriend_id:
+        from app.api.store import get_girlfriend_by_id
+        gf = get_girlfriend_by_id(body.session_id, body.girlfriend_id)
+    else:
+        gf = get_girlfriend(body.session_id)
     if gf and (gf.get("identity") or gf.get("identity_canon")):
         canon_prompt = build_girlfriend_canon_system_prompt(gf)
         canon_message = {"role": "system", "content": canon_prompt}

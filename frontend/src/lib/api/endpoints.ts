@@ -17,6 +17,12 @@ import type {
   FactualMemoryItem,
   EmotionalMemoryItem,
   OnboardingCompleteRequest,
+  GirlfriendListResponse,
+  SwitchGirlfriendResponse,
+  CreateGirlfriendResponse,
+  Plan,
+  PreviewPlanChangeResponse,
+  ChangePlanResponse,
 } from "./types"
 
 /** Convert TraitSelection (camelCase) to API snake_case. */
@@ -105,12 +111,27 @@ export async function getCurrentGirlfriend(): Promise<Girlfriend | null> {
   }
 }
 
-// Chat
-export async function getChatHistory() {
-  return apiGet<{ messages: ChatMessage[] }>("/chat/history")
+// Multi-girl endpoints
+export async function listGirlfriends(): Promise<GirlfriendListResponse> {
+  return apiGet<GirlfriendListResponse>("/girlfriends")
 }
-export async function getChatState() {
-  return apiGet<RelationshipState>("/chat/state")
+
+export async function switchGirlfriend(girlfriendId: string): Promise<SwitchGirlfriendResponse> {
+  return apiPost<SwitchGirlfriendResponse>("/girlfriends/current", { girlfriend_id: girlfriendId })
+}
+
+export async function createAdditionalGirlfriend(body: OnboardingCompleteRequest): Promise<CreateGirlfriendResponse> {
+  return apiPost<CreateGirlfriendResponse>("/girlfriends/create", body)
+}
+
+// Chat
+export async function getChatHistory(girlfriendId?: string) {
+  const params = girlfriendId ? `?girlfriend_id=${girlfriendId}` : ""
+  return apiGet<{ messages: ChatMessage[] }>(`/chat/history${params}`)
+}
+export async function getChatState(girlfriendId?: string) {
+  const params = girlfriendId ? `?girlfriend_id=${girlfriendId}` : ""
+  return apiGet<RelationshipState>(`/chat/state${params}`)
 }
 export interface ChatAppOpenPayload {
   messages: ChatMessage[]
@@ -130,8 +151,9 @@ export async function requestImage() {
 export async function getImageJob(jobId: string) {
   return apiGet<ImageJob>(`/images/jobs/${jobId}`)
 }
-export async function getGallery() {
-  return apiGet<{ items: GalleryItem[] }>("/images/gallery")
+export async function getGallery(girlfriendId?: string) {
+  const params = girlfriendId ? `?girlfriend_id=${girlfriendId}` : ""
+  return apiGet<{ items: GalleryItem[] }>(`/images/gallery${params}`)
 }
 
 // Billing
@@ -158,8 +180,22 @@ export async function subscribeToPlan(plan: string) {
 export async function cancelSubscription() {
   return apiPost<{ ok: boolean; plan: string }>("/billing/cancel")
 }
+export async function getPaymentMethod() {
+  return apiGet<import("./types").PaymentMethodResponse>("/billing/payment-method")
+}
+export async function getStripePublishableKey() {
+  return apiGet<{ publishable_key: string }>("/billing/stripe-key")
+}
 export async function checkout() {
   return apiPost<{ checkout_url: string }>("/billing/checkout")
+}
+
+// ── Plan change with proration ────────────────────────────────────────────
+export async function previewPlanChange(plan: Plan): Promise<PreviewPlanChangeResponse> {
+  return apiPost<PreviewPlanChangeResponse>("/billing/preview-change", { plan })
+}
+export async function changePlan(plan: Plan): Promise<ChangePlanResponse> {
+  return apiPost<ChangePlanResponse>("/billing/change-plan", { plan })
 }
 
 // Moderation
@@ -173,6 +209,9 @@ export async function getGiftsList() {
 }
 export async function createGiftCheckout(giftId: string) {
   return apiPost<import("./types").GiftCheckoutResponse>("/gifts/checkout", { gift_id: giftId })
+}
+export async function confirmGiftPayment(paymentIntentId: string) {
+  return apiPost<{ status: string; error?: string }>("/gifts/confirm-payment", { payment_intent_id: paymentIntentId })
 }
 export async function getGiftHistory() {
   return apiGet<import("./types").GiftHistoryResponse>("/gifts/history")

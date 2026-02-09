@@ -5,7 +5,7 @@ import json
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from app.api.store import get_session_user, set_girlfriend
+from app.api.store import get_session_user, set_girlfriend, add_girlfriend
 from app.schemas.girlfriend import (
     GirlfriendResponse,
     IdentityResponse,
@@ -91,7 +91,8 @@ def complete_onboarding(request: Request, body: OnboardingCompletePayload):
     }
 
     # Deterministic seed for avatar and canon
-    gf_id = "gf-1"
+    from uuid import uuid4
+    gf_id = f"gf-{uuid4().hex[:8]}"
     seed_source = (
         f'{user["id"]}|'
         f"{json.dumps(appearance_prefs, sort_keys=True)}|"

@@ -20,9 +20,11 @@ import SubscriptionPlan from "@/pages/SubscriptionPlan"
 import RevealSuccess from "@/pages/RevealSuccess"
 import Chat from "@/pages/Chat"
 import Gallery from "@/pages/Gallery"
+import GirlPage from "@/pages/GirlPage"
 import Profile from "@/pages/Profile"
 import Settings from "@/pages/Settings"
 import Billing from "@/pages/Billing"
+import PaymentOptions from "@/pages/PaymentOptions"
 import Safety from "@/pages/Safety"
 
 const router = createBrowserRouter([
@@ -163,12 +165,15 @@ const router = createBrowserRouter([
       </RequireAuth>
     ),
     children: [
-      { index: true, element: <Navigate to="/app/chat" replace /> },
-      { path: "chat", element: <Chat /> },
-      { path: "gallery", element: <Gallery /> },
+      { index: true, element: <Navigate to="/app/girl" replace /> },
+      { path: "girl", element: <GirlPage /> },
+      /* Legacy redirects so old bookmarks / return URLs still work */
+      { path: "chat", element: <Navigate to="/app/girl" replace /> },
+      { path: "gallery", element: <Navigate to="/app/girl" replace /> },
       { path: "profile", element: <Profile /> },
       { path: "settings", element: <Settings /> },
       { path: "billing", element: <Billing /> },
+      { path: "payment-options", element: <PaymentOptions /> },
       { path: "safety", element: <Safety /> },
     ],
   },

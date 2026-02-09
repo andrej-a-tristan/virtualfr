@@ -1,10 +1,9 @@
 import { NavLink } from "react-router-dom"
-import { MessageCircle, Image as ImageIcon, User, Settings } from "lucide-react"
+import { Heart, User, Settings } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 const links = [
-  { to: "/app/chat", label: "Chat", icon: MessageCircle },
-  { to: "/app/gallery", label: "Gallery", icon: ImageIcon },
+  { to: "/app/girl", label: "My Girl", icon: Heart },
   { to: "/app/profile", label: "Profile", icon: User },
   { to: "/app/settings", label: "Settings", icon: Settings },
 ]

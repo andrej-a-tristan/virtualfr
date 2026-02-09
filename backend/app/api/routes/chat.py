@@ -86,7 +86,7 @@ def _use_supabase(user_id) -> bool:
 
 
 @router.get("/history")
-def chat_history(request: Request):
+def chat_history(request: Request, girlfriend_id: str | None = None):
     sid, user, user_id, gf_id = get_current_user(request)
     if not sid or not user:
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
@@ -98,7 +98,8 @@ def chat_history(request: Request):
         else:
             messages = []
     else:
-        messages = get_messages(sid)
+        # Pass explicit girlfriend_id so messages are per-girl
+        messages = get_messages(sid, girlfriend_id)
     if not messages:
         messages = [
             {"id": "m1", "role": "user", "content": "Hey, how are you?", "image_url": None, "event_type": None, "event_key": None, "created_at": "2025-01-01T12:00:00Z"},
@@ -108,7 +109,7 @@ def chat_history(request: Request):
 
 
 @router.get("/state")
-def chat_state(request: Request):
+def chat_state(request: Request, girlfriend_id: str | None = None):
     sid, user, user_id, gf_id = get_current_user(request)
     if not sid or not user:
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
@@ -124,10 +125,10 @@ def chat_state(request: Request):
         else:
             state = create_initial_relationship_state()
     else:
-        state = get_relationship_state(sid)
+        state = get_relationship_state(sid, girlfriend_id)
         if not state:
             state = create_initial_relationship_state()
-            set_relationship_state(sid, state)
+            set_relationship_state(sid, state, girlfriend_id)
     return _state_to_schema(state)
 
 
@@ -194,7 +195,7 @@ def _generate_mock_response(gf_display_name: str, traits: dict, relationship_sta
     return prefix + response
 
 
-def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_for_context, gf_display_name, traits, relationship_state=None, habit_profile=None, memory_context=None):
+def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_for_context, gf_display_name, traits, relationship_state=None, habit_profile=None, memory_context=None, girlfriend_id=None):
     """Stream mock response and save assistant message. Yields SSE events.
     
     This function includes full personality and memory context for future LLM integration.
@@ -235,7 +236,7 @@ def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_f
         if user_id and gf_id:
             sb.append_message(user_id, gf_id, milestone_msg)
         else:
-            store_append_message(sid, milestone_msg)
+            store_append_message(sid, milestone_msg, girlfriend_id=girlfriend_id)
         yield sse_event({"type": "message", "message": milestone_msg})
     
     # Save and send the response message
@@ -251,7 +252,7 @@ def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_f
     if user_id and gf_id:
         sb.append_message(user_id, gf_id, msg)
     else:
-        store_append_message(sid, msg)
+        store_append_message(sid, msg, girlfriend_id=girlfriend_id)
     yield sse_event({"type": "message", "message": msg})
     yield sse_event({"type": "done"})
 
@@ -261,6 +262,10 @@ def send_message(request: Request, body: SendMessageRequest):
     sid, user, user_id, gf_id = get_current_user(request)
     if not sid or not user:
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
+
+    # Resolve the girlfriend_id from the request body (preferred) or session
+    explicit_gf_id = body.girlfriend_id or None
+
     use_sb = get_supabase_admin() and user_id is not None
     if use_sb and user_id:
         gf = sb.get_current_girlfriend(user_id)
@@ -272,10 +277,18 @@ def send_message(request: Request, body: SendMessageRequest):
         else:
             gf_uuid = None
     else:
-        gf = get_girlfriend(sid)
+        # Use explicit girlfriend_id if provided, otherwise fall back to current
+        if explicit_gf_id:
+            from app.api.store import get_girlfriend_by_id
+            gf = get_girlfriend_by_id(sid, explicit_gf_id)
+        else:
+            gf = get_girlfriend(sid)
         gf_uuid = None
     if not gf:
         return JSONResponse(status_code=400, content={"error": "no_girlfriend"})
+
+    # Use the resolved girlfriend's id for all per-girl storage
+    resolved_gf_id = explicit_gf_id or gf.get("id")
 
     # Save user message
     user_msg = {
@@ -303,8 +316,8 @@ def send_message(request: Request, body: SendMessageRequest):
         except Exception as e:
             logger.warning("Memory write failed: %s", e)
     else:
-        store_append_message(sid, user_msg)
-        messages = get_messages(sid)
+        store_append_message(sid, user_msg, girlfriend_id=resolved_gf_id)
+        messages = get_messages(sid, girlfriend_id=resolved_gf_id)
     
     # Build habit profile
     user_timestamps = [m["created_at"] for m in messages if m["role"] == "user"]
@@ -318,7 +331,7 @@ def send_message(request: Request, body: SendMessageRequest):
     if use_sb and user_id and gf_uuid:
         sb.upsert_habit_profile(user_id, gf_uuid, habit)
     else:
-        set_habit_profile(sid, habit)
+        set_habit_profile(sid, habit, girlfriend_id=resolved_gf_id)
 
     # Get/update relationship state
     if use_sb and user_id and gf_uuid:
@@ -327,10 +340,10 @@ def send_message(request: Request, body: SendMessageRequest):
             state = create_initial_relationship_state()
             sb.upsert_relationship_state(user_id, gf_uuid, state)
     else:
-        state = get_relationship_state(sid)
+        state = get_relationship_state(sid, girlfriend_id=resolved_gf_id)
         if not state:
             state = create_initial_relationship_state()
-            set_relationship_state(sid, state)
+            set_relationship_state(sid, state, girlfriend_id=resolved_gf_id)
 
     prev_state = dict(state)
     state = register_interaction(
@@ -341,7 +354,7 @@ def send_message(request: Request, body: SendMessageRequest):
     if use_sb and user_id and gf_uuid:
         sb.upsert_relationship_state(user_id, gf_uuid, state)
     else:
-        set_relationship_state(sid, state)
+        set_relationship_state(sid, state, girlfriend_id=resolved_gf_id)
 
     # Check for milestone
     milestone_result = check_for_milestone_event(prev_state, state)
@@ -352,10 +365,10 @@ def send_message(request: Request, body: SendMessageRequest):
         if use_sb and user_id and gf_uuid:
             sb.upsert_relationship_state(user_id, gf_uuid, state)
         else:
-            set_relationship_state(sid, state)
+            set_relationship_state(sid, state, girlfriend_id=resolved_gf_id)
 
     traits_payload = gf.get("traits") or {}
-    habit = sb.get_habit_profile(user_id, gf_uuid) if (use_sb and user_id and gf_uuid) else get_habit_profile(sid)
+    habit = sb.get_habit_profile(user_id, gf_uuid) if (use_sb and user_id and gf_uuid) else get_habit_profile(sid, girlfriend_id=resolved_gf_id)
     
     # Build memory context for personalized responses
     memory_ctx = None
@@ -376,7 +389,8 @@ def send_message(request: Request, body: SendMessageRequest):
         _stream_response_and_save(
             sid, user_id, gf_uuid, milestone_message, messages,
             gf.get("display_name") or gf.get("name", "Companion"),
-            traits_payload, relationship_state=state, habit_profile=habit, memory_context=memory_ctx
+            traits_payload, relationship_state=state, habit_profile=habit, memory_context=memory_ctx,
+            girlfriend_id=resolved_gf_id,
         ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},

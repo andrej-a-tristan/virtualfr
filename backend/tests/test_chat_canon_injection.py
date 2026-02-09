@@ -4,16 +4,16 @@ from unittest.mock import patch, AsyncMock
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.api.store import set_girlfriend, _girlfriends, _sessions, set_session_user
+from app.api.store import set_girlfriend, _all_girlfriends, _sessions, set_session_user
 
 
 @pytest.fixture(autouse=True)
 def clear_store():
     """Clear in-memory store before each test."""
-    _girlfriends.clear()
+    _all_girlfriends.clear()
     _sessions.clear()
     yield
-    _girlfriends.clear()
+    _all_girlfriends.clear()
     _sessions.clear()
 
 

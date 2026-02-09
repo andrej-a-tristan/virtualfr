@@ -1,6 +1,7 @@
 import type { ChatMessage } from "@/lib/api/types"
 import { cn } from "@/lib/utils"
-import { Gift, Heart, Sparkles } from "lucide-react"
+import { Gift, Heart, Sparkles, Zap } from "lucide-react"
+import AvatarCircle from "@/components/ui/AvatarCircle"
 
 interface MessageBubbleProps {
   message: ChatMessage
@@ -29,11 +30,7 @@ export default function MessageBubble({ message, className }: MessageBubbleProps
     >
       <div className={cn("flex items-end gap-2", isUser ? "flex-row-reverse" : "flex-row")}>
         {!isUser && (
-          <img
-            src="/assets/companion-avatar.png"
-            alt="Companion"
-            className="h-7 w-7 shrink-0 rounded-full object-cover"
-          />
+          <AvatarCircle name={null} size="sm" />
         )}
         <div
           className={cn(
@@ -54,8 +51,16 @@ export default function MessageBubble({ message, className }: MessageBubbleProps
 
 function GiftBubble({ message, className }: MessageBubbleProps) {
   // Try to extract gift_data from the message
-  const giftData = (message as Record<string, unknown>).gift_data as
-    | { gift_name?: string; emoji?: string; tier?: string; trust_gained?: number; intimacy_gained?: number }
+  const giftData = (message as unknown as Record<string, unknown>).gift_data as
+    | {
+        gift_name?: string
+        emoji?: string
+        tier?: string
+        trust_gained?: number
+        intimacy_gained?: number
+        unique_effect_name?: string
+        unique_effect_description?: string
+      }
     | undefined
 
   const emoji = giftData?.emoji || "🎁"
@@ -63,12 +68,20 @@ function GiftBubble({ message, className }: MessageBubbleProps) {
   const tier = giftData?.tier || "everyday"
   const trustGained = giftData?.trust_gained ?? 0
   const intimacyGained = giftData?.intimacy_gained ?? 0
+  const effectName = giftData?.unique_effect_name || ""
 
   const tierColors: Record<string, string> = {
     everyday: "from-primary/20 to-primary/5 border-primary/30",
     dates: "from-primary/25 to-primary/10 border-primary/40",
     luxury: "from-amber-500/20 to-amber-500/5 border-amber-500/30",
     legendary: "from-amber-500/30 to-amber-400/10 border-amber-400/40",
+  }
+
+  const effectAccent: Record<string, string> = {
+    everyday: "text-primary",
+    dates: "text-primary",
+    luxury: "text-amber-400",
+    legendary: "text-amber-300",
   }
 
   return (
@@ -96,12 +109,18 @@ function GiftBubble({ message, className }: MessageBubbleProps) {
         {/* Reaction text */}
         {message.content && (
           <div className="flex gap-2">
-            <img
-              src="/assets/companion-avatar.png"
-              alt="Companion"
-              className="h-6 w-6 shrink-0 rounded-full object-cover mt-0.5"
-            />
+            <AvatarCircle name={null} size="xs" className="mt-0.5" />
             <p className="text-sm italic text-muted-foreground">{message.content}</p>
+          </div>
+        )}
+
+        {/* Unique effect badge */}
+        {effectName && (
+          <div className="flex items-center justify-center gap-1.5">
+            <Zap className={cn("h-3 w-3", effectAccent[tier] || effectAccent.everyday)} />
+            <span className={cn("text-xs font-medium", effectAccent[tier] || effectAccent.everyday)}>
+              {effectName}
+            </span>
           </div>
         )}
 

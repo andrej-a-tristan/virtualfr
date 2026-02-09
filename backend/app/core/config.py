@@ -36,8 +36,9 @@ class Settings(BaseSettings):
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""
     stripe_publishable_key: str = ""
-    stripe_price_plus: str = ""      # price ID for Plus tier (optional, for later)
-    stripe_price_premium: str = ""   # price ID for Premium tier (optional, for later)
+    stripe_price_free: str = ""       # price ID for Free tier (optional, not used by Stripe)
+    stripe_price_plus: str = ""      # price ID for Plus tier
+    stripe_price_premium: str = ""   # price ID for Premium tier
     stripe_success_url: str = "http://localhost:5173/app/chat?gift_success=1"
     stripe_cancel_url: str = "http://localhost:5173/app/chat?gift_cancel=1"
 

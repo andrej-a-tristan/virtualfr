@@ -25,6 +25,9 @@ const defaultDraft: OnboardingDraft = {
 interface AppState {
   user: User | null
   girlfriend: Girlfriend | null
+  // Multi-girl support
+  girlfriends: Girlfriend[]
+  currentGirlfriendId: string | null
   // Legacy onboarding draft (personality engine)
   onboardingDraft: OnboardingDraft
   // Extended onboarding state (LLM chatbot flow)
@@ -32,9 +35,15 @@ interface AppState {
   onboardingAppearance?: AppearancePrefs
   onboardingContentPrefs?: ContentPrefs
   onboardingIdentity?: IdentityPrefs
+  // Onboarding mode: "first" or "additional"
+  onboardingMode: "first" | "additional"
   // Actions
   setUser: (u: User | null) => void
   setGirlfriend: (g: Girlfriend | null) => void
+  setGirlfriends: (list: Girlfriend[], currentId: string | null) => void
+  setCurrentGirlfriend: (id: string) => void
+  addGirlfriend: (gf: Girlfriend, currentId: string) => void
+  setOnboardingMode: (mode: "first" | "additional") => void
   setOnboardingDraft: (d: OnboardingDraft | ((prev: OnboardingDraft) => OnboardingDraft)) => void
   updateTrait: <K extends keyof TraitSelection>(key: K, value: TraitSelection[K]) => void
   setDisplayName: (name: string) => void
@@ -53,16 +62,49 @@ interface AppState {
 
 export const useAppStore = create<AppState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       user: null,
       girlfriend: null,
+      girlfriends: [],
+      currentGirlfriendId: null,
       onboardingDraft: defaultDraft,
       onboardingTraits: undefined,
       onboardingAppearance: undefined,
       onboardingContentPrefs: undefined,
       onboardingIdentity: undefined,
+      onboardingMode: "first" as const,
       setUser: (user) => set({ user }),
-      setGirlfriend: (girlfriend) => set({ girlfriend }),
+      setGirlfriend: (girlfriend) => {
+        set((s) => {
+          // Also update in the girlfriends list if present
+          if (girlfriend) {
+            const exists = s.girlfriends.some((g) => g.id === girlfriend.id)
+            const newList = exists
+              ? s.girlfriends.map((g) => (g.id === girlfriend.id ? girlfriend : g))
+              : [...s.girlfriends, girlfriend]
+            return { girlfriend, girlfriends: newList, currentGirlfriendId: girlfriend.id }
+          }
+          return { girlfriend }
+        })
+      },
+      setGirlfriends: (list, currentId) => {
+        const current = list.find((g) => g.id === currentId) ?? list[0] ?? null
+        set({ girlfriends: list, currentGirlfriendId: currentId, girlfriend: current })
+      },
+      setCurrentGirlfriend: (id) => {
+        set((s) => {
+          const gf = s.girlfriends.find((g) => g.id === id) ?? null
+          return { currentGirlfriendId: id, girlfriend: gf }
+        })
+      },
+      addGirlfriend: (gf, currentId) => {
+        set((s) => ({
+          girlfriends: [...s.girlfriends, gf],
+          currentGirlfriendId: currentId,
+          girlfriend: gf,
+        }))
+      },
+      setOnboardingMode: (onboardingMode) => set({ onboardingMode }),
       setOnboardingDraft: (d) =>
         set((s) => ({
           onboardingDraft: typeof d === "function" ? d(s.onboardingDraft) : d,
@@ -112,16 +154,20 @@ export const useAppStore = create<AppState>()(
           onboardingAppearance: undefined,
           onboardingContentPrefs: undefined,
           onboardingIdentity: undefined,
+          onboardingMode: "first" as const,
         }),
       reset: () =>
         set({
           user: null,
           girlfriend: null,
+          girlfriends: [],
+          currentGirlfriendId: null,
           onboardingDraft: defaultDraft,
           onboardingTraits: undefined,
           onboardingAppearance: undefined,
           onboardingContentPrefs: undefined,
           onboardingIdentity: undefined,
+          onboardingMode: "first" as const,
         }),
     }),
     {
@@ -132,6 +178,11 @@ export const useAppStore = create<AppState>()(
         onboardingAppearance: s.onboardingAppearance,
         onboardingContentPrefs: s.onboardingContentPrefs,
         onboardingIdentity: s.onboardingIdentity,
+        // Persist multi-girl state so it survives page navigations
+        girlfriends: s.girlfriends,
+        currentGirlfriendId: s.currentGirlfriendId,
+        girlfriend: s.girlfriend,
+        onboardingMode: s.onboardingMode,
       }),
     }
   )

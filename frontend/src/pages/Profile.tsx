@@ -4,6 +4,7 @@ import { useAuth } from "@/lib/hooks/useAuth"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
+import AvatarCircle from "@/components/ui/AvatarCircle"
 
 export default function Profile() {
   const { user } = useAuth()
@@ -23,11 +24,7 @@ export default function Profile() {
       <h1 className="text-2xl font-bold tracking-tight">Profile</h1>
       <Card className="rounded-2xl border-white/10">
         <CardHeader className="flex flex-row items-center gap-4">
-          <img
-            src="/assets/companion-avatar.png"
-            alt={gf?.display_name ?? "Companion"}
-            className="h-16 w-16 rounded-full object-cover"
-          />
+          <AvatarCircle name={gf?.display_name} avatarUrl={gf?.avatar_url} size="xl" />
           <div>
             <h2 className="text-xl font-semibold">{gf?.display_name ?? "Companion"}</h2>
             <Badge variant="secondary" className="mt-1">Your companion</Badge>

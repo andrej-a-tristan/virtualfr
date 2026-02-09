@@ -8,7 +8,7 @@ interface RelationshipMeterProps {
 }
 
 export default function RelationshipMeter({ state, className }: RelationshipMeterProps) {
-  const pct = Math.min(100, Math.round((state.trust + state.intimacy) / 2))
+  const pct = Math.min(100, Math.round(state.intimacy))
   return (
     <div className={cn("flex items-center gap-2", className)}>
       <Heart className="h-5 w-5 text-primary" />
