@@ -1,6 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { getCurrentGirlfriend, getBillingStatus, getChatState, listGirlfriends, switchGirlfriend } from "@/lib/api/endpoints"
-import RelationshipMeter from "./RelationshipMeter"
+import { getCurrentGirlfriend, getBillingStatus, listGirlfriends, switchGirlfriend } from "@/lib/api/endpoints"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Sparkles, Crown, Heart, ChevronDown, Check, Users } from "lucide-react"
 import AvatarCircle from "@/components/ui/AvatarCircle"
@@ -17,7 +16,6 @@ import {
 export default function ChatHeader() {
   const queryClient = useQueryClient()
   const { data: gf, isLoading: gfLoading } = useQuery({ queryKey: ["girlfriend"], queryFn: getCurrentGirlfriend })
-  const { data: state, isLoading: stateLoading } = useQuery({ queryKey: ["chatState"], queryFn: () => getChatState() })
   const { data: billing } = useQuery({ queryKey: ["billingStatus"], queryFn: getBillingStatus, retry: false })
   const { data: gfList } = useQuery({ queryKey: ["girlfriendsList"], queryFn: listGirlfriends, retry: false })
 
@@ -108,7 +106,6 @@ export default function ChatHeader() {
           </div>
         </div>
       </div>
-      {!stateLoading && state && <RelationshipMeter state={state} />}
     </header>
   )
 }

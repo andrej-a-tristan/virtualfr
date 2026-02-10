@@ -82,7 +82,66 @@ export async function sendChatMessage(message: string): Promise<void> {
             break
           }
           try {
-            const data = JSON.parse(payload) as { token?: string; error?: string; finish_reason?: string }
+            const data = JSON.parse(payload) as { token?: string; error?: string; finish_reason?: string; type?: string; message?: Record<string, unknown>; decision?: Record<string, unknown> }
+            // Handle image_decision events from the backend
+            if ((lastEvent === "image_decision" || data.type === "image_decision") && data.message) {
+              const msg = data.message as Record<string, string | null>
+              appendMessage({
+                id: msg.id || `decision-${Date.now()}`,
+                role: "assistant",
+                content: (msg.content as string) || "",
+                image_url: null,
+                event_type: "image_decision",
+                created_at: (msg.created_at as string) || new Date().toISOString(),
+                ...(data.decision ? { decision: data.decision } : {}),
+              } as Parameters<typeof appendMessage>[0])
+              continue
+            }
+            // Handle relationship_gain events (trust/intimacy changes)
+            if ((lastEvent === "relationship_gain" || data.type === "relationship_gain") && (data as Record<string, unknown>).gain) {
+              const gain = (data as Record<string, unknown>).gain as Record<string, unknown>
+              appendMessage({
+                id: `gain-${Date.now()}`,
+                role: "assistant",
+                content: "",
+                image_url: null,
+                event_type: "relationship_gain",
+                event_key: (gain.reason as string) || "conversation",
+                created_at: new Date().toISOString(),
+                gain_data: gain,
+              } as Parameters<typeof appendMessage>[0])
+              continue
+            }
+            // Handle relationship_achievement events (achievement unlocked)
+            if ((lastEvent === "relationship_achievement" || data.type === "relationship_achievement") && (data as Record<string, unknown>).achievement) {
+              const ach = (data as Record<string, unknown>).achievement as Record<string, unknown>
+              appendMessage({
+                id: `ach-${Date.now()}`,
+                role: "assistant",
+                content: "",
+                image_url: null,
+                event_type: "relationship_achievement",
+                event_key: (ach.id as string) || "",
+                created_at: new Date().toISOString(),
+                achievement: ach,
+              } as Parameters<typeof appendMessage>[0])
+              continue
+            }
+            // Handle blurred_preview events (proactive surprise for free users)
+            if ((lastEvent === "blurred_preview" || data.type === "blurred_preview") && data.message) {
+              const msg = data.message as Record<string, string | null>
+              appendMessage({
+                id: msg.id || `blurred-${Date.now()}`,
+                role: "assistant",
+                content: (msg.content as string) || "",
+                image_url: null,
+                event_type: "blurred_preview",
+                event_key: (msg.event_key as string) || "free_plan_upgrade",
+                created_at: (msg.created_at as string) || new Date().toISOString(),
+                blurred_image_url: (msg.blurred_image_url as string) || undefined,
+              } as Parameters<typeof appendMessage>[0])
+              continue
+            }
             if (lastEvent === "token" && data.token) {
               fullContent += data.token
               flushSync(() => setStreamingContent(fullContent))

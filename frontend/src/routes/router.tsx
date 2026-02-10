@@ -26,6 +26,7 @@ import Settings from "@/pages/Settings"
 import Billing from "@/pages/Billing"
 import PaymentOptions from "@/pages/PaymentOptions"
 import Safety from "@/pages/Safety"
+import RelationshipPage from "@/pages/Relationship"
 
 const router = createBrowserRouter([
   { path: "/", element: <Landing /> },
@@ -167,9 +168,12 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <Navigate to="/app/girl" replace /> },
       { path: "girl", element: <GirlPage /> },
+      /* Girlfriend-specific relationship page */
+      { path: "girls/:girlId/relationship", element: <RelationshipPage /> },
       /* Legacy redirects so old bookmarks / return URLs still work */
       { path: "chat", element: <Navigate to="/app/girl" replace /> },
       { path: "gallery", element: <Navigate to="/app/girl" replace /> },
+      { path: "relationship", element: <Navigate to="/app/girl" replace /> },
       { path: "profile", element: <Profile /> },
       { path: "settings", element: <Settings /> },
       { path: "billing", element: <Billing /> },

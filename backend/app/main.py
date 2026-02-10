@@ -33,6 +33,7 @@ from app.api.routes import (
     memory,
     moderation,
     onboarding,
+    relationship,
 )
 from app.routers import chat as chat_gateway
 from app.routers import mock_model
@@ -101,6 +102,7 @@ app.include_router(gifts.router, prefix="/api")
 app.include_router(moderation.router, prefix="/api")
 app.include_router(memory.router, prefix="/api")
 app.include_router(onboarding.router, prefix="/api")
+app.include_router(relationship.router, prefix="/api")
 
 # Chat gateway: /v1/chat/stream and /api/chat/stream (same handler; /api works with proxy)
 app.include_router(chat_gateway.router, prefix="/v1")

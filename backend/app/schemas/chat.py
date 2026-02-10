@@ -25,6 +25,19 @@ class AppOpenRequest(BaseModel):
 class RelationshipState(BaseModel):
     trust: int
     intimacy: int
-    level: str  # STRANGER, FAMILIAR, CLOSE, INTIMATE, EXCLUSIVE
+    level: int
+    region_key: str
+    region_title: str
+    region_min_level: int
+    region_max_level: int
     last_interaction_at: str | None = None
+    # Bank/cap fields for the visible/bank split
+    trust_visible: int | None = None
+    trust_bank: int | None = None
+    trust_cap: int | None = None
+    intimacy_visible: int | None = None
+    intimacy_bank: int | None = None
+    intimacy_cap: int | None = None
+    # Achievement milestones (per-girlfriend, region-locked)
     milestones_reached: list[str] = []
+    current_region_index: int | None = None

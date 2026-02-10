@@ -87,11 +87,15 @@ def build_girlfriend_canon_system_prompt(gf: dict[str, Any]) -> str:
         level = relationship.get("level")
         trust = relationship.get("trust")
         intimacy = relationship.get("intimacy")
+        region_title = relationship.get("region_title")
         if level is not None or trust is not None or intimacy is not None:
             lines.append("")
             parts = []
             if level is not None:
-                parts.append(f"level {level}")
+                if region_title:
+                    parts.append(f"level {level} ({region_title})")
+                else:
+                    parts.append(f"level {level}")
             if trust is not None:
                 parts.append(f"trust {trust}")
             if intimacy is not None:

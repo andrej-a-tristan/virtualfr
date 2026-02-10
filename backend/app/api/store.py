@@ -6,6 +6,10 @@ from uuid import UUID
 
 from app.core.supabase_client import get_supabase_admin
 from app.api import supabase_store as sb
+from app.services.relationship_progression import RelationshipProgressState
+from app.schemas.intimacy import IntimacyState
+from app.schemas.trust_intimacy import TrustIntimacyState
+from app.services.achievement_engine import AchievementProgress
 
 # session_id -> user dict (id, email, display_name; for Supabase also user_id UUID, current_girlfriend_id)
 _sessions: dict[str, dict[str, Any]] = {}
@@ -19,6 +23,14 @@ _messages: dict[tuple[str, str], list[dict[str, Any]]] = {}
 _habit_profile: dict[tuple[str, str], dict[str, Any]] = {}
 # (session_id, girlfriend_id) -> list of gallery item dicts
 _gallery: dict[tuple[str, str], list[dict[str, Any]]] = {}
+# (session_id, girlfriend_id) -> RelationshipProgressState
+_relationship_progress: dict[tuple[str, str], RelationshipProgressState] = {}
+# (session_id, girlfriend_id) -> IntimacyState
+_intimacy_state: dict[tuple[str, str], IntimacyState] = {}
+# (session_id, girlfriend_id) -> TrustIntimacyState
+_trust_intimacy_state: dict[tuple[str, str], TrustIntimacyState] = {}
+# (session_id, girlfriend_id) -> AchievementProgress
+_achievement_progress: dict[tuple[str, str], AchievementProgress] = {}
 
 
 # ── Session / User ────────────────────────────────────────────────────────────
@@ -69,6 +81,9 @@ def clear_session(session_id: str) -> None:
         _messages.pop((session_id, gf_id), None)
         _habit_profile.pop((session_id, gf_id), None)
         _gallery.pop((session_id, gf_id), None)
+        _relationship_progress.pop((session_id, gf_id), None)
+        _intimacy_state.pop((session_id, gf_id), None)
+        _trust_intimacy_state.pop((session_id, gf_id), None)
     if get_supabase_admin():
         try:
             sb.delete_session(session_id)
@@ -252,3 +267,87 @@ def set_gallery(session_id: str, items: list[dict[str, Any]], girlfriend_id: str
     if not girlfriend_id:
         return
     _gallery[(session_id, girlfriend_id)] = items
+
+
+# ── Relationship Progression (per girlfriend) ─────────────────────────────────
+
+def get_relationship_progress(session_id: str, girlfriend_id: str | None = None) -> RelationshipProgressState:
+    """Return progress state for the session+girlfriend, creating a default if absent."""
+    if not girlfriend_id:
+        user = _sessions.get(session_id)
+        girlfriend_id = (user or {}).get("current_girlfriend_id", "")
+    if not girlfriend_id:
+        return RelationshipProgressState()
+    return _relationship_progress.get((session_id, girlfriend_id), RelationshipProgressState())
+
+
+def set_relationship_progress(session_id: str, state: RelationshipProgressState, girlfriend_id: str | None = None) -> None:
+    if not girlfriend_id:
+        user = _sessions.get(session_id)
+        girlfriend_id = (user or {}).get("current_girlfriend_id", "")
+    if not girlfriend_id:
+        return
+    _relationship_progress[(session_id, girlfriend_id)] = state
+
+
+# ── Intimacy State (per girlfriend) ──────────────────────────────────────────
+
+def get_intimacy_state(session_id: str, girlfriend_id: str | None = None) -> IntimacyState:
+    """Return intimacy state for session+girlfriend, creating a default if absent."""
+    if not girlfriend_id:
+        user = _sessions.get(session_id)
+        girlfriend_id = (user or {}).get("current_girlfriend_id", "")
+    if not girlfriend_id:
+        return IntimacyState()
+    return _intimacy_state.get((session_id, girlfriend_id), IntimacyState())
+
+
+def set_intimacy_state(session_id: str, state: IntimacyState, girlfriend_id: str | None = None) -> None:
+    if not girlfriend_id:
+        user = _sessions.get(session_id)
+        girlfriend_id = (user or {}).get("current_girlfriend_id", "")
+    if not girlfriend_id:
+        return
+    _intimacy_state[(session_id, girlfriend_id)] = state
+
+
+# ── Trust + Intimacy State (per girlfriend) ──────────────────────────────────
+
+def get_trust_intimacy_state(session_id: str, girlfriend_id: str | None = None) -> TrustIntimacyState:
+    """Return trust/intimacy state for session+girlfriend, creating a default if absent."""
+    if not girlfriend_id:
+        user = _sessions.get(session_id)
+        girlfriend_id = (user or {}).get("current_girlfriend_id", "")
+    if not girlfriend_id:
+        return TrustIntimacyState()
+    return _trust_intimacy_state.get((session_id, girlfriend_id), TrustIntimacyState())
+
+
+def set_trust_intimacy_state(session_id: str, state: TrustIntimacyState, girlfriend_id: str | None = None) -> None:
+    if not girlfriend_id:
+        user = _sessions.get(session_id)
+        girlfriend_id = (user or {}).get("current_girlfriend_id", "")
+    if not girlfriend_id:
+        return
+    _trust_intimacy_state[(session_id, girlfriend_id)] = state
+
+
+# ── Achievement Progress (per girlfriend) ────────────────────────────────────
+
+def get_achievement_progress(session_id: str, girlfriend_id: str | None = None) -> AchievementProgress:
+    """Return achievement progress for session+girlfriend, creating a default if absent."""
+    if not girlfriend_id:
+        user = _sessions.get(session_id)
+        girlfriend_id = (user or {}).get("current_girlfriend_id", "")
+    if not girlfriend_id:
+        return AchievementProgress()
+    return _achievement_progress.get((session_id, girlfriend_id), AchievementProgress())
+
+
+def set_achievement_progress(session_id: str, progress: AchievementProgress, girlfriend_id: str | None = None) -> None:
+    if not girlfriend_id:
+        user = _sessions.get(session_id)
+        girlfriend_id = (user or {}).get("current_girlfriend_id", "")
+    if not girlfriend_id:
+        return
+    _achievement_progress[(session_id, girlfriend_id)] = progress

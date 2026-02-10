@@ -26,7 +26,11 @@ ReactionToAbsence = Literal["High", "Medium", "Low"]
 CommunicationStyle = Literal["Soft", "Direct", "Teasing"]
 RelationshipPace = Literal["Slow", "Natural", "Fast"]
 CulturalPersonality = Literal["Warm Slavic", "Calm Central European", "Passionate Balkan"]
-RelationshipLevel = Literal["STRANGER", "FAMILIAR", "CLOSE", "INTIMATE", "EXCLUSIVE"]
+RegionKey = Literal[
+    "EARLY_CONNECTION", "COMFORT_FAMILIARITY", "GROWING_CLOSENESS",
+    "EMOTIONAL_TRUST", "DEEP_BOND", "MUTUAL_DEVOTION",
+    "INTIMATE_PARTNERSHIP", "SHARED_LIFE", "ENDURING_COMPANIONSHIP",
+]
 
 
 @dataclass
@@ -77,9 +81,9 @@ class EmojiStyle:
 
 @dataclass
 class PetNameStyle:
-    """Pet name usage parameters by relationship level."""
+    """Pet name usage parameters by relationship region."""
     enabled: bool = True
-    start_at_level: RelationshipLevel = "CLOSE"
+    start_at_region: RegionKey = "GROWING_CLOSENESS"
     casual_names: List[str] = field(default_factory=list)
     affectionate_names: List[str] = field(default_factory=list)
     intimate_names: List[str] = field(default_factory=list)
@@ -113,11 +117,15 @@ class InitiationBehavior:
     preferred_time_of_day: Literal["morning", "afternoon", "evening", "night", "any"] = "evening"
     message_variety: Literal["low", "medium", "high"] = "medium"
     level_multipliers: Dict[str, float] = field(default_factory=lambda: {
-        "STRANGER": 0.0,
-        "FAMILIAR": 0.7,
-        "CLOSE": 1.0,
-        "INTIMATE": 1.3,
-        "EXCLUSIVE": 1.5,
+        "EARLY_CONNECTION": 0.0,
+        "COMFORT_FAMILIARITY": 0.7,
+        "GROWING_CLOSENESS": 1.0,
+        "EMOTIONAL_TRUST": 1.3,
+        "DEEP_BOND": 1.5,
+        "MUTUAL_DEVOTION": 1.6,
+        "INTIMATE_PARTNERSHIP": 1.6,
+        "SHARED_LIFE": 1.6,
+        "ENDURING_COMPANIONSHIP": 1.6,
     })
 
 
@@ -238,28 +246,28 @@ CULTURAL_PERSONALITY_EMOJI: Dict[str, Dict[str, Any]] = {
 EMOTIONAL_STYLE_PET_NAMES: Dict[str, Dict[str, Any]] = {
     "Caring": {
         "enabled": True,
-        "start_at_level": "FAMILIAR",
+        "start_at_region": "COMFORT_FAMILIARITY",
         "casual_names": ["sweetie", "hun"],
         "affectionate_names": ["honey", "dear"],
         "intimate_names": ["love", "my love"],
     },
     "Playful": {
         "enabled": True,
-        "start_at_level": "FAMILIAR",
+        "start_at_region": "COMFORT_FAMILIARITY",
         "casual_names": ["silly", "you", "dummy"],
         "affectionate_names": ["cutie", "babe"],
         "intimate_names": ["baby", "my favorite"],
     },
     "Reserved": {
         "enabled": False,
-        "start_at_level": "INTIMATE",
+        "start_at_region": "EMOTIONAL_TRUST",
         "casual_names": [],
         "affectionate_names": ["dear"],
         "intimate_names": ["love"],
     },
     "Protective": {
         "enabled": True,
-        "start_at_level": "CLOSE",
+        "start_at_region": "GROWING_CLOSENESS",
         "casual_names": ["hey you"],
         "affectionate_names": ["sweetheart"],
         "intimate_names": ["my dear", "darling"],
@@ -574,7 +582,7 @@ def build_pet_name_style(traits: TraitSelection) -> PetNameStyle:
     
     return PetNameStyle(
         enabled=emotional.get("enabled", base.enabled),
-        start_at_level=emotional.get("start_at_level", base.start_at_level),
+        start_at_region=emotional.get("start_at_region", base.start_at_region),
         casual_names=merge_lists(emotional.get("casual_names"), cultural.get("casual_names")),
         affectionate_names=merge_lists(emotional.get("affectionate_names"), cultural.get("affectionate_names")),
         intimate_names=merge_lists(emotional.get("intimate_names"), cultural.get("intimate_names")),
@@ -695,29 +703,33 @@ def build_behavior_profile_from_dict(traits_dict: Dict[str, str]) -> BehaviorPro
 # UTILITY FUNCTIONS
 # =============================================================================
 
-LEVEL_ORDER: List[str] = ["STRANGER", "FAMILIAR", "CLOSE", "INTIMATE", "EXCLUSIVE"]
+REGION_ORDER: List[str] = [
+    "EARLY_CONNECTION", "COMFORT_FAMILIARITY", "GROWING_CLOSENESS",
+    "EMOTIONAL_TRUST", "DEEP_BOND", "MUTUAL_DEVOTION",
+    "INTIMATE_PARTNERSHIP", "SHARED_LIFE", "ENDURING_COMPANIONSHIP",
+]
 
 
-def get_pet_name_for_level(
+def get_pet_name_for_region(
     profile: PetNameStyle,
-    level: RelationshipLevel,
+    region_key: str,
     rng: random.Random = None
 ) -> Optional[str]:
-    """Get appropriate pet name for current relationship level."""
+    """Get appropriate pet name for current relationship region."""
     if not profile.enabled:
         return None
     
     rng = rng or random
-    start_index = LEVEL_ORDER.index(profile.start_at_level)
-    current_index = LEVEL_ORDER.index(level)
+    start_index = REGION_ORDER.index(profile.start_at_region) if profile.start_at_region in REGION_ORDER else 0
+    current_index = REGION_ORDER.index(region_key) if region_key in REGION_ORDER else 0
     
     if current_index < start_index:
         return None
     
-    # Select appropriate pool
-    if level in ("INTIMATE", "EXCLUSIVE"):
+    # Select appropriate pool based on region depth
+    if current_index >= REGION_ORDER.index("EMOTIONAL_TRUST"):
         pool = profile.intimate_names + profile.affectionate_names
-    elif level == "CLOSE":
+    elif current_index >= REGION_ORDER.index("GROWING_CLOSENESS"):
         pool = profile.affectionate_names + profile.casual_names
     else:
         pool = profile.casual_names

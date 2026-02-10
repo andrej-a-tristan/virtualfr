@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
-import { Shield } from "lucide-react"
+import { Shield, AlertTriangle } from "lucide-react"
 
 export default function AgeGate() {
   const navigate = useNavigate()
@@ -41,31 +41,47 @@ export default function AgeGate() {
           <div className="mx-auto rounded-full bg-amber-500/10 p-4">
             <Shield className="h-12 w-12 text-amber-500" />
           </div>
-          <CardTitle className="text-2xl">Age verification</CardTitle>
-          <CardDescription className="text-base">
-            This service is intended for adults only. You must be 18 years or older to continue.
+          <CardTitle className="text-2xl">Age Verification Required</CardTitle>
+          <CardDescription className="text-base leading-relaxed">
+            This platform contains adult content and is strictly for users aged 18 and over.
+            You <span className="font-semibold text-white/80">must</span> confirm your age to continue.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           {error && <p className="text-center text-sm text-destructive">{error}</p>}
-          <div className="flex items-center space-x-2">
+
+          {/* Warning notice */}
+          <div className="flex items-start gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+            <p className="text-xs leading-relaxed text-white/60">
+              By checking the box below you confirm that you are at least 18 years old
+              and that you consent to viewing adult content. If you are under 18, you must leave this site immediately.
+            </p>
+          </div>
+
+          <div className="flex items-center space-x-3">
             <Checkbox
               id="age"
               checked={confirmed}
               onChange={(e) => setConfirmed(e.target.checked)}
             />
-            <Label htmlFor="age" className="cursor-pointer text-sm font-medium">
-              I am 18+
+            <Label htmlFor="age" className="cursor-pointer text-sm font-semibold">
+              I confirm that I am 18 years of age or older
             </Label>
           </div>
+
           <Button
-            className="w-full"
+            className="w-full text-base font-semibold"
             size="lg"
             disabled={!confirmed || loading}
             onClick={handleSubmit}
           >
-            {loading ? "Verifying…" : "Continue"}
+            {loading ? "Verifying…" : "Enter"}
           </Button>
+
+          <p className="text-center text-[11px] text-white/30">
+            If you are not 18 or older, please close this page.
+          </p>
         </CardContent>
       </Card>
     </div>

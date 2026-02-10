@@ -1,7 +1,7 @@
 # VirtualFR — Project Index
 
 > AI companion web app: FastAPI backend + React/Vite frontend.
-> Multi-girlfriend support with per-girl chat, gallery, relationship state, and gifting.
+> Multi-girlfriend support with per-girl chat, gallery, relationship state, gifting, achievements, and intimate progression.
 
 ---
 
@@ -30,7 +30,11 @@ virtualfr/
 │   ├── tests/
 │   │   ├── test_chat_canon_injection.py
 │   │   ├── test_identity_canon.py
-│   │   └── test_openai_contract.py
+│   │   ├── test_openai_contract.py
+│   │   ├── test_relationship_regions.py      — Region mapping correctness tests
+│   │   ├── test_relationship_progression.py  — Progression engine tests (45 cases)
+│   │   ├── test_trust_intimacy.py            — Trust/intimacy + region caps + banking tests (71 cases)
+│   │   └── test_achievements.py              — Achievement system tests (73 cases)
 │   ├── logs/
 │   │   └── chat.jsonl
 │   └── app/
@@ -44,43 +48,54 @@ virtualfr/
 │       │   ├── chat_logging.py    — JSONL chat logger
 │       │   └── supabase_client.py — Supabase client init
 │       ├── api/
-│       │   ├── store.py           — In-memory session store (multi-girl: messages, gallery, relationship, habits per girlfriend)
+│       │   ├── store.py           — In-memory session store (multi-girl: messages, gallery, relationship, habits, achievement progress per girlfriend)
 │       │   ├── supabase_store.py  — Supabase-backed store
 │       │   ├── request_context.py — Request context helpers
 │       │   └── routes/
-│       │       ├── auth.py        — Signup, login (preserves session data), logout
-│       │       ├── billing.py     — Plan status, setup-intent, subscribe, cancel, payment-method, Stripe webhook
-│       │       ├── chat.py        — Chat history, state, send (SSE), app_open — all per-girlfriend
-│       │       ├── gifts.py       — Gift catalog, checkout (inline Stripe), confirm, history — per-girlfriend
-│       │       ├── girlfriends.py — List, create, switch, get current — multi-girl CRUD with plan limits
-│       │       ├── health.py      — Health check
-│       │       ├── images.py      — Image jobs, gallery — per-girlfriend
-│       │       ├── me.py          — Current user, age gate
-│       │       ├── memory.py      — Memory summary/items/stats
-│       │       ├── moderation.py  — Content reports
-│       │       └── onboarding.py  — Prompt images, complete onboarding (first girl)
+│       │       ├── auth.py          — Signup, login (preserves session data), logout
+│       │       ├── billing.py       — Plan status, setup-intent, subscribe, cancel, payment-method, Stripe webhook
+│       │       ├── chat.py          — Chat history, state, send (SSE), app_open — all per-girlfriend. Achievement triggers on every message.
+│       │       ├── gifts.py         — Gift catalog, checkout (inline Stripe), confirm, history, collection — per-girlfriend. One purchase per gift per girl enforced.
+│       │       ├── girlfriends.py   — List, create, switch, get current — multi-girl CRUD with plan limits
+│       │       ├── health.py        — Health check
+│       │       ├── images.py        — Image jobs, gallery — per-girlfriend
+│       │       ├── me.py            — Current user, age gate
+│       │       ├── memory.py        — Memory summary/items/stats
+│       │       ├── moderation.py    — Content reports
+│       │       ├── onboarding.py    — Prompt images, complete onboarding (first girl)
+│       │       └── relationship.py  — Achievement catalog API endpoint
 │       ├── routers/
 │       │   ├── chat.py            — Chat gateway (SSE proxy + canon injection, accepts girlfriend_id)
 │       │   └── mock_model.py      — Internal mock LLM (/v1/chat/completions)
 │       ├── schemas/
 │       │   ├── auth.py            — SignupRequest, LoginRequest, UserResponse
 │       │   ├── chat.py            — ChatMessage, SendMessageRequest (with girlfriend_id), RelationshipState
-│       │   ├── gift.py            — GiftDefinition, GiftCheckoutRequest/Response, GiftHistoryItem
+│       │   ├── gift.py            — GiftDefinition, ImageReward (normal+spicy photos, per-photo prompts), GiftCheckoutRequest/Response, GiftHistoryItem
 │       │   ├── girlfriend.py      — TraitsPayload, AppearancePrefs, IdentityCanon, GirlfriendListResponse, OnboardingCompletePayload
 │       │   ├── image.py           — ImageJobResponse, GalleryItem
 │       │   ├── payment_method.py  — PaymentMethodResponse
-│       │   └── relationship.py    — Relationship schemas
+│       │   ├── relationship.py    — Relationship schemas
+│       │   ├── intimacy.py        — IntimacyState, IntimacyAwardResult (Intimacy Index schemas)
+│       │   └── trust_intimacy.py  — TrustIntimacyState (with visible/bank split), GainResult (unified trust+intimacy schemas)
 │       ├── services/
-│       │   ├── big_five.py             — Trait → Big Five mapping
-│       │   ├── big_five_modulation.py  — Big Five → behavior modulation
-│       │   ├── big_five_mapping.json   — Big Five mapping data
-│       │   ├── trait_behavior_rules.py — Trait → BehaviorProfile
-│       │   ├── gifting.py              — Gift catalog, effects, checkout, webhook handling
-│       │   ├── relationship_state.py   — Trust/intimacy/level tracking, decay, milestones
-│       │   ├── memory.py               — Factual & emotional memory extraction/context
-│       │   ├── habits.py               — User habit profiling
-│       │   ├── initiation_engine.py    — Girlfriend-initiated messages
-│       │   └── time_utils.py           — Time helpers
+│       │   ├── big_five.py                — Trait → Big Five mapping
+│       │   ├── big_five_modulation.py     — Big Five → behavior modulation
+│       │   ├── big_five_mapping.json      — Big Five mapping data
+│       │   ├── trait_behavior_rules.py    — Trait → BehaviorProfile
+│       │   ├── gifting.py                 — Gift catalog (26 gifts, 72 unique photo prompts), effects, checkout, webhook handling
+│       │   ├── relationship_state.py      — Trust/intimacy/level tracking, decay, milestones, try_unlock_achievement (legacy)
+│       │   ├── relationship_regions.py    — 9 canonical regions (1–200), clamp_level, get_region_for_level
+│       │   ├── relationship_progression.py — Points engine: cooldown, streak, quality, anti-farm, region curve
+│       │   ├── relationship_milestones.py — Achievement catalog: 54 achievements (6 per region × 9 regions), Rarity enum, TriggerType enum, requirement specs
+│       │   ├── achievement_engine.py      — Achievement evaluation engine: signal detection, progress counters, requirement evaluation, region-locked unlock
+│       │   ├── relationship_descriptors.py — Every +1 descriptor engine: labels, micro-lines, tone rules, prompt context
+│       │   ├── intimacy_service.py        — Legacy Intimacy Index engine (kept for backward compat)
+│       │   ├── trust_intimacy_service.py  — Unified trust+intimacy engine: region caps, bank-first awards, release_banked, conversation trust, gift/region awards, decay
+│       │   ├── image_decision_engine.py   — Image gating: sensitive detection, intimacy_visible threshold, age/opt-in gates
+│       │   ├── memory.py                  — Factual & emotional memory extraction/context
+│       │   ├── habits.py                  — User habit profiling
+│       │   ├── initiation_engine.py       — Girlfriend-initiated messages
+│       │   └── time_utils.py              — Time helpers
 │       └── utils/
 │           ├── identity_canon.py  — Deterministic identity canon generation
 │           ├── prompt_identity.py — Builds canon system prompt for LLM injection
@@ -105,8 +120,8 @@ virtualfr/
         ├── lib/
         │   ├── api/
         │   │   ├── client.ts          — Axios/fetch wrapper
-        │   │   ├── endpoints.ts       — All API call functions (multi-girl, gifts, billing, gallery)
-        │   │   ├── types.ts           — TypeScript types (Girlfriend, GirlfriendListResponse, gifts, billing, memory, Big Five)
+        │   │   ├── endpoints.ts       — All API call functions (multi-girl, gifts, gift collection, billing, gallery, achievements)
+        │   │   ├── types.ts           — TypeScript types (Girlfriend, gifts, billing, memory, Big Five, achievements, gift collection)
         │   │   └── zod.ts             — Zod schemas for forms
         │   ├── constants/identity.ts  — Job vibes, hobbies, city vibes, name validation
         │   ├── engines/               — Frontend personality/memory/relationship engines
@@ -118,46 +133,48 @@ virtualfr/
         │   │   ├── relationship_state.ts
         │   │   └── trait_behavior_rules.ts
         │   ├── hooks/
-        │   │   ├── useAuth.ts         — Auth hook (react-query + store)
-        │   │   └── useSSEChat.ts      — SSE chat streaming hook (sends girlfriend_id)
+        │   │   ├── useAuth.ts         — Auth hook (react-query + store, age_gate_passed prioritization)
+        │   │   └── useSSEChat.ts      — SSE chat streaming hook (sends girlfriend_id, handles relationship_achievement events)
         │   ├── onboarding/
         │   │   └── vibe.ts            — Vibe helpers
         │   ├── store/
         │   │   ├── useAppStore.ts     — Main Zustand store (user, girlfriends[], currentGirlfriendId, onboarding, persisted)
         │   │   └── useChatStore.ts    — Chat Zustand store (messages, streaming)
         │   └── utils.ts               — cn() utility
-        ├── pages/
-        │   ├── Landing.tsx            — Auto-login, redirect to onboarding or chat
-        │   ├── Login.tsx              — Email/password login (smart redirect based on user state)
-        │   ├── Signup.tsx             — Email/password signup
-        │   ├── AgeGate.tsx            — 18+ confirmation
-        │   ├── OnboardingAppearance.tsx — Vibe selection (first onboarding page)
-        │   ├── appearance/
-        │   │   ├── AppearanceAge.tsx          — Age range selection
-        │   │   ├── AppearanceEthnicity.tsx    — Ethnicity selection
-        │   │   ├── AppearanceBodyDetails.tsx  — Body type + breast + butt (combined)
-        │   │   ├── AppearanceHairEyes.tsx     — Hair color + hair style + eyes (combined)
-        │   │   ├── AppearanceBody.tsx         — (legacy) Body type
-        │   │   ├── AppearanceBreast.tsx       — (legacy) Breast size
-        │   │   ├── AppearanceButt.tsx         — (legacy) Butt size
-        │   │   ├── AppearanceEyes.tsx         — (legacy) Eye color
-        │   │   ├── AppearanceHairColor.tsx    — (legacy) Hair color
-        │   │   └── AppearanceHairStyle.tsx    — (legacy) Hair style
-        │   ├── OnboardingTraits.tsx      — 6 personality trait questions
-        │   ├── OnboardingPreferences.tsx — Spicy photos + age confirmation
-        │   ├── OnboardingIdentity.tsx    — Name, job vibe, hobbies, origin
-        │   ├── OnboardingGenerating.tsx  — Calls completeOnboarding or createAdditionalGirlfriend, shows spinner
-        │   ├── GirlfriendReveal.tsx      — Blurred photo + signup form
-        │   ├── SubscriptionPlan.tsx      — 3-tier subscription paywall
-        │   ├── RevealSuccess.tsx         — Unblurred photo + "Let's chat" after subscribing
-        │   ├── PersonaPreview.tsx        — Final persona summary
-        │   ├── Chat.tsx                  — Main chat interface (per-girlfriend history)
-        │   ├── Gallery.tsx               — Photo gallery (per-girlfriend)
-        │   ├── Profile.tsx               — Girlfriend profile
-        │   ├── Settings.tsx              — User settings
-        │   ├── Billing.tsx               — Billing/plans management (upgrade, cancel)
-        │   ├── PaymentOptions.tsx        — View/update saved card
-        │   └── Safety.tsx                — Safety/moderation
+    ├── pages/
+    │   ├── Landing.tsx            — Auto-login, redirect to onboarding or chat (age_gate_passed sync fix)
+    │   ├── Login.tsx              — Email/password login (smart redirect based on user state)
+    │   ├── Signup.tsx             — Email/password signup
+    │   ├── AgeGate.tsx            — Mandatory 18+ verification (blocking, with warning notice)
+    │   ├── OnboardingAppearance.tsx — Vibe selection (first onboarding page)
+    │   ├── appearance/
+    │   │   ├── AppearanceAge.tsx          — Age range selection
+    │   │   ├── AppearanceEthnicity.tsx    — Ethnicity selection
+    │   │   ├── AppearanceBodyDetails.tsx  — Body type + breast + butt (combined)
+    │   │   ├── AppearanceHairEyes.tsx     — Hair color + hair style + eyes (combined)
+    │   │   ├── AppearanceBody.tsx         — (legacy) Body type
+    │   │   ├── AppearanceBreast.tsx       — (legacy) Breast size
+    │   │   ├── AppearanceButt.tsx         — (legacy) Butt size
+    │   │   ├── AppearanceEyes.tsx         — (legacy) Eye color
+    │   │   ├── AppearanceHairColor.tsx    — (legacy) Hair color
+    │   │   └── AppearanceHairStyle.tsx    — (legacy) Hair style
+    │   ├── OnboardingTraits.tsx      — 6 personality trait questions
+    │   ├── OnboardingPreferences.tsx — Mandatory age verification (blocks under-18, auto-sets wants_spicy_photos)
+    │   ├── OnboardingIdentity.tsx    — Name, job vibe, hobbies, origin
+    │   ├── OnboardingGenerating.tsx  — Calls completeOnboarding or createAdditionalGirlfriend, shows spinner
+    │   ├── GirlfriendReveal.tsx      — Blurred photo + signup form
+    │   ├── SubscriptionPlan.tsx      — 3-tier subscription paywall
+    │   ├── RevealSuccess.tsx         — Unblurred photo + "Let's chat" after subscribing
+    │   ├── PersonaPreview.tsx        — Final persona summary
+    │   ├── GirlPage.tsx              — Per-girl hub: chat + gallery tabs, 3 side buttons (My Relationship, Intimate Progression, Gift Collection), fullscreen panels (portaled)
+    │   ├── Relationship.tsx          — (legacy, content moved into GirlPage)
+    │   ├── Chat.tsx                  — Main chat interface (per-girlfriend history)
+    │   ├── Gallery.tsx               — Photo gallery (per-girlfriend)
+    │   ├── Profile.tsx               — Girlfriend profile
+    │   ├── Settings.tsx              — User settings
+    │   ├── Billing.tsx               — Billing/plans management (upgrade, cancel)
+    │   ├── PaymentOptions.tsx        — View/update saved card
+    │   └── Safety.tsx                — Safety/moderation
         └── components/
             ├── billing/
             │   ├── AddCardModal.tsx        — Stripe Elements card-saving modal
@@ -165,12 +182,18 @@ virtualfr/
             ├── chat/
             │   ├── ChatHeader.tsx          — Header with avatar, name, girl switcher dropdown, plan badge
             │   ├── Composer.tsx            — Message input + gift button
-            │   ├── GiftModal.tsx           — Gift catalog modal with tabs + preview + inline Stripe payment
-            │   ├── MessageBubble.tsx       — Message bubble with avatar
+            │   ├── GiftModal.tsx           — Gift catalog modal with tabs + preview + inline Stripe payment + "Already Gifted" state
+            │   ├── GiftCollectionPanel.tsx — Fullscreen gift collection: all 26 gifts by tier, purchased state, photo slot grid per gift
+            │   ├── IntimateProgressionPanel.tsx — Fullscreen intimate collection: 7 tiers, 50 sexual achievements with scene descriptions + photo slots
+            │   ├── AchievementUnlockedCard.tsx  — Chat card for achievement unlock events (rarity-styled)
+            │   ├── MessageBubble.tsx       — Message bubble with avatar (handles achievement events)
             │   ├── MessageList.tsx         — Scrollable message list
             │   ├── ImageMessage.tsx        — Image message display
             │   ├── PaywallInlineCard.tsx   — In-chat paywall card
             │   ├── RelationshipMeter.tsx   — Intimacy-based level meter
+            │   ├── ImageTeaseCard.tsx      — Intimacy-locked content tease with suggested prompts
+            │   ├── BlurredImageCard.tsx    — Blurred preview card for free-plan paywall (upgrade CTA)
+            │   ├── RelationshipGainCard.tsx — Animated gain card (+trust/+intimacy) with bank/release/cap info
             │   └── TypingIndicator.tsx     — Typing animation
             ├── gallery/
             │   ├── GalleryGrid.tsx         — Image grid layout
@@ -235,7 +258,7 @@ virtualfr/
 |--------|------|-------------|
 | `GET` | `/api/chat/history` | Chat message history (`?girlfriend_id=`) |
 | `GET` | `/api/chat/state` | Relationship state (`?girlfriend_id=`) |
-| `POST` | `/api/chat/send` | Send message (SSE) — uses `girlfriend_id` from body |
+| `POST` | `/api/chat/send` | Send message (SSE) — uses `girlfriend_id` from body. Triggers achievement detection. |
 | `POST` | `/api/chat/app_open` | App open event (initiation + jealousy) |
 | `POST` | `/api/chat/stream` | Chat gateway: SSE proxy + canon injection (accepts `girlfriend_id`) |
 
@@ -265,11 +288,18 @@ virtualfr/
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/gifts/list` | Full gift catalog (4 tiers, 28 gifts, €2–€200) |
-| `POST` | `/api/gifts/checkout` | Create gift PaymentIntent (inline, saved card) |
-| `POST` | `/api/gifts/confirm-payment` | Confirm gift payment |
+| `GET` | `/api/gifts/list` | Full gift catalog (4 tiers, 26 gifts, €2–€200) + `spicy_unlocked` + `already_purchased` flags |
+| `POST` | `/api/gifts/checkout` | Create gift PaymentIntent (inline, saved card). **One purchase per gift per girl enforced.** |
+| `POST` | `/api/gifts/confirm-payment` | Confirm gift payment (3DS) |
 | `GET` | `/api/gifts/history` | Gift purchase history for current girlfriend |
+| `GET` | `/api/gifts/collection` | Full catalog with purchased status + purchased_at per gift, total/owned counts |
 | `POST` | `/api/gifts/webhook` | Stripe gift webhook |
+
+### Relationship & Achievements
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/relationship/achievements` | Achievement catalog by region (54 achievements with rarity + trigger) |
 
 ### Memory
 
@@ -299,9 +329,14 @@ All per-girlfriend data is keyed by `(session_id, girlfriend_id)`:
 |-------|-----|-------------|
 | `_all_girlfriends` | `session_id → list[dict]` | All girlfriends for a session |
 | `_messages` | `(session_id, girlfriend_id)` | Chat messages per girl |
-| `_relationship_state` | `(session_id, girlfriend_id)` | Trust, intimacy, level per girl |
+| `_relationship_state` | `(session_id, girlfriend_id)` | Trust, intimacy, level, milestones_reached per girl |
+| `_relationship_progress` | `(session_id, girlfriend_id)` | Progression engine state (level, banked_points, streak, cooldowns) |
+| `_intimacy_state` | `(session_id, girlfriend_id)` | Legacy Intimacy Index state (1–100, used regions/gifts, daily caps) |
+| `_trust_intimacy_state` | `(session_id, girlfriend_id)` | Unified Trust + Intimacy state (visible/bank split, caps, dedup lists) |
+| `_achievement_progress` | `(session_id, girlfriend_id)` | Achievement progress counters (signal hits, streak, memory flags) |
 | `_habit_profile` | `(session_id, girlfriend_id)` | User habit data per girl |
 | `_gallery` | `(session_id, girlfriend_id)` | Gallery images per girl |
+| `_gift_purchases` | `(session_id, girlfriend_id)` | Gift purchase records per girl |
 
 ### Plan Limits
 
@@ -330,7 +365,7 @@ Appearance: Vibe → Age → Ethnicity → Body (type + breast + butt) → Hair 
   ↓
 Traits (6 personality questions)
   ↓
-Preferences (spicy photos + age check if yes)
+Preferences (mandatory age verification — blocks under-18 users entirely)
   ↓
 Identity (name, job vibe, hobbies, origin)
   ↓
@@ -361,15 +396,174 @@ Chat
 
 ## Gift System
 
-28 gifts across 4 tiers (Everyday €2–€9, Dates €12–€35, Luxury €60–€140, Legendary €160–€200).
+26 gifts across 4 tiers (Everyday €2–€9, Dates €12–€35, Luxury €60–€140, Legendary €160–€200).
+
+**Each gift can only be purchased once per girlfriend.** The backend enforces this; the frontend shows "Already Gifted" for purchased gifts.
 
 Each gift has:
 - Unique emotional effect (stored in memory)
-- Relationship boost (trust + intimacy)
-- Optional image album reward
+- Relationship boost (trust + intimacy, bank-first)
+- Optional image album reward with **split normal + spicy photos**
 - Cooldown (some gifts)
 
+### Photo Rewards — Normal vs Spicy
+
+Gifts with image rewards have two categories of photos:
+
+| Type | Description | Gate |
+|------|-------------|------|
+| **Normal** | Safe/cute photos (selfies, outfits, travel, etc.) | None — always delivered on purchase |
+| **Spicy** | Nude/suggestive photos (lingerie, boudoir, artistic nude, etc.) | None — always delivered on purchase |
+
+**Gift photos bypass all content gates.** If a user purchases a gift, they receive all photos (normal AND spicy) regardless of plan, age gate, or intimacy level.
+
+Every individual photo has a **unique image generation prompt** (stored in `photo_prompts[]` and `spicy_photo_prompts[]`).
+
+### Gift Collection Panel
+
+Fullscreen panel accessed via "Gift Collection" button on GirlPage:
+
+- Shows **all 26 gifts** organized by tier (Everyday, Dates, Luxury, Legendary)
+- Each gift shows purchased/locked state with green checkmark or price
+- **Photo slot grid** per gift: exactly `normal_photos + spicy_photos` slots, showing purple slots for normal and rose slots for spicy
+- Scroll-based color interpolation, floating gift icons background
+- Fetches from `GET /api/gifts/collection`
+
 Payment: Inline via saved Stripe card (PaymentIntent), no redirect.
+
+---
+
+## Achievement System
+
+### Relationship Achievements (54 total)
+
+Per-girlfriend, region-locked milestones on the Relationship Timeline.
+
+**HARD RULE**: Achievements can ONLY be unlocked if `achievement.region_index == current_region_index`. Past region achievements are permanently locked.
+
+#### Catalog Structure
+
+- 9 regions × 6 achievements each = 54 total
+- Each achievement has: `id`, `region_index`, `title`, `subtitle`, `rarity` (COMMON/UNCOMMON/RARE/EPIC/LEGENDARY), `sort_order`, `requirement` (server-checkable dict), `trigger` (TriggerType enum)
+
+#### Trigger Types
+
+| Trigger | When Evaluated |
+|---------|----------------|
+| `REGION_ENTER` | On entering a new region |
+| `GIFT_CONFIRMED` | On gift purchase confirmation |
+| `QUALITY_CHAT` | On high-quality message (quality_score ≥ threshold) |
+| `AFFECTION_SIGNAL` | On detecting affection in messages |
+| `VULNERABILITY_SIGNAL` | On detecting vulnerability in messages |
+| `WE_LANGUAGE` | On detecting "we/us/our" language |
+| `FUTURE_TALK` | On detecting future-oriented language |
+| `CONFLICT_REPAIR` | On detecting apology + reassurance |
+| `STREAK` | On consecutive-day streaks |
+| `RETURN_GAP` | On returning after days of absence |
+| `MEMORY_EVENT` | On memory flag detection |
+
+#### Signal Detection (achievement_engine.py)
+
+Regex-based heuristics detect signals in user and assistant messages:
+- `affection_detected`: "miss you", "love", "care", "sweet", etc.
+- `vulnerability_detected`: "I feel scared", "I worry", "I'm afraid", etc.
+- `we_language_detected`: "we", "us", "our" (word boundaries)
+- `future_talk_detected`: "future", "someday", "one day", "plan", etc.
+- `conflict_repair_detected`: apology + reassurance within recent messages
+- `memory_flag_seen`: heuristic keyword detection for specific flags
+
+#### Achievement Progress (per-girl)
+
+Tracked in `AchievementProgress` dataclass:
+- `affection_hits`, `vulnerability_hits`, `we_language_hits`, `future_talk_hits`, `conflict_repairs`
+- `streak_days_in_region`, `days_since_last_interaction`, `last_interaction_date`
+- `memory_flags_seen`, `gift_confirmed_in_region`
+- Counters **reset when entering a new region**
+
+#### SSE Event
+
+When unlocked: `event_type="relationship_achievement"` with `{ id, title, subtitle, rarity, region_index, girlfriend_id, unlocked_at }`
+
+### Intimate Progression (50 achievements, frontend-only)
+
+Separate collection of 50 sexual achievements across 7 tiers, displayed in the "Intimate Progression" panel.
+
+| Tier | Title | Count |
+|------|-------|-------|
+| 0 | Flirting & Tension | 7 |
+| 1 | First Touch | 7 |
+| 2 | Heating Up | 7 |
+| 3 | Undressed | 8 |
+| 4 | Full Intimacy | 8 |
+| 5 | Deep Exploration | 8 |
+| 6 | Ultimate Connection | 7 |
+
+Each achievement has a `scene` field (visual description for future photo generation) and a `rarity` (COMMON through LEGENDARY). Photo thumbnails are displayed next to each achievement. Currently frontend-only; unlock logic TBD.
+
+---
+
+## Region Caps + Banked Overflow (Trust & Intimacy)
+
+Both Trust and Intimacy use a **visible/bank split**:
+- `*_visible` — displayed on meters, used for gating
+- `*_bank` — earned but locked until region cap allows
+
+### Cap Tables
+
+| Region | Intimacy Cap | Trust Cap |
+|--------|-------------|-----------|
+| 1 (0–10) | 20 | 35 |
+| 2 (11–25) | 28 | 45 |
+| 3 (26–45) | 38 | 55 |
+| 4 (46–70) | 50 | 65 |
+| 5 (71–105) | 62 | 75 |
+| 6 (106–135) | 72 | 83 |
+| 7 (136–165) | 82 | 90 |
+| 8 (166–185) | 90 | 95 |
+| 9 (186–200) | 100 | 100 |
+
+### Flow
+
+1. Any gain (conversation, gift, region milestone) goes to **bank first**
+2. `release_banked()` immediately moves bank → visible up to region cap
+3. On region change, `release_banked()` runs again with the new higher cap
+4. Image Decision Engine uses `intimacy_visible` only (banked doesn't count for gating)
+
+### SSE Payload
+
+`relationship_gain` events include: `trust_banked_delta`, `trust_released_delta`, `trust_visible_new`, `trust_bank_new`, `trust_cap`, and equivalent intimacy fields, plus `tease_line` when capped.
+
+---
+
+## GirlPage — Three Side Panels
+
+The GirlPage has 3 fullscreen panels accessed via side buttons (desktop) or bottom strip buttons (mobile):
+
+### 1. My Relationship (RelationshipPanel)
+
+- **Redesigned visual**: glass-effect top bar, achievement-first layout
+- **Region header cards**: large glowing icon orb, progress bar, "You are here" badge
+- **Achievement cards**: dominant visual — large (p-5, h-16 icon), per-rarity gradient backgrounds, glow effects on legendary/epic, shimmer overlays
+- **Background**: subtle floating Lucide icons (Heart, Sparkles, Star, Flame) as romantic wallpaper
+- **Dividers**: minimal heart + sparkle separators between regions
+- **All achievements visible** in every region (locked = dimmed with lock, unlocked = rarity-colored with checkmark)
+- Scroll-based color interpolation between region accent colors
+
+### 2. Intimate Progression (IntimateProgressionPanel)
+
+- 7 tiers of sexual achievements, each with heart-themed design
+- 50 achievements with titles, subtitles, and photo thumbnail slots
+- Rarity-specific styling (icons, colors, badges)
+- Floating hearts background animation
+- Scroll-based color interpolation
+
+### 3. Gift Collection (GiftCollectionPanel)
+
+- 4 tiers: Everyday, Dates, Luxury, Legendary
+- All 26 gifts with purchased/locked state
+- Photo slot grid per gift (exact count matching normal_photos + spicy_photos)
+- Purple theme for normal photo slots, rose theme for spicy
+- Floating gift icons background
 
 ---
 
@@ -389,9 +583,12 @@ Payment: Inline via saved Stripe card (PaymentIntent), no redirect.
 - **User**: `id`, `email`, `display_name`, `age_gate_passed`, `has_girlfriend`, `current_girlfriend_id`
 - **Girlfriend**: `id`, `display_name`, `name`, `avatar_url`, `traits`, `appearance_prefs`, `content_prefs`, `identity`, `identity_canon`
 - **ChatMessage**: `id`, `role`, `content`, `image_url`, `event_type`
-- **RelationshipState**: `trust`, `intimacy`, `level`, `milestones_reached`
+- **RelationshipState**: `trust`, `intimacy`, `level`, `region_key`, `region_title`, `trust_visible`, `trust_bank`, `trust_cap`, `intimacy_visible`, `intimacy_bank`, `intimacy_cap`, `milestones_reached`, `current_region_index`
+- **RelationshipAchievement**: `id`, `region_index`, `title`, `subtitle`, `rarity`, `sort_order`, `trigger`
 - **BillingStatus**: `plan`, `has_card_on_file`, `message_cap`, `image_cap`, `girls_max`, `girls_count`, `can_create_more_girls`
-- **GiftDefinition**: `id`, `name`, `price_eur`, `tier`, `relationship_boost`, `unique_effect_name`, `unique_effect_description`, `cooldown_days`
+- **GiftDefinition**: `id`, `name`, `price_eur`, `tier`, `relationship_boost`, `image_reward`, `unique_effect_name`, `unique_effect_description`, `cooldown_days`, `spicy_unlocked`, `already_purchased`
+- **GiftCollectionItem**: extends GiftDefinition with `purchased`, `purchased_at`
+- **GiftImageReward**: `album_size`, `normal_photos`, `spicy_photos`, `photo_prompts[]`, `spicy_photo_prompts[]`, `suggestive_level` ("safe" | "mild" | "spicy")
 - **BigFive**: `openness`, `conscientiousness`, `extraversion`, `agreeableness`, `neuroticism` (0–100)
 
 ---
@@ -411,32 +608,6 @@ Payment: Inline via saved Stripe card (PaymentIntent), no redirect.
 ### `useChatStore`
 
 - `messages`, `streamingContent`, `isStreaming`
-
----
-
-## Identity Canon Generation
-
-Deterministic, seeded from `girlfriend_name + job_vibe + hobbies + origin_vibe`.
-
-Generates:
-- **Backstory** — 2-paragraph character backstory
-- **Daily routine** — typical day description
-- **Favorites** — music_vibe, comfort_food, weekend_idea
-- **Memory seeds** — 3–6 conversation starters
-
-Canon is injected as a system message into every LLM chat request via `build_girlfriend_canon_system_prompt()`.
-
----
-
-## Personality Engine
-
-- **Trait → Big Five mapping** (`services/big_five.py`)
-- **Big Five → behavior modulation** (`services/big_five_modulation.py`)
-- **Trait → BehaviorProfile** (`services/trait_behavior_rules.py`)
-- **Relationship tracking** — trust/intimacy/level with decay and milestones (per-girlfriend)
-- **Memory system** — factual + emotional memory extraction and context building
-- **Habit profiling** — preferred hours, typical message gaps (per-girlfriend)
-- **Initiation engine** — girlfriend-initiated messages based on relationship state
 
 ---
 
@@ -493,3 +664,8 @@ pytest tests/ -v
 - **test_identity_canon.py** — 10 tests: determinism, field validation, edge cases
 - **test_chat_canon_injection.py** — 4 tests: injection with/without girlfriend, message preservation
 - **test_openai_contract.py** — 2 tests: LLM stream/non-stream contract
+- **test_relationship_regions.py** — Region mapping correctness (boundary values, clamp behavior)
+- **test_relationship_progression.py** — 45 tests: cooldown, streak, clamp, quality, anti-farm, gap bonus, derive trust/intimacy, integration
+- **test_intimacy.py** — 35 tests: region awards, gift awards, daily caps, duplicate prevention, personality thresholds, sensitive detection, image decision engine, blurred paywall (free vs paid), proactive blurred surprise
+- **test_trust_intimacy.py** — 71 tests: trust clamp/defaults, quality score, conversation trust gain, trust gifts (tier-based, dedup, caps), intimacy regions, intimacy gifts, trust decay, descriptors, gain events, region caps, banked overflow, release mechanism
+- **test_achievements.py** — 73 tests: region-lock enforcement, counter resets, trigger evaluation, signal detection, gift unlock, streak tracking, requirement evaluation

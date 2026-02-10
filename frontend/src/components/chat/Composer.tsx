@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import PaywallInlineCard from "./PaywallInlineCard"
 import GiftModal from "./GiftModal"
-import { Send, ImagePlus, Gift } from "lucide-react"
+import { Send, Gift } from "lucide-react"
 
 export default function Composer() {
   const [text, setText] = useState("")
@@ -20,7 +20,6 @@ export default function Composer() {
   const { data: billing } = useQuery({ queryKey: ["billingStatus"], queryFn: getBillingStatus })
 
   const canSend = text.trim().length > 0 && !isStreaming
-  const imageCapReached = billing ? (billing.plan === "free" && false) : false
 
   const handleSend = async () => {
     const msg = text.trim()
@@ -78,15 +77,6 @@ export default function Composer() {
           aria-label="Send"
         >
           <Send className="h-4 w-4" />
-        </Button>
-        <Button
-          size="icon"
-          variant="outline"
-          className="rounded-xl"
-          disabled={imageCapReached || isStreaming}
-          aria-label="Request image"
-        >
-          <ImagePlus className="h-4 w-4" />
         </Button>
         <Button
           size="icon"

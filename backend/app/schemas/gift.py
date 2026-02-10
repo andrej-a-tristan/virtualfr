@@ -1,12 +1,17 @@
 """Gift system schemas."""
-from typing import Optional
+from typing import List, Optional
 from pydantic import BaseModel
 
 
 class ImageReward(BaseModel):
-    album_size: int = 0
-    prompt_template: str = ""
-    suggestive_level: str = "safe"  # "safe" | "mild"
+    album_size: int = 0          # total photos (kept for backward compat)
+    normal_photos: int = 0       # safe/cute photos
+    spicy_photos: int = 0        # nude/suggestive photos
+    prompt_template: str = ""    # legacy fallback
+    spicy_prompt_template: str = ""  # legacy fallback
+    photo_prompts: List[str] = []    # one unique prompt per normal photo
+    spicy_photo_prompts: List[str] = []  # one unique prompt per spicy photo
+    suggestive_level: str = "safe"  # "safe" | "mild" | "spicy"
 
 
 class RelationshipBoost(BaseModel):

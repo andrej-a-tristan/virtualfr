@@ -31,7 +31,7 @@ export default function AppShell() {
       <div className="flex flex-1">
         <SideNav />
         <main className="flex-1 overflow-auto pb-20 md:pb-0 md:pt-0">
-          <div className="mx-auto max-w-4xl p-4 md:p-6">
+          <div className="mx-auto max-w-5xl p-4 md:p-6">
             <Outlet />
           </div>
         </main>

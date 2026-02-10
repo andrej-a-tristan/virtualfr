@@ -89,10 +89,35 @@ def _update_purchase_status(stripe_session_id: str, status: str) -> dict | None:
 # ── GET /api/gifts/list ──────────────────────────────────────────────────────
 
 @router.get("/list")
-def list_gifts():
-    """Return full gift catalog."""
+def list_gifts(request: Request):
+    """Return full gift catalog with age-gate context.
+
+    Always returns the real spicy_photos count so the UI can show it
+    (with a lock icon when locked). The `spicy_unlocked` flag tells the
+    frontend whether the user can actually receive those photos.
+    """
     catalog = get_gift_catalog()
-    return {"gifts": [g.model_dump() for g in catalog]}
+    gifts_out = []
+
+    # Determine age-gate status (sufficient to show spicy photo counts)
+    sid = _session_id(request)
+    user = get_session_user(sid) if sid else None
+    age_gate_passed = bool((user or {}).get("age_gate_passed"))
+    spicy_unlocked = age_gate_passed
+
+    # Determine which gifts have already been purchased for this girlfriend
+    purchases = _get_purchases(sid, user) if sid and user else []
+    purchased_ids = {
+        p["gift_id"] for p in purchases if p.get("status") == "paid"
+    }
+
+    for g in catalog:
+        d = g.model_dump()
+        # Always include the real spicy_photos count — frontend shows locked state
+        d["spicy_unlocked"] = spicy_unlocked
+        d["already_purchased"] = g.id in purchased_ids
+        gifts_out.append(d)
+    return {"gifts": gifts_out, "spicy_unlocked": spicy_unlocked}
 
 
 # ── POST /api/gifts/checkout ─────────────────────────────────────────────────
@@ -118,8 +143,19 @@ async def gift_checkout(request: Request):
     if not gift:
         raise HTTPException(status_code=404, detail=f"Gift '{gift_id}' not found")
 
-    # Cooldown check (per-girlfriend)
+    # One-per-girl check: each gift can only be bought once per girlfriend
     purchases = _get_purchases(sid, user)
+    already_bought = any(
+        p.get("gift_id") == gift_id and p.get("status") == "paid"
+        for p in purchases
+    )
+    if already_bought:
+        raise HTTPException(
+            status_code=400,
+            detail=f"You already gave {gift.name} to her. Each gift can only be given once.",
+        )
+
+    # Cooldown check (per-girlfriend)
     cooldown_err = validate_cooldown(purchases, gift)
     if cooldown_err:
         raise HTTPException(status_code=400, detail=cooldown_err)
@@ -294,9 +330,106 @@ async def gift_webhook(request: Request):
 
 
 def _deliver_gift(session_id: str, gift, purchase: dict | None):
-    """Apply all gift side effects: relationship boost, memory, chat message, image triggers, unique effects."""
+    """Apply all gift side effects: relationship boost, memory, chat message, image triggers, unique effects, trust/intimacy."""
     from app.services.gifting import apply_relationship_boost, produce_gift_reaction_message, build_memory_summary
-    from app.services.relationship_state import calculate_relationship_level, check_for_milestone_event, append_milestone_reached
+    from app.services.relationship_state import check_for_milestone_event, append_milestone_reached
+    from app.api.store import get_intimacy_state, set_intimacy_state
+    from app.api.store import get_trust_intimacy_state, set_trust_intimacy_state
+    from app.services.intimacy_service import award_gift_purchase
+    from app.services.trust_intimacy_service import (
+        award_intimacy_gift,
+        award_trust_gift,
+        get_trust_cap_for_region,
+        get_intimacy_cap_for_region,
+    )
+    from app.services.relationship_descriptors import get_gain_micro_lines
+    from app.services.relationship_regions import get_region_for_level
+
+    purchase_id = (purchase or {}).get("id", gift.id)
+
+    # Gift photos are ALWAYS delivered — no plan/intimacy/age-gate restriction.
+    # The user paid for the gift, they get all the photos.
+    normal_count = gift.image_reward.normal_photos
+    spicy_count = gift.image_reward.spicy_photos
+
+    # Determine current region_key for cap calculations
+    _rel_state = get_relationship_state(session_id) or {}
+    _level = _rel_state.get("level", 0) if isinstance(_rel_state.get("level"), int) else 0
+    _region_key = _rel_state.get("region_key") or get_region_for_level(_level).key
+
+    # 0a. Legacy Intimacy boost
+    try:
+        int_state = get_intimacy_state(session_id)
+        int_state, int_result = award_gift_purchase(int_state, gift.id)
+        set_intimacy_state(session_id, int_state)
+        logger.info("Intimacy gift award (legacy): %s delta=%d", int_result.reason, int_result.delta)
+    except Exception as e:
+        logger.warning("Intimacy gift award (legacy) failed: %s", e)
+
+    # 0b. Unified Trust + Intimacy boost (bank-first)
+    trust_delta = 0
+    intimacy_delta = 0
+    try:
+        ti_state = get_trust_intimacy_state(session_id)
+
+        # Intimacy from gift (constant boost) — goes to bank first
+        ti_state, int_res = award_intimacy_gift(ti_state, purchase_id, region_key=_region_key)
+        intimacy_delta = int_res.delta
+
+        # Trust from gift (tier-based boost) — goes to bank first
+        ti_state, trust_res = award_trust_gift(ti_state, purchase_id, gift.tier, region_key=_region_key)
+        trust_delta = trust_res.delta
+
+        set_trust_intimacy_state(session_id, ti_state)
+        logger.info(
+            "Gift trust/intimacy award: trust +%d (banked %d, released %d), intimacy +%d (banked %d, released %d)",
+            trust_delta, trust_res.banked_delta, trust_res.released_delta,
+            intimacy_delta, int_res.banked_delta, int_res.released_delta,
+        )
+
+        # Emit relationship_gain message in chat (visible feedback)
+        if trust_delta > 0 or intimacy_delta > 0:
+            micro = get_gain_micro_lines(trust_delta, ti_state.trust, intimacy_delta, ti_state.intimacy)
+
+            # Build a tease line when bank increased but cap prevented release
+            tease_line = ""
+            trust_banked_only = trust_res.banked_delta > 0 and trust_res.released_delta == 0
+            intimacy_banked_only = int_res.banked_delta > 0 and int_res.released_delta == 0
+            if trust_banked_only or intimacy_banked_only:
+                tease_line = "You're building something real — it'll unlock as your relationship grows."
+
+            gain_msg = {
+                "id": f"gain-{uuid4()}",
+                "role": "assistant",
+                "content": "",
+                "image_url": None,
+                "event_type": "relationship_gain",
+                "event_key": "gift",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "gain_data": {
+                    "trust_delta": trust_delta,
+                    "trust_new": ti_state.trust,
+                    "intimacy_delta": intimacy_delta,
+                    "intimacy_new": ti_state.intimacy,
+                    "reason": "gift",
+                    # Bank/release breakdown
+                    "trust_banked_delta": trust_res.banked_delta,
+                    "trust_released_delta": trust_res.released_delta,
+                    "trust_visible_new": trust_res.visible_new,
+                    "trust_bank_new": trust_res.bank_new,
+                    "trust_cap": trust_res.cap,
+                    "intimacy_banked_delta": int_res.banked_delta,
+                    "intimacy_released_delta": int_res.released_delta,
+                    "intimacy_visible_new": int_res.visible_new,
+                    "intimacy_bank_new": int_res.bank_new,
+                    "intimacy_cap": int_res.cap,
+                    "tease_line": tease_line,
+                    **micro,
+                },
+            }
+            append_message(session_id, gain_msg)
+    except Exception as e:
+        logger.warning("Unified trust/intimacy gift award failed: %s", e)
 
     # 1. Relationship boost
     state = get_relationship_state(session_id)
@@ -308,8 +441,8 @@ def _deliver_gift(session_id: str, gift, purchase: dict | None):
         # Check for milestone
         milestone = check_for_milestone_event(prev_state, state)
         if milestone:
-            level, msg = milestone
-            state = append_milestone_reached(state, level)
+            region_key, msg = milestone
+            state = append_milestone_reached(state, region_key)
             set_relationship_state(session_id, state)
             # Add milestone message
             append_message(session_id, {
@@ -318,7 +451,7 @@ def _deliver_gift(session_id: str, gift, purchase: dict | None):
                 "content": msg,
                 "image_url": None,
                 "event_type": "milestone",
-                "event_key": level,
+                "event_key": region_key,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             })
 
@@ -337,10 +470,12 @@ def _deliver_gift(session_id: str, gift, purchase: dict | None):
             "gift_name": gift.name,
             "emoji": gift.emoji,
             "tier": gift.tier,
-            "trust_gained": gift.relationship_boost.trust,
-            "intimacy_gained": gift.relationship_boost.intimacy,
+            "trust_gained": trust_delta if trust_delta else gift.relationship_boost.trust,
+            "intimacy_gained": intimacy_delta if intimacy_delta else gift.relationship_boost.intimacy,
             "unique_effect_name": gift.unique_effect_name,
             "unique_effect_description": gift.unique_effect_description,
+            "normal_photos": normal_count,
+            "spicy_photos": spicy_count,
         },
     }
     append_message(session_id, gift_msg)
@@ -360,20 +495,76 @@ def _deliver_gift(session_id: str, gift, purchase: dict | None):
     # 4. Apply unique effects to relationship state / user session
     _apply_unique_effect(session_id, gift)
 
-    # 5. Image album triggers (if gift has album)
-    if gift.image_reward.album_size > 0:
-        logger.info(
-            "Gift %s triggers %d image(s) for gallery",
-            gift.id, gift.image_reward.album_size,
+    # 4b. Achievement trigger: first_gift_in_region (new engine)
+    try:
+        from app.services.achievement_engine import (
+            get_current_region_index_for_girl,
+            mark_gift_confirmed,
+            try_unlock_for_triggers,
+            TriggerType,
         )
-        for i in range(gift.image_reward.album_size):
+        from app.api.store import get_achievement_progress, set_achievement_progress
+        _cur_state = get_relationship_state(session_id) or {}
+        _cur_region_idx = get_current_region_index_for_girl(_cur_state.get("level", 0))
+        _ach_progress = get_achievement_progress(session_id)
+        _gift_triggers = mark_gift_confirmed(_ach_progress)
+        _cur_state, _ach_events = try_unlock_for_triggers(
+            _cur_state, _ach_progress, _gift_triggers, context=None,
+        )
+        set_achievement_progress(session_id, _ach_progress)
+        if _ach_events:
+            set_relationship_state(session_id, _cur_state)
+            for _ach_evt in _ach_events:
+                append_message(session_id, {
+                    "id": f"ach-{uuid4()}",
+                    "role": "assistant",
+                    "content": f"Achievement unlocked: {_ach_evt['title']}",
+                    "image_url": None,
+                    "event_type": "relationship_achievement",
+                    "event_key": _ach_evt["id"],
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "achievement": _ach_evt,
+                })
+                logger.info("Achievement unlocked from gift: %s", _ach_evt["id"])
+    except Exception as e:
+        logger.warning("Gift achievement trigger failed: %s", e)
+
+    # 5. Image album triggers — always deliver ALL photos the user paid for
+    total_photos = normal_count + spicy_count
+    photo_prompts = gift.image_reward.photo_prompts or []
+    spicy_prompts = gift.image_reward.spicy_photo_prompts or []
+
+    if total_photos > 0:
+        logger.info(
+            "Gift %s triggers %d normal + %d spicy image(s) for gallery",
+            gift.id, normal_count, spicy_count,
+        )
+        # Normal photos — each with a unique prompt
+        for i in range(normal_count):
+            prompt = photo_prompts[i] if i < len(photo_prompts) else gift.image_reward.prompt_template
             append_message(session_id, {
                 "id": f"gift-img-{uuid4()}",
                 "role": "system",
-                "content": f"[Album photo {i + 1}/{gift.image_reward.album_size} from {gift.name} — generating...]",
+                "content": f"[Photo {i + 1}/{total_photos} from {gift.name} — generating...]",
                 "image_url": None,
                 "event_type": "gift_album",
                 "event_key": gift.id,
+                "photo_type": "normal",
+                "photo_prompt": prompt,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+        # Spicy photos — each with a unique prompt
+        for i in range(spicy_count):
+            prompt = spicy_prompts[i] if i < len(spicy_prompts) else gift.image_reward.spicy_prompt_template
+            append_message(session_id, {
+                "id": f"gift-img-spicy-{uuid4()}",
+                "role": "system",
+                "content": f"[Spicy photo {normal_count + i + 1}/{total_photos} from {gift.name} — generating...]",
+                "image_url": None,
+                "event_type": "gift_album",
+                "event_key": gift.id,
+                "photo_type": "spicy",
+                "photo_prompt": prompt,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             })
 
@@ -528,3 +719,309 @@ def gift_history(request: Request):
         if p.get("status") in ("paid", "pending")
     ]
     return {"purchases": items}
+
+
+# ── GET /api/gifts/collection ─────────────────────────────────────────────────
+
+@router.get("/collection")
+def gift_collection(request: Request):
+    """Return the full gift catalog with purchase status for the current girlfriend.
+
+    Each gift includes:
+      - Full catalog data (name, emoji, tier, image_reward, etc.)
+      - purchased: bool  (whether this gift has been bought for this girl)
+      - purchased_at: str | null  (ISO timestamp of purchase)
+    """
+    sid, user = _require_user(request)
+    catalog = get_gift_catalog()
+    purchases = _get_purchases(sid, user)
+
+    # Build a lookup: gift_id -> earliest paid purchase
+    paid_map: dict[str, dict] = {}
+    for p in purchases:
+        if p.get("status") == "paid" and p["gift_id"] not in paid_map:
+            paid_map[p["gift_id"]] = p
+
+    collection = []
+    for g in catalog:
+        d = g.model_dump()
+        purchase = paid_map.get(g.id)
+        d["purchased"] = purchase is not None
+        d["purchased_at"] = purchase["created_at"] if purchase else None
+        collection.append(d)
+
+    total = len(catalog)
+    owned = len(paid_map)
+
+    return {"collection": collection, "total": total, "owned": owned}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MYSTERY BOX SYSTEM
+# ═══════════════════════════════════════════════════════════════════════════════
+
+import random
+
+# Mystery box definitions with tier probabilities (must sum to 1.0)
+# Pricing is set so expected value > box price — feels like a deal.
+#
+# Price Math:
+#   Everyday avg ≈ €4.50 | Dates avg ≈ €22.14 | Luxury avg ≈ €103.57 | Legendary avg ≈ €184.75
+#
+#   Bronze: 0.65×4.50 + 0.25×22.14 + 0.08×103.57 + 0.02×184.75 = €2.93+5.54+8.29+3.70 = €20.45 EV → price €5.99
+#   Gold:   0.50×22.14 + 0.35×103.57 + 0.15×184.75 = €11.07+36.25+27.71 = €75.03 EV → price €19.99
+#   Diamond: 0.55×103.57 + 0.45×184.75 = €56.96+83.14 = €140.10 EV → price €49.99
+
+MYSTERY_BOXES = {
+    "bronze": {
+        "id": "bronze",
+        "name": "Bronze Mystery Box",
+        "price_eur": 5.99,
+        "emoji": "📦",
+        "description": "A surprise gift — mostly sweet, sometimes stunning.",
+        "tier_weights": {"everyday": 0.65, "dates": 0.25, "luxury": 0.08, "legendary": 0.02},
+        "color": "#cd7f32",
+    },
+    "gold": {
+        "id": "gold",
+        "name": "Gold Mystery Box",
+        "price_eur": 19.99,
+        "emoji": "✨",
+        "description": "Skip the basics — dates, luxury, and a real shot at legendary.",
+        "tier_weights": {"everyday": 0.0, "dates": 0.50, "luxury": 0.35, "legendary": 0.15},
+        "color": "#ffd700",
+    },
+    "diamond": {
+        "id": "diamond",
+        "name": "Diamond Mystery Box",
+        "price_eur": 49.99,
+        "emoji": "💎",
+        "description": "Only premium gifts. Luxury guaranteed — legendary within reach.",
+        "tier_weights": {"everyday": 0.0, "dates": 0.0, "luxury": 0.55, "legendary": 0.45},
+        "color": "#b9f2ff",
+    },
+}
+
+
+def _pick_mystery_gift(box_id: str, owned_ids: set[str]) -> dict | None:
+    """Pick a random unowned gift based on mystery box probabilities.
+    Returns the gift object or None if all eligible gifts are owned."""
+    box = MYSTERY_BOXES.get(box_id)
+    if not box:
+        return None
+
+    catalog = get_gift_catalog()
+    tier_weights = box["tier_weights"]
+
+    # Build pool of unowned gifts grouped by tier
+    tier_pools: dict[str, list] = {}
+    for g in catalog:
+        if g.id not in owned_ids:
+            tier_pools.setdefault(g.tier, []).append(g)
+
+    # Build weighted list: (gift, weight)
+    weighted = []
+    for tier, weight in tier_weights.items():
+        pool = tier_pools.get(tier, [])
+        if pool and weight > 0:
+            per_gift_weight = weight / len(pool)
+            for g in pool:
+                weighted.append((g, per_gift_weight))
+
+    if not weighted:
+        return None
+
+    gifts, weights = zip(*weighted)
+    chosen = random.choices(gifts, weights=weights, k=1)[0]
+    return chosen
+
+
+@router.get("/mystery-boxes")
+def list_mystery_boxes(request: Request):
+    """Return available mystery boxes with their odds and prices."""
+    sid, user = _require_user(request)
+    purchases = _get_purchases(sid, user)
+    owned_ids = {p["gift_id"] for p in purchases if p.get("status") == "paid"}
+
+    catalog = get_gift_catalog()
+    total_gifts = len(catalog)
+    owned_count = len(owned_ids)
+    unowned_count = total_gifts - owned_count
+
+    # Count unowned per tier
+    unowned_by_tier: dict[str, int] = {}
+    for g in catalog:
+        if g.id not in owned_ids:
+            unowned_by_tier[g.tier] = unowned_by_tier.get(g.tier, 0) + 1
+
+    boxes = []
+    for box in MYSTERY_BOXES.values():
+        # Calculate effective probabilities (excluding owned gifts)
+        effective_weights: dict[str, float] = {}
+        total_weight = 0.0
+        for tier, w in box["tier_weights"].items():
+            if unowned_by_tier.get(tier, 0) > 0 and w > 0:
+                effective_weights[tier] = w
+                total_weight += w
+
+        # Normalize to 1.0
+        if total_weight > 0:
+            effective_weights = {t: w / total_weight for t, w in effective_weights.items()}
+
+        # Check if any gifts available for this box
+        has_eligible = total_weight > 0
+
+        boxes.append({
+            **box,
+            "effective_odds": effective_weights,
+            "has_eligible_gifts": has_eligible,
+            "unowned_by_tier": {t: unowned_by_tier.get(t, 0) for t in box["tier_weights"]},
+        })
+
+    return {
+        "boxes": boxes,
+        "total_gifts": total_gifts,
+        "owned_gifts": owned_count,
+        "unowned_gifts": unowned_count,
+    }
+
+
+@router.post("/mystery-box/open")
+async def open_mystery_box(request: Request):
+    """Purchase and open a mystery box. Charges saved card, picks random gift, delivers it.
+
+    Body: { "box_id": "bronze" | "gold" | "diamond" }
+    Returns: { "status": "succeeded", "gift": {...} } or error.
+    """
+    _init_stripe()
+    sid, user = _require_user(request)
+
+    body = await request.json()
+    box_id = body.get("box_id")
+    if not box_id or box_id not in MYSTERY_BOXES:
+        raise HTTPException(status_code=400, detail="Invalid box_id")
+
+    box = MYSTERY_BOXES[box_id]
+
+    # Get owned gifts
+    purchases = _get_purchases(sid, user)
+    owned_ids = {p["gift_id"] for p in purchases if p.get("status") == "paid"}
+
+    # Pick random gift
+    gift = _pick_mystery_gift(box_id, owned_ids)
+    if not gift:
+        raise HTTPException(
+            status_code=400,
+            detail="No eligible gifts remaining for this mystery box. You already own them all!",
+        )
+
+    # Check this specific gift isn't already owned (safety check)
+    if gift.id in owned_ids:
+        raise HTTPException(status_code=400, detail="Selected gift already owned — try again.")
+
+    user_id = user.get("id", "")
+    girlfriend_id = user.get("current_girlfriend_id", "")
+
+    # Charge saved card
+    stripe_customer_id = user.get("stripe_customer_id")
+    if not stripe_customer_id:
+        try:
+            customer = stripe.Customer.create(
+                email=user.get("email", ""),
+                metadata={"user_id": user_id},
+            )
+            stripe_customer_id = customer.id
+            set_session_user(sid, {**user, "stripe_customer_id": stripe_customer_id})
+            user = get_session_user(sid) or user
+        except Exception:
+            raise HTTPException(status_code=400, detail="Failed to create payment customer")
+
+    default_pm = user.get("default_payment_method_id")
+    if not default_pm:
+        try:
+            pms = stripe.Customer.list_payment_methods(stripe_customer_id, type="card", limit=1)
+            if pms.data:
+                default_pm = pms.data[0].id
+                set_session_user(sid, {**user, "default_payment_method_id": default_pm})
+        except Exception:
+            pass
+
+    if not default_pm:
+        return {"status": "no_card", "error": "No card on file. Please add a card first."}
+
+    # Create PaymentIntent for the box price
+    try:
+        pi = stripe.PaymentIntent.create(
+            amount=int(box["price_eur"] * 100),
+            currency="eur",
+            customer=stripe_customer_id,
+            payment_method=default_pm,
+            off_session=True,
+            confirm=True,
+            metadata={
+                "type": "mystery_box",
+                "box_id": box_id,
+                "gift_id": gift.id,
+                "user_id": user_id,
+                "girlfriend_id": girlfriend_id,
+                "session_id": sid,
+            },
+        )
+    except stripe.error.CardError as e:
+        return {"status": "failed", "error": str(e)}
+    except Exception as e:
+        logger.warning("Mystery box payment failed: %s", e)
+        return {"status": "failed", "error": "Payment failed"}
+
+    if pi.status != "succeeded":
+        if pi.status == "requires_action":
+            return {
+                "status": "requires_action",
+                "client_secret": pi.client_secret,
+                "payment_intent_id": pi.id,
+                "gift_preview": {
+                    "id": gift.id,
+                    "name": gift.name,
+                    "emoji": gift.emoji,
+                    "tier": gift.tier,
+                },
+            }
+        return {"status": "failed", "error": f"Payment status: {pi.status}"}
+
+    # Record purchase
+    purchase = {
+        "id": str(uuid4()),
+        "gift_id": gift.id,
+        "gift_name": gift.name,
+        "amount_eur": box["price_eur"],
+        "currency": "eur",
+        "stripe_session_id": pi.id,
+        "status": "paid",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "emoji": gift.emoji,
+        "source": "mystery_box",
+        "box_id": box_id,
+    }
+    _add_purchase(sid, purchase, user)
+
+    # Deliver the gift
+    _deliver_gift(sid, gift, purchase)
+
+    return {
+        "status": "succeeded",
+        "gift": {
+            "id": gift.id,
+            "name": gift.name,
+            "emoji": gift.emoji,
+            "tier": gift.tier,
+            "price_eur": gift.price_eur,
+            "description": gift.description,
+            "normal_photos": gift.image_reward.normal_photos,
+            "spicy_photos": gift.image_reward.spicy_photos,
+        },
+        "box": {
+            "id": box_id,
+            "name": box["name"],
+            "price_eur": box["price_eur"],
+        },
+    }

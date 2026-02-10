@@ -19,7 +19,7 @@ import type {
   CommunicationStyle,
   RelationshipPace,
   CulturalPersonality,
-  RelationshipLevel,
+  RegionKey,
   RelationshipState,
   BigFiveProfile,
 } from "../api/types"
@@ -64,11 +64,11 @@ export interface EmojiStyle {
 }
 
 /**
- * Pet name usage parameters by relationship level.
+ * Pet name usage parameters by relationship region.
  */
 export interface PetNameStyle {
   enabled: boolean
-  startAtLevel: RelationshipLevel
+  startAtRegion: RegionKey
   casualNames: string[]            // e.g., "hey you", "silly"
   affectionateNames: string[]      // e.g., "babe", "honey"
   intimateNames: string[]          // e.g., "love", "darling"
@@ -104,7 +104,7 @@ export interface InitiationBehavior {
   cooldownHours: number            // minimum hours between initiations (2-12)
   preferredTimeOfDay: "morning" | "afternoon" | "evening" | "night" | "any"
   messageVariety: "low" | "medium" | "high"
-  levelMultipliers: Record<RelationshipLevel, number>
+  levelMultipliers: Record<string, number>
 }
 
 /**
@@ -325,28 +325,28 @@ const CULTURAL_PERSONALITY_EMOJI: Record<CulturalPersonality, Partial<EmojiStyle
 const EMOTIONAL_STYLE_PET_NAMES: Record<EmotionalStyle, Partial<PetNameStyle>> = {
   "Caring": {
     enabled: true,
-    startAtLevel: "FAMILIAR",
+    startAtRegion: "COMFORT_FAMILIARITY",
     casualNames: ["sweetie", "hun"],
     affectionateNames: ["honey", "dear"],
     intimateNames: ["love", "my love"],
   },
   "Playful": {
     enabled: true,
-    startAtLevel: "FAMILIAR",
+    startAtRegion: "COMFORT_FAMILIARITY",
     casualNames: ["silly", "you", "dummy"],
     affectionateNames: ["cutie", "babe"],
     intimateNames: ["baby", "my favorite"],
   },
   "Reserved": {
     enabled: false,
-    startAtLevel: "INTIMATE",
+    startAtRegion: "EMOTIONAL_TRUST",
     casualNames: [],
     affectionateNames: ["dear"],
     intimateNames: ["love"],
   },
   "Protective": {
     enabled: true,
-    startAtLevel: "CLOSE",
+    startAtRegion: "GROWING_CLOSENESS",
     casualNames: ["hey you"],
     affectionateNames: ["sweetheart"],
     intimateNames: ["my dear", "darling"],
@@ -594,12 +594,16 @@ const CONTEXTUAL_RULES: Record<EmotionalStyle, string[]> = {
 // LEVEL MULTIPLIERS FOR INITIATION
 // =============================================================================
 
-const INITIATION_LEVEL_MULTIPLIERS: Record<RelationshipLevel, number> = {
-  STRANGER: 0.0,
-  FAMILIAR: 0.7,
-  CLOSE: 1.0,
-  INTIMATE: 1.3,
-  EXCLUSIVE: 1.5,
+const INITIATION_LEVEL_MULTIPLIERS: Record<string, number> = {
+  EARLY_CONNECTION: 0.0,
+  COMFORT_FAMILIARITY: 0.7,
+  GROWING_CLOSENESS: 1.0,
+  EMOTIONAL_TRUST: 1.3,
+  DEEP_BOND: 1.5,
+  MUTUAL_DEVOTION: 1.6,
+  INTIMATE_PARTNERSHIP: 1.6,
+  SHARED_LIFE: 1.6,
+  ENDURING_COMPANIONSHIP: 1.6,
 }
 
 // =============================================================================
@@ -731,7 +735,7 @@ function buildEmojiStyle(traits: TraitSelection): EmojiStyle {
 function buildPetNameStyle(traits: TraitSelection): PetNameStyle {
   const base: PetNameStyle = {
     enabled: true,
-    startAtLevel: "CLOSE",
+    startAtRegion: "GROWING_CLOSENESS",
     casualNames: [],
     affectionateNames: [],
     intimateNames: [],
@@ -742,7 +746,7 @@ function buildPetNameStyle(traits: TraitSelection): PetNameStyle {
 
   return {
     enabled: emotional.enabled ?? base.enabled,
-    startAtLevel: emotional.startAtLevel ?? base.startAtLevel,
+    startAtRegion: emotional.startAtRegion ?? base.startAtRegion,
     casualNames: mergeArrays(emotional.casualNames, cultural.casualNames),
     affectionateNames: mergeArrays(emotional.affectionateNames, cultural.affectionateNames),
     intimateNames: mergeArrays(emotional.intimateNames, cultural.intimateNames),
@@ -904,28 +908,33 @@ export function buildBehaviorProfileWithModulation(
 // UTILITY FUNCTIONS: Apply Behavior Profile
 // =============================================================================
 
+const REGION_ORDER: RegionKey[] = [
+  "EARLY_CONNECTION", "COMFORT_FAMILIARITY", "GROWING_CLOSENESS",
+  "EMOTIONAL_TRUST", "DEEP_BOND", "MUTUAL_DEVOTION",
+  "INTIMATE_PARTNERSHIP", "SHARED_LIFE", "ENDURING_COMPANIONSHIP",
+]
+
 /**
- * Get appropriate pet name for current relationship level.
- * Returns undefined if pet names are disabled or level is too low.
+ * Get appropriate pet name for current relationship region.
+ * Returns undefined if pet names are disabled or region is too early.
  */
-export function getPetNameForLevel(
+export function getPetNameForRegion(
   profile: PetNameStyle,
-  level: RelationshipLevel,
+  regionKey: RegionKey,
   rng: () => number = Math.random
 ): string | undefined {
   if (!profile.enabled) return undefined
 
-  const levelOrder: RelationshipLevel[] = ["STRANGER", "FAMILIAR", "CLOSE", "INTIMATE", "EXCLUSIVE"]
-  const startIndex = levelOrder.indexOf(profile.startAtLevel)
-  const currentIndex = levelOrder.indexOf(level)
+  const startIndex = REGION_ORDER.indexOf(profile.startAtRegion)
+  const currentIndex = REGION_ORDER.indexOf(regionKey)
 
-  if (currentIndex < startIndex) return undefined
+  if (currentIndex < 0 || currentIndex < startIndex) return undefined
 
-  // Select appropriate pool based on level
+  // Select appropriate pool based on region depth
   let pool: string[]
-  if (level === "INTIMATE" || level === "EXCLUSIVE") {
+  if (currentIndex >= REGION_ORDER.indexOf("EMOTIONAL_TRUST")) {
     pool = [...profile.intimateNames, ...profile.affectionateNames]
-  } else if (level === "CLOSE") {
+  } else if (currentIndex >= REGION_ORDER.indexOf("GROWING_CLOSENESS")) {
     pool = [...profile.affectionateNames, ...profile.casualNames]
   } else {
     pool = profile.casualNames

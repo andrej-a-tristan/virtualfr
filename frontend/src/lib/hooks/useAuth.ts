@@ -19,8 +19,12 @@ export function useAuth() {
     },
   })
   if (data && !user) setUser(data)
+  // Merge: prefer store user for fields that may be updated locally before API refetch
+  const mergedUser = data
+    ? { ...data, age_gate_passed: data.age_gate_passed || (user?.age_gate_passed ?? false) }
+    : user
   return {
-    user: data ?? user,
+    user: mergedUser,
     isLoading,
     isError,
     isAuthenticated: !!data,

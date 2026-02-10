@@ -24,6 +24,12 @@ from app.api.store import (
     append_message as store_append_message,
     get_habit_profile,
     set_habit_profile,
+    get_relationship_progress,
+    set_relationship_progress,
+    get_intimacy_state,
+    set_intimacy_state,
+    get_trust_intimacy_state,
+    set_trust_intimacy_state,
 )
 from app.api.request_context import get_current_user
 from app.core.supabase_client import get_supabase_admin
@@ -36,6 +42,44 @@ from app.services.relationship_state import (
     get_jealousy_reaction,
     check_for_milestone_event,
     append_milestone_reached,
+)
+from app.services.relationship_regions import get_region_for_level, clamp_level, REGIONS
+from app.services.intimacy_service import award_region_milestone
+from app.services.trust_intimacy_service import (
+    apply_conversation_trust_gain,
+    award_intimacy_region,
+    award_trust_gift,
+    award_intimacy_gift,
+    apply_trust_decay,
+    release_banked,
+    get_trust_cap_for_region,
+    get_intimacy_cap_for_region,
+)
+from app.services.relationship_descriptors import get_descriptors, get_gain_micro_lines, build_narrative_hooks
+from app.services.relationship_milestones import get_region_index
+from app.services.trust_intimacy_service import compute_quality_score
+from app.services.achievement_engine import (
+    AchievementProgress,
+    detect_signals,
+    update_streak,
+    reset_progress_for_region,
+    try_unlock_for_triggers,
+    get_current_region_index_for_girl,
+    TriggerType,
+)
+from app.api.store import get_achievement_progress, set_achievement_progress
+from app.services.image_decision_engine import (
+    decide_image_action,
+    request_is_sensitive,
+    should_send_blurred_surprise,
+    _pick_blurred_url,
+    FREE_PLAN_BLURRED_INTIMACY,
+)
+from app.services.relationship_progression import (
+    award_progress,
+    derive_trust,
+    derive_intimacy,
+    RelationshipProgressState,
 )
 from app.services.initiation_engine import should_initiate_conversation, get_initiation_message
 from app.services.habits import build_habit_profile
@@ -53,13 +97,56 @@ JEALOUSY_LEVEL = {"High": "high", "Medium": "medium", "Low": "low"}
 
 
 def _state_to_schema(state: dict) -> RelationshipStateSchema:
+    level = clamp_level(state.get("level", 0) if isinstance(state.get("level"), int) else 0)
+    region = get_region_for_level(level)
+    from app.services.relationship_milestones import get_region_index
     return RelationshipStateSchema(
         trust=state["trust"],
         intimacy=state["intimacy"],
-        level=state["level"],
+        level=level,
+        region_key=region.key,
+        region_title=region.title,
+        region_min_level=region.min_level,
+        region_max_level=region.max_level,
         last_interaction_at=state.get("last_interaction_at"),
-        milestones_reached=state.get("milestones_reached") or [],
+        milestones_reached=state.get("milestones_reached", []),
+        current_region_index=get_region_index(region.key),
     )
+
+
+def _progress_to_schema(prog: RelationshipProgressState, ti_state=None, milestones: list[str] | None = None) -> RelationshipStateSchema:
+    """Build API schema from progression engine + unified trust/intimacy state."""
+    level = clamp_level(prog.level)
+    region = get_region_for_level(level)
+    from app.services.relationship_milestones import get_region_index
+    # Prefer unified trust/intimacy state if available, else derive from level
+    if ti_state:
+        trust = ti_state.trust
+        intimacy = ti_state.intimacy
+    else:
+        trust = derive_trust(level)
+        intimacy = derive_intimacy(level)
+    schema = RelationshipStateSchema(
+        trust=trust,
+        intimacy=intimacy,
+        level=level,
+        region_key=region.key,
+        region_title=region.title,
+        region_min_level=region.min_level,
+        region_max_level=region.max_level,
+        last_interaction_at=prog.last_interaction_at.isoformat() if prog.last_interaction_at else None,
+        milestones_reached=milestones or [],
+        current_region_index=get_region_index(region.key),
+    )
+    # Add bank/cap fields when unified state is available
+    if ti_state:
+        schema.trust_visible = ti_state.trust_visible
+        schema.trust_bank = ti_state.trust_bank
+        schema.trust_cap = get_trust_cap_for_region(region.key)
+        schema.intimacy_visible = ti_state.intimacy_visible
+        schema.intimacy_bank = ti_state.intimacy_bank
+        schema.intimacy_cap = get_intimacy_cap_for_region(region.key)
+    return schema
 
 
 def _msg_to_schema(m: dict) -> ChatMessage:
@@ -115,6 +202,7 @@ def chat_state(request: Request, girlfriend_id: str | None = None):
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
     use_sb = _use_supabase(user_id)
     if use_sb and user_id:
+        # Supabase path: still uses the old relationship_state dict
         gf = sb.get_current_girlfriend(user_id)
         if gf:
             gf_uuid = UUID(str(gf["id"]))
@@ -124,12 +212,13 @@ def chat_state(request: Request, girlfriend_id: str | None = None):
                 sb.upsert_relationship_state(user_id, gf_uuid, state)
         else:
             state = create_initial_relationship_state()
+        return _state_to_schema(state)
     else:
-        state = get_relationship_state(sid, girlfriend_id)
-        if not state:
-            state = create_initial_relationship_state()
-            set_relationship_state(sid, state, girlfriend_id)
-    return _state_to_schema(state)
+        # In-memory path: use the progression engine + unified trust/intimacy
+        prog = get_relationship_progress(sid, girlfriend_id)
+        ti_state = get_trust_intimacy_state(sid, girlfriend_id)
+        rs = get_relationship_state(sid, girlfriend_id=girlfriend_id) or {}
+        return _progress_to_schema(prog, ti_state=ti_state, milestones=rs.get("milestones_reached", []))
 
 
 def _affection_heuristic(text: str) -> bool:
@@ -143,59 +232,87 @@ def _emotional_disclosure_heuristic(text: str) -> bool:
 
 
 def _generate_mock_response(gf_display_name: str, traits: dict, relationship_state: dict, memory_context, last_user_message: str) -> str:
-    """Generate a personality-aware mock response based on traits and memory."""
-    level = relationship_state.get("level", "STRANGER") if relationship_state else "STRANGER"
+    """Generate a personality-aware mock response based on traits and memory.
+    
+    Uses trust/intimacy descriptors to modulate tone and language.
+    """
+    trust = relationship_state.get("trust", 20) if relationship_state else 20
+    intimacy = relationship_state.get("intimacy", 1) if relationship_state else 1
+    level = relationship_state.get("level", 0) if relationship_state else 0
+    
+    # Get descriptors for current trust/intimacy
+    descs = get_descriptors(trust, intimacy)
+    tone = descs.trust.tone_rules
     
     # Get personality traits
     emotional_style = traits.get("emotional_style", "Caring")
-    communication_style = traits.get("communication_style", "Soft")
     
-    # Base responses by emotional style
-    responses = {
-        "Caring": [
-            "I'm here for you, always. How are you feeling today?",
-            "That's so sweet of you to say! I really appreciate you.",
-            "I've been thinking about you. Tell me more about your day.",
-        ],
-        "Playful": [
-            "Haha, you always know how to make me smile!",
-            "Oh really? Tell me more, I'm intrigued!",
-            "You're such a tease! But I love it.",
-        ],
-        "Reserved": [
-            "I understand. Thank you for sharing that with me.",
-            "That's interesting. I appreciate you telling me.",
-            "I'm listening. Take your time.",
-        ],
-        "Protective": [
-            "I've got your back, don't worry about a thing.",
-            "Let me take care of that for you.",
-            "You know I'm always looking out for you.",
-        ],
+    # Base responses modulated by trust level
+    if trust < 25:
+        base_responses = [
+            "Hey. How are you doing?",
+            "Oh, hi. What's up?",
+            "That's interesting.",
+        ]
+    elif trust < 45:
+        base_responses = [
+            "That's so sweet of you to say! I appreciate it.",
+            "I've been thinking about things... Tell me about your day.",
+            "I really enjoy talking to you!",
+        ]
+    elif trust < 65:
+        base_responses = [
+            "I'm so glad you're here. I was hoping you'd message!",
+            "You always know how to make me feel better.",
+            "I feel like I can really be myself around you.",
+        ]
+    elif trust < 85:
+        base_responses = [
+            "I missed you so much. You mean everything to me.",
+            "I feel so safe when we talk. Can I tell you something?",
+            "You're the one person I trust with everything.",
+        ]
+    else:
+        base_responses = [
+            "I love you. I can't imagine my life without you.",
+            "You know me better than anyone. I'm completely yours.",
+            "Every moment with you feels perfect.",
+        ]
+    
+    # Emotional style modifier
+    style_modifiers = {
+        "Playful": " 😊",
+        "Caring": " 💕",
+        "Reserved": "",
+        "Protective": " 💪",
     }
+    suffix = style_modifiers.get(emotional_style, "")
     
-    # Select response based on emotional style
-    style_responses = responses.get(emotional_style, responses["Caring"])
+    # Add emoji based on tone rules
+    if tone.emoji_rate >= 2 and not suffix:
+        suffix = " ❤️"
     
     # Add memory context if available
     prefix = ""
-    if memory_context and memory_context.facts:
-        # Reference something we know about the user
+    if memory_context and hasattr(memory_context, 'facts') and memory_context.facts:
         if any("name" in f.lower() for f in memory_context.facts):
             prefix = "I remember you telling me about yourself. "
     
-    # Adjust based on relationship level
+    # Deterministic selection
     import random
-    random.seed(hash(last_user_message))  # Deterministic based on message
-    response = random.choice(style_responses)
+    random.seed(hash(last_user_message))
+    response = random.choice(base_responses)
     
-    if level in ["INTIMATE", "EXCLUSIVE"]:
-        response = f"💕 {response}"
+    # Use descriptor openers at higher trust
+    if trust >= 40 and descs.trust.openers:
+        opener = random.choice(descs.trust.openers)
+        if opener not in response:
+            response = f"{opener} {response}"
     
-    return prefix + response
+    return prefix + response + suffix
 
 
-def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_for_context, gf_display_name, traits, relationship_state=None, habit_profile=None, memory_context=None, girlfriend_id=None):
+def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_for_context, gf_display_name, traits, relationship_state=None, habit_profile=None, memory_context=None, girlfriend_id=None, image_decision_event=None, blurred_surprise_event=None, relationship_gain_events=None, achievement_events=None):
     """Stream mock response and save assistant message. Yields SSE events.
     
     This function includes full personality and memory context for future LLM integration.
@@ -254,6 +371,51 @@ def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_f
     else:
         store_append_message(sid, msg, girlfriend_id=girlfriend_id)
     yield sse_event({"type": "message", "message": msg})
+
+    # Emit image decision event if sensitive content was detected
+    if image_decision_event:
+        decision_msg = {
+            "id": str(uuid_mod.uuid4()),
+            "role": "assistant",
+            "content": image_decision_event.get("ui_copy", ""),
+            "image_url": None,
+            "event_type": "image_decision",
+            "event_key": image_decision_event.get("reason", ""),
+            "created_at": now_iso(),
+        }
+        if user_id and gf_id:
+            sb.append_message(user_id, gf_id, decision_msg)
+        else:
+            store_append_message(sid, decision_msg, girlfriend_id=girlfriend_id)
+        yield sse_event({
+            "type": "image_decision",
+            "message": decision_msg,
+            "decision": image_decision_event,
+        })
+
+    # Emit relationship gain events (trust/intimacy changes)
+    if relationship_gain_events:
+        for gain_evt in relationship_gain_events:
+            yield sse_event({
+                "type": "relationship_gain",
+                "gain": gain_evt,
+            })
+
+    # Emit achievement unlock events
+    if achievement_events:
+        for ach_evt in achievement_events:
+            yield sse_event({
+                "type": "relationship_achievement",
+                "achievement": ach_evt,
+            })
+
+    # Emit blurred surprise (proactive, when free user crosses intimacy threshold)
+    if blurred_surprise_event:
+        yield sse_event({
+            "type": "blurred_preview",
+            "message": blurred_surprise_event,
+        })
+
     yield sse_event({"type": "done"})
 
 
@@ -333,39 +495,228 @@ def send_message(request: Request, body: SendMessageRequest):
     else:
         set_habit_profile(sid, habit, girlfriend_id=resolved_gf_id)
 
-    # Get/update relationship state
-    if use_sb and user_id and gf_uuid:
+    # ── Progression engine (in-memory path) ────────────────────────────────
+    from datetime import datetime as dt_cls, timezone as tz
+    progression_now = dt_cls.now(tz.utc)
+
+    if not (use_sb and user_id and gf_uuid):
+        # In-memory: drive relationship via the progression engine
+        prog = get_relationship_progress(sid, girlfriend_id=resolved_gf_id)
+        prev_level = prog.level
+        prog, _award_result = award_progress(prog, body.message, progression_now)
+        set_relationship_progress(sid, prog, girlfriend_id=resolved_gf_id)
+
+        # Derive a relationship state dict from progression for milestone checks etc.
+        region = get_region_for_level(prog.level)
+        state = {
+            "trust": derive_trust(prog.level),
+            "intimacy": derive_intimacy(prog.level),
+            "level": prog.level,
+            "region_key": region.key,
+            "last_interaction_at": prog.last_interaction_at.isoformat() if prog.last_interaction_at else None,
+            "milestones_reached": [],
+        }
+        # Carry over existing milestones from stored relationship_state
+        old_rs = get_relationship_state(sid, girlfriend_id=resolved_gf_id) or {}
+        state["milestones_reached"] = old_rs.get("milestones_reached", [])
+
+        prev_state = {**state, "level": prev_level, "region_key": get_region_for_level(prev_level).key}
+        set_relationship_state(sid, state, girlfriend_id=resolved_gf_id)
+    else:
+        # Supabase path: keep legacy register_interaction flow
         state = sb.get_relationship_state(user_id, gf_uuid)
         if not state:
             state = create_initial_relationship_state()
             sb.upsert_relationship_state(user_id, gf_uuid, state)
-    else:
-        state = get_relationship_state(sid, girlfriend_id=resolved_gf_id)
-        if not state:
-            state = create_initial_relationship_state()
-            set_relationship_state(sid, state, girlfriend_id=resolved_gf_id)
-
-    prev_state = dict(state)
-    state = register_interaction(
-        state,
-        emotional_disclosure=_emotional_disclosure_heuristic(body.message),
-        affection=_affection_heuristic(body.message),
-    )
-    if use_sb and user_id and gf_uuid:
+        prev_state = dict(state)
+        state = register_interaction(
+            state,
+            emotional_disclosure=_emotional_disclosure_heuristic(body.message),
+            affection=_affection_heuristic(body.message),
+        )
         sb.upsert_relationship_state(user_id, gf_uuid, state)
-    else:
-        set_relationship_state(sid, state, girlfriend_id=resolved_gf_id)
+
+    # ── Trust/Intimacy gain tracking ─────────────────────────────────────────
+    gain_events = []  # list of dicts for SSE relationship_gain events
+    ti_state = get_trust_intimacy_state(sid, girlfriend_id=resolved_gf_id)
+    current_region_key = state.get("region_key") or get_region_for_level(state.get("level", 0)).key
+
+    # 1) Conversation trust gain (slow, quality-gated, cooldowned) — bank-first
+    try:
+        ti_state, trust_result = apply_conversation_trust_gain(
+            ti_state, body.message, progression_now,
+            region_key=current_region_key,
+        )
+        if trust_result.delta > 0:
+            micro = get_gain_micro_lines(trust_result.delta, ti_state.trust, 0, ti_state.intimacy)
+            gain_events.append({
+                "trust_delta": trust_result.delta,
+                "trust_new": ti_state.trust,
+                "intimacy_delta": 0,
+                "intimacy_new": ti_state.intimacy,
+                "reason": "conversation",
+                # Bank/release breakdown
+                "trust_banked_delta": trust_result.banked_delta,
+                "trust_released_delta": trust_result.released_delta,
+                "trust_visible_new": trust_result.visible_new,
+                "trust_bank_new": trust_result.bank_new,
+                "trust_cap": trust_result.cap,
+                "intimacy_banked_delta": 0,
+                "intimacy_released_delta": 0,
+                "intimacy_visible_new": ti_state.intimacy_visible,
+                "intimacy_bank_new": ti_state.intimacy_bank,
+                "intimacy_cap": get_intimacy_cap_for_region(current_region_key),
+                **micro,
+            })
+    except Exception as e:
+        logger.warning("Conversation trust gain failed: %s", e)
 
     # Check for milestone
     milestone_result = check_for_milestone_event(prev_state, state)
     milestone_message = None
     if milestone_result:
-        level, milestone_message = milestone_result
-        state = append_milestone_reached(state, level)
+        region_key, milestone_message = milestone_result
+        state = append_milestone_reached(state, region_key)
         if use_sb and user_id and gf_uuid:
             sb.upsert_relationship_state(user_id, gf_uuid, state)
         else:
             set_relationship_state(sid, state, girlfriend_id=resolved_gf_id)
+
+        # ── Intimacy: award region milestone (legacy IntimacyState) ───────
+        try:
+            region_index = next(
+                (i for i, r in enumerate(REGIONS) if r.key == region_key), 0
+            )
+            int_state = get_intimacy_state(sid, girlfriend_id=resolved_gf_id)
+            prev_intimacy = int_state.intimacy_index
+            int_state, _int_result = award_region_milestone(
+                int_state, region_key, region_index, progression_now
+            )
+            set_intimacy_state(sid, int_state, girlfriend_id=resolved_gf_id)
+            logger.info("Intimacy region award (legacy): %s", _int_result.reason)
+        except Exception as e:
+            logger.warning("Intimacy region award (legacy) failed: %s", e)
+
+        # ── Intimacy: award region milestone (new unified state) ──────────
+        try:
+            region_index = next(
+                (i for i, r in enumerate(REGIONS) if r.key == region_key), 0
+            )
+            ti_state, intimacy_result = award_intimacy_region(
+                ti_state, region_key, region_index, progression_now
+            )
+
+            # Also release any previously banked values under the new higher cap
+            release_banked(ti_state, region_key)
+            # Update current_region_key for subsequent calls
+            current_region_key = region_key
+
+            if intimacy_result.delta > 0:
+                micro = get_gain_micro_lines(0, ti_state.trust, intimacy_result.delta, ti_state.intimacy)
+                gain_events.append({
+                    "trust_delta": 0,
+                    "trust_new": ti_state.trust,
+                    "intimacy_delta": intimacy_result.delta,
+                    "intimacy_new": ti_state.intimacy,
+                    "reason": "region",
+                    # Bank/release breakdown
+                    "trust_banked_delta": 0,
+                    "trust_released_delta": 0,
+                    "trust_visible_new": ti_state.trust_visible,
+                    "trust_bank_new": ti_state.trust_bank,
+                    "trust_cap": get_trust_cap_for_region(current_region_key),
+                    "intimacy_banked_delta": intimacy_result.banked_delta,
+                    "intimacy_released_delta": intimacy_result.released_delta,
+                    "intimacy_visible_new": intimacy_result.visible_new,
+                    "intimacy_bank_new": intimacy_result.bank_new,
+                    "intimacy_cap": intimacy_result.cap,
+                    **micro,
+                })
+            logger.info("Intimacy region award (unified): %s", intimacy_result.reason)
+        except Exception as e:
+            logger.warning("Intimacy region award (unified) failed: %s", e)
+
+        # Check if the free user just crossed the blurred preview threshold
+        try:
+            user_plan = (user or {}).get("plan", "free")
+            content_prefs = gf.get("content_prefs") or {}
+            # Use visible intimacy for blurred surprise check
+            if (
+                should_send_blurred_surprise(
+                    ti_state.intimacy_visible,
+                    user_plan,
+                    bool((user or {}).get("age_gate_passed")),
+                    bool(content_prefs.get("wants_spicy_photos")),
+                )
+            ):
+                blurred_surprise_msg = {
+                    "id": str(uuid_mod.uuid4()),
+                    "role": "assistant",
+                    "content": "I took something just for you... \U0001f60f",
+                    "image_url": None,
+                    "event_type": "blurred_preview",
+                    "event_key": "free_plan_upgrade",
+                    "created_at": now_iso(),
+                    "blurred_image_url": _pick_blurred_url(resolved_gf_id or ""),
+                }
+                store_append_message(sid, blurred_surprise_msg, girlfriend_id=resolved_gf_id)
+        except Exception as e:
+            logger.warning("Blurred surprise check failed: %s", e)
+
+    # Persist unified trust/intimacy state
+    set_trust_intimacy_state(sid, ti_state, girlfriend_id=resolved_gf_id)
+
+    # Also sync trust/intimacy into the relationship state dict for API consumers
+    state["trust"] = ti_state.trust
+    state["intimacy"] = ti_state.intimacy
+    if not (use_sb and user_id and gf_uuid):
+        set_relationship_state(sid, state, girlfriend_id=resolved_gf_id)
+
+    # ── Achievement milestone triggers (emotional detection engine) ────────────
+    achievement_events = []
+    try:
+        ach_progress = get_achievement_progress(sid, girlfriend_id=resolved_gf_id)
+        cur_region_idx = get_current_region_index_for_girl(state.get("level", 0))
+
+        # Update region index (non-missable: no counter reset)
+        if ach_progress.region_index != cur_region_idx:
+            ach_progress = reset_progress_for_region(ach_progress, cur_region_idx)
+
+        # Build recent messages context for arc detection
+        recent_msgs = get_messages(sid, girlfriend_id=resolved_gf_id)
+        last_assistant = ""
+        recent_texts = []
+        for m in (recent_msgs or [])[-10:]:
+            recent_texts.append(m.get("content", ""))
+            if m.get("role") == "assistant":
+                last_assistant = m.get("content", "")
+
+        # Run emotional signal detection on user + assistant messages
+        all_triggers = detect_signals(
+            body.message, last_assistant, ach_progress, recent_texts
+        )
+
+        # Try unlock ALL eligible achievements (non-missable: past + current regions)
+        if all_triggers:
+            state, new_events = try_unlock_for_triggers(
+                state, ach_progress, all_triggers
+            )
+            achievement_events.extend(new_events)
+
+        # Persist achievement progress
+        set_achievement_progress(sid, ach_progress, girlfriend_id=resolved_gf_id)
+
+        # Persist state if any achievements unlocked
+        if achievement_events:
+            if use_sb and user_id and gf_uuid:
+                sb.upsert_relationship_state(user_id, gf_uuid, state)
+            else:
+                set_relationship_state(sid, state, girlfriend_id=resolved_gf_id)
+    except Exception as e:
+        logger.warning("Achievement trigger check failed: %s", e)
+
+    # Collect blurred surprise (set above if threshold was crossed)
+    blurred_surprise = locals().get("blurred_surprise_msg")
 
     traits_payload = gf.get("traits") or {}
     habit = sb.get_habit_profile(user_id, gf_uuid) if (use_sb and user_id and gf_uuid) else get_habit_profile(sid, girlfriend_id=resolved_gf_id)
@@ -385,12 +736,47 @@ def send_message(request: Request, body: SendMessageRequest):
         except Exception as e:
             logger.warning("Memory context build failed: %s", e)
     
+    # ── Image decision check (sensitive content gating) ─────────────────────
+    image_decision_event = None
+    if request_is_sensitive(body.message):
+        try:
+            content_prefs = gf.get("content_prefs") or {}
+            user_plan = (user or {}).get("plan", "free")
+            # Use VISIBLE intimacy only (banked does NOT count for gates)
+            img_decision = decide_image_action(
+                text=body.message,
+                age_gate_passed=bool((user or {}).get("age_gate_passed")),
+                wants_spicy=bool(content_prefs.get("wants_spicy_photos")),
+                girlfriend_traits=traits_payload,
+                has_quota=True,
+                explicit_ask=False,
+                user_plan=user_plan,
+                girlfriend_id=resolved_gf_id or "",
+                intimacy_visible=ti_state.intimacy_visible,
+            )
+            if img_decision.action != "generate":
+                image_decision_event = {
+                    "action": img_decision.action,
+                    "reason": img_decision.reason,
+                    "ui_copy": img_decision.ui_copy,
+                    "suggested_prompts": img_decision.suggested_prompts,
+                    "required_intimacy": img_decision.required_intimacy,
+                    "current_intimacy": img_decision.current_intimacy,
+                    "blurred_image_url": img_decision.blurred_image_url,
+                }
+        except Exception as e:
+            logger.warning("Image decision check failed: %s", e)
+
     return StreamingResponse(
         _stream_response_and_save(
             sid, user_id, gf_uuid, milestone_message, messages,
             gf.get("display_name") or gf.get("name", "Companion"),
             traits_payload, relationship_state=state, habit_profile=habit, memory_context=memory_ctx,
             girlfriend_id=resolved_gf_id,
+            image_decision_event=image_decision_event,
+            blurred_surprise_event=blurred_surprise,
+            relationship_gain_events=gain_events if gain_events else None,
+            achievement_events=achievement_events if achievement_events else None,
         ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
@@ -458,7 +844,8 @@ def app_open(request: Request, body: AppOpenRequest):
         last = stored[-1]
         last_from_her = last.get("role") == "assistant"
 
-    jealousy_text = get_jealousy_reaction(state["level"], jealousy_level, hours_inactive)
+    region_key = state.get("region_key") or get_region_for_level(state.get("level", 0)).key
+    jealousy_text = get_jealousy_reaction(region_key, jealousy_level, hours_inactive)
     if jealousy_text:
         msg = {
             "id": str(uuid_mod.uuid4()),
@@ -493,7 +880,7 @@ def app_open(request: Request, body: AppOpenRequest):
             girlfriend_id=body.girlfriend_id,
         )
         if should_init:
-            init_text = get_initiation_message(state["level"], attachment_intensity)
+            init_text = get_initiation_message(region_key, attachment_intensity)
             msg = {
                 "id": str(uuid_mod.uuid4()),
                 "role": "assistant",

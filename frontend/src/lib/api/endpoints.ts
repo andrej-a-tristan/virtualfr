@@ -216,6 +216,9 @@ export async function confirmGiftPayment(paymentIntentId: string) {
 export async function getGiftHistory() {
   return apiGet<import("./types").GiftHistoryResponse>("/gifts/history")
 }
+export async function getGiftCollection() {
+  return apiGet<import("./types").GiftCollectionResponse>("/gifts/collection")
+}
 
 // -----------------------------------------------------------------------------
 // Memory System (Task 1.2)
@@ -257,4 +260,10 @@ export function getOnboardingPromptImages() {
 
 export function completeOnboarding(body: OnboardingCompleteRequest) {
   return apiPost<Girlfriend>("/onboarding/complete", body)
+}
+
+// Relationship achievements
+export async function getAchievementsCatalog(includeSecrets = false) {
+  const qs = includeSecrets ? "?include_secrets=true" : ""
+  return apiGet<import("./types").AchievementsCatalogResponse>(`/relationship/achievements${qs}`)
 }

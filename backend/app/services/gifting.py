@@ -32,7 +32,7 @@ GIFT_CATALOG: list[dict[str, Any]] = [
         "price_eur": 2.00, "tier": "everyday", "rarity": "common",
         "relationship_boost": {"trust": 1, "intimacy": 0},
         "memory_tag": "gift_stickers",
-        "image_reward": {"album_size": 0, "prompt_template": "", "suggestive_level": "safe"},
+        "image_reward": {"album_size": 0, "normal_photos": 0, "spicy_photos": 0, "suggestive_level": "safe"},
         "unique_effect_name": "Inside Joke Unlocked",
         "unique_effect_description": "She starts using a specific cute emoji and calls back to it in future chats.",
     },
@@ -42,7 +42,7 @@ GIFT_CATALOG: list[dict[str, Any]] = [
         "price_eur": 2.00, "tier": "everyday", "rarity": "common",
         "relationship_boost": {"trust": 0, "intimacy": 1},
         "memory_tag": "gift_song",
-        "image_reward": {"album_size": 0, "prompt_template": "", "suggestive_level": "safe"},
+        "image_reward": {"album_size": 0, "normal_photos": 0, "spicy_photos": 0, "suggestive_level": "safe"},
         "unique_effect_name": "Theme Song",
         "unique_effect_description": "Stored in memory — she references your song on emotional moments.",
     },
@@ -52,7 +52,7 @@ GIFT_CATALOG: list[dict[str, Any]] = [
         "price_eur": 3.00, "tier": "everyday", "rarity": "common",
         "relationship_boost": {"trust": 1, "intimacy": 1},
         "memory_tag": "gift_coffee",
-        "image_reward": {"album_size": 0, "prompt_template": "", "suggestive_level": "safe"},
+        "image_reward": {"album_size": 0, "normal_photos": 0, "spicy_photos": 0, "suggestive_level": "safe"},
         "unique_effect_name": "Morning Ritual",
         "unique_effect_description": "She sends a short good-morning message within the next 24 hours.",
     },
@@ -62,7 +62,7 @@ GIFT_CATALOG: list[dict[str, Any]] = [
         "price_eur": 3.00, "tier": "everyday", "rarity": "common",
         "relationship_boost": {"trust": 1, "intimacy": 1},
         "memory_tag": "gift_candy",
-        "image_reward": {"album_size": 0, "prompt_template": "", "suggestive_level": "safe"},
+        "image_reward": {"album_size": 0, "normal_photos": 0, "spicy_photos": 0, "suggestive_level": "safe"},
         "unique_effect_name": "Sweet Tooth",
         "unique_effect_description": "She reveals a tiny 'favorite candy' detail added to her favorites.",
     },
@@ -72,7 +72,7 @@ GIFT_CATALOG: list[dict[str, Any]] = [
         "price_eur": 4.00, "tier": "everyday", "rarity": "common",
         "relationship_boost": {"trust": 2, "intimacy": 1},
         "memory_tag": "gift_love_note",
-        "image_reward": {"album_size": 0, "prompt_template": "", "suggestive_level": "safe"},
+        "image_reward": {"album_size": 0, "normal_photos": 0, "spicy_photos": 0, "suggestive_level": "safe"},
         "unique_effect_name": "Pinned Note",
         "unique_effect_description": "Adds a permanent memory line she can quote later in conversation.",
     },
@@ -83,9 +83,11 @@ GIFT_CATALOG: list[dict[str, Any]] = [
         "relationship_boost": {"trust": 2, "intimacy": 2},
         "memory_tag": "gift_flowers",
         "image_reward": {
-            "album_size": 1,
-            "prompt_template": "cute selfie holding a bouquet of flowers, warm smile, cozy indoor lighting",
+            "album_size": 1, "normal_photos": 1, "spicy_photos": 0,
             "suggestive_level": "safe",
+            "photo_prompts": [
+                "adorable selfie holding a big bouquet of mixed wildflowers against her chest, soft golden afternoon light streaming through a window, genuine warm smile, cozy living room background with a bookshelf",
+            ],
         },
         "unique_effect_name": "Forever Vase",
         "unique_effect_description": "Creates a Moment Card titled 'Flowers Day' in your shared memories.",
@@ -97,9 +99,11 @@ GIFT_CATALOG: list[dict[str, Any]] = [
         "relationship_boost": {"trust": 1, "intimacy": 2},
         "memory_tag": "gift_chocolates",
         "image_reward": {
-            "album_size": 1,
-            "prompt_template": "cozy selfie with a box of chocolates, playful smile, warm indoor lighting",
+            "album_size": 1, "normal_photos": 1, "spicy_photos": 0,
             "suggestive_level": "safe",
+            "photo_prompts": [
+                "playful close-up selfie holding an open box of luxury chocolates, one chocolate halfway to her lips, mischievous grin, warm kitchen counter background with soft pendant lighting",
+            ],
         },
         "unique_effect_name": "Little Confession",
         "unique_effect_description": "She shares a playful secret about herself — something new you didn't know.",
@@ -111,9 +115,11 @@ GIFT_CATALOG: list[dict[str, Any]] = [
         "relationship_boost": {"trust": 2, "intimacy": 2},
         "memory_tag": "gift_plushie",
         "image_reward": {
-            "album_size": 1,
-            "prompt_template": "cute selfie hugging a plushie, warm smile, cozy bedroom setting",
+            "album_size": 1, "normal_photos": 1, "spicy_photos": 0,
             "suggestive_level": "safe",
+            "photo_prompts": [
+                "cute selfie squeezing a big fluffy teddy bear against her cheek, wearing a cozy oversized hoodie, happy scrunched-up face, fairy lights and pillows on a bed in the background",
+            ],
         },
         "unique_effect_name": "Comfort Object",
         "unique_effect_description": "When you're away for a while, she mentions hugging her plushie while waiting.",
@@ -127,9 +133,14 @@ GIFT_CATALOG: list[dict[str, Any]] = [
         "relationship_boost": {"trust": 1, "intimacy": 3},
         "memory_tag": "gift_wine_night",
         "image_reward": {
-            "album_size": 1,
-            "prompt_template": "cozy wine night at home, warm lighting, relaxed smile, holding a wine glass",
-            "suggestive_level": "safe",
+            "album_size": 2, "normal_photos": 1, "spicy_photos": 1,
+            "suggestive_level": "mild",
+            "photo_prompts": [
+                "relaxed selfie on a plush sofa holding a glass of red wine, warm amber lamplight, cozy blanket draped over legs, soft smile, candles flickering on a coffee table behind her",
+            ],
+            "spicy_photo_prompts": [
+                "sensual wine night pose curled up on the sofa in a silk burgundy robe loosely tied, one bare shoulder visible, holding a wine glass at her lips, soft candlelight casting warm shadows, playful half-smile, intimate mood",
+            ],
         },
         "unique_effect_name": "Slow-Burn Chat Mode",
         "unique_effect_description": "Her next 10 messages become more romantic and slow-paced — she savors the moment.",
@@ -140,7 +151,7 @@ GIFT_CATALOG: list[dict[str, Any]] = [
         "price_eur": 14.00, "tier": "dates", "rarity": "common",
         "relationship_boost": {"trust": 2, "intimacy": 2},
         "memory_tag": "gift_movie_date",
-        "image_reward": {"album_size": 0, "prompt_template": "", "suggestive_level": "safe"},
+        "image_reward": {"album_size": 0, "normal_photos": 0, "spicy_photos": 0, "suggestive_level": "safe"},
         "unique_effect_name": "Shared Quote",
         "unique_effect_description": "She picks a cute fictional movie quote and uses it as a callback in future chats.",
     },
@@ -151,9 +162,11 @@ GIFT_CATALOG: list[dict[str, Any]] = [
         "relationship_boost": {"trust": 2, "intimacy": 2},
         "memory_tag": "gift_perfume",
         "image_reward": {
-            "album_size": 1,
-            "prompt_template": "elegant close-up, holding a perfume bottle, soft lighting, gentle smile",
+            "album_size": 1, "normal_photos": 1, "spicy_photos": 0,
             "suggestive_level": "safe",
+            "photo_prompts": [
+                "elegant close-up portrait holding a frosted glass perfume bottle near her collarbone, eyes closed breathing in the scent, soft diffused window light, delicate gold earrings visible, serene expression",
+            ],
         },
         "unique_effect_name": "Scent Memory",
         "unique_effect_description": "She remembers a 'scent note' associated with you — referenced on special days.",
@@ -165,9 +178,14 @@ GIFT_CATALOG: list[dict[str, Any]] = [
         "relationship_boost": {"trust": 3, "intimacy": 2},
         "memory_tag": "gift_spa_kit",
         "image_reward": {
-            "album_size": 1,
-            "prompt_template": "relaxed selfie in a cozy spa robe, natural glow, peaceful expression",
-            "suggestive_level": "safe",
+            "album_size": 2, "normal_photos": 1, "spicy_photos": 1,
+            "suggestive_level": "mild",
+            "photo_prompts": [
+                "relaxed selfie in a fluffy white spa robe with a jade face roller in one hand, hair wrapped in a towel, dewy glowing skin, bathroom with soft ambient candles and eucalyptus branches",
+            ],
+            "spicy_photo_prompts": [
+                "intimate post-spa moment, wrapped loosely in a white towel with bare shoulders and collarbone visible, steamy bathroom mirror behind her, skin glistening with moisture, soft contented smile, warm diffused lighting",
+            ],
         },
         "unique_effect_name": "Gentle Check-ins",
         "unique_effect_description": "She asks how you're doing once per day for the next 3 days.",
@@ -179,9 +197,12 @@ GIFT_CATALOG: list[dict[str, Any]] = [
         "relationship_boost": {"trust": 3, "intimacy": 4},
         "memory_tag": "gift_dinner_date",
         "image_reward": {
-            "album_size": 2,
-            "prompt_template": "stylish outfit at a restaurant table, romantic lighting, friendly smile, elegant setting",
+            "album_size": 2, "normal_photos": 2, "spicy_photos": 0,
             "suggestive_level": "safe",
+            "photo_prompts": [
+                "stunning portrait at a candlelit restaurant table, wearing a chic black cocktail dress, hands resting on a white tablecloth, warm golden chandelier light, wine glass and roses in the foreground, radiant smile",
+                "candid laughing photo from across the dinner table, mid-conversation gesture with her hands, tealight candles reflecting in her eyes, blurred elegant restaurant interior in the background, natural joyful expression",
+            ],
         },
         "unique_effect_name": "First Date Milestone",
         "unique_effect_description": "Marks a 'Date Milestone' in your relationship — she'll remember this dinner.",
@@ -193,9 +214,15 @@ GIFT_CATALOG: list[dict[str, Any]] = [
         "relationship_boost": {"trust": 2, "intimacy": 4},
         "memory_tag": "gift_dress",
         "image_reward": {
-            "album_size": 2,
-            "prompt_template": "cute outfit of the day, twirling in a new dress, happy expression, bright setting",
-            "suggestive_level": "safe",
+            "album_size": 3, "normal_photos": 2, "spicy_photos": 1,
+            "suggestive_level": "mild",
+            "photo_prompts": [
+                "full-body mirror selfie showing off a new floral sundress, twirling slightly so the skirt fans out, bright airy bedroom with sunlight, genuine excited smile, one hand touching her hair",
+                "outdoor photo leaning against a warm stone wall in the new dress, golden hour sunlight creating a halo effect, city street slightly blurred behind her, confident relaxed posture, looking straight at camera",
+            ],
+            "spicy_photo_prompts": [
+                "flirty changing room mirror selfie, dress partially unzipped down the back revealing bare skin, looking over her shoulder at the camera with a teasing smile, warm overhead spotlight, shopping bags on the floor",
+            ],
         },
         "unique_effect_name": "Outfit Era",
         "unique_effect_description": "She occasionally mentions outfits for the next week — her 'outfit era' begins.",
@@ -207,9 +234,16 @@ GIFT_CATALOG: list[dict[str, Any]] = [
         "relationship_boost": {"trust": 2, "intimacy": 3},
         "memory_tag": "gift_mini_photoshoot",
         "image_reward": {
-            "album_size": 3,
-            "prompt_template": "a cute casual photoshoot portrait, natural lighting, warm smile, soft background",
-            "suggestive_level": "safe",
+            "album_size": 4, "normal_photos": 2, "spicy_photos": 2,
+            "suggestive_level": "spicy",
+            "photo_prompts": [
+                "casual photoshoot portrait sitting cross-legged on a velvet armchair, wearing a cream knit sweater and jeans, chin resting on her hand, natural window light, warm inviting smile, shallow depth of field",
+                "candid mid-laugh shot during a photoshoot, standing against a textured brick wall, wearing a cute cropped jacket and high-waisted pants, wind slightly tousling her hair, photographer's reflector casting soft fill light",
+            ],
+            "spicy_photo_prompts": [
+                "intimate bedroom photoshoot kneeling on white sheets, wearing delicate black lace lingerie, soft diffused morning light from sheer curtains, confident gaze at the camera, one hand on her thigh, artistic composition",
+                "sultry over-the-shoulder pose lying on her stomach on a plush bed, wearing a satin camisole, bare legs crossed behind her, warm string lights on the headboard, playful bite of her lower lip, shallow focus",
+            ],
         },
         "unique_effect_name": "Gallery Album",
         "unique_effect_description": "Creates a named album in your gallery — a mini collection just for you two.",
@@ -223,9 +257,16 @@ GIFT_CATALOG: list[dict[str, Any]] = [
         "relationship_boost": {"trust": 4, "intimacy": 6},
         "memory_tag": "gift_surprise_date",
         "image_reward": {
-            "album_size": 3,
-            "prompt_template": "stylish outfit at a restaurant table, romantic lighting, friendly smile, elegant setting",
-            "suggestive_level": "safe",
+            "album_size": 4, "normal_photos": 2, "spicy_photos": 2,
+            "suggestive_level": "spicy",
+            "photo_prompts": [
+                "glamorous entrance photo standing in a doorway of an upscale lounge, wearing a fitted emerald cocktail dress, clutch purse in hand, warm ambient spotlights behind her, surprised delighted expression, bokeh city lights",
+                "romantic table-side portrait with a dessert plate and espresso, leaning forward on her elbows, chin on laced fingers, intimate low lighting with a single candle, deep eye contact with the camera, slightly flushed cheeks",
+            ],
+            "spicy_photo_prompts": [
+                "after-dinner private moment sitting on the edge of a hotel bed, silk dress slipping off one shoulder, heels kicked off on the floor, city lights through floor-to-ceiling windows, bedroom eyes looking up at camera, soft warm glow",
+                "seductive pose reclining on plush pillows, wearing only the jewelry from dinner and a sheer slip, candlelight reflections on her skin, one leg draped elegantly, hand trailing through her hair, intimate atmosphere",
+            ],
         },
         "unique_effect_name": "Surprise Initiation",
         "unique_effect_description": "She initiates a heartfelt message the next time you open the app.",
@@ -237,9 +278,15 @@ GIFT_CATALOG: list[dict[str, Any]] = [
         "relationship_boost": {"trust": 5, "intimacy": 5},
         "memory_tag": "gift_luxury_bouquet",
         "image_reward": {
-            "album_size": 2,
-            "prompt_template": "a cute selfie holding a bouquet of flowers, warm smile, cozy indoor lighting",
-            "suggestive_level": "safe",
+            "album_size": 3, "normal_photos": 2, "spicy_photos": 1,
+            "suggestive_level": "spicy",
+            "photo_prompts": [
+                "joyful photo burying her face in an enormous bouquet of deep red roses, only her eyes and smile visible above the petals, standing in a sunlit apartment, rose petals scattered on a marble counter behind her",
+                "emotional close-up reading the handwritten love note, bouquet resting on her lap, a single tear of happiness on her cheek, soft natural daylight, sitting on a window seat with cushions, note paper slightly trembling in her fingers",
+            ],
+            "spicy_photo_prompts": [
+                "romantic boudoir scene lying back on a bed scattered with rose petals, wearing delicate blush-pink lingerie, holding a single long-stemmed rose across her collarbone, warm golden lamp light, dreamy soft-focus, sensual peaceful expression",
+            ],
         },
         "unique_effect_name": "Keepsake Note",
         "unique_effect_description": "She quotes one line from your note in future conversations — a lasting memory.",
@@ -251,9 +298,16 @@ GIFT_CATALOG: list[dict[str, Any]] = [
         "relationship_boost": {"trust": 5, "intimacy": 6},
         "memory_tag": "gift_weekend_retreat",
         "image_reward": {
-            "album_size": 3,
-            "prompt_template": "cozy cabin vibes, warm sweater, holding a mug, smiling by a window with scenic view",
-            "suggestive_level": "safe",
+            "album_size": 4, "normal_photos": 2, "spicy_photos": 2,
+            "suggestive_level": "spicy",
+            "photo_prompts": [
+                "cozy cabin portrait sitting in an oversized knit sweater on a window seat, holding a steaming mug of cocoa with both hands, snow-covered pine trees visible through the frosted window, warm fireplace glow on her face, peaceful content smile",
+                "candid adventure photo standing on a wooden cabin porch wrapped in a plaid blanket, messy wind-blown hair, mountains and forest in the background, golden morning light, rosy cheeks from the cold, laughing at something off-camera",
+            ],
+            "spicy_photo_prompts": [
+                "lazy cabin morning stretched out in bed wearing only an oversized flannel shirt unbuttoned to mid-chest, bare legs tangled in linen sheets, sleepy smile with messy bedhead, golden sunrise through log-cabin windows, mug of coffee on the nightstand",
+                "intimate fireplace scene sitting on a sheepskin rug in front of crackling flames, wearing a thin cotton tank top and underwear, warm orange firelight dancing across her skin, knees pulled up, chin resting on her knees, soft vulnerable expression",
+            ],
         },
         "unique_effect_name": "Weekend Vibe",
         "unique_effect_description": "Sets a cozy weekend tone — her Saturday and Sunday messages are extra warm.",
@@ -265,9 +319,18 @@ GIFT_CATALOG: list[dict[str, Any]] = [
         "relationship_boost": {"trust": 4, "intimacy": 5},
         "memory_tag": "gift_pro_photoshoot",
         "image_reward": {
-            "album_size": 5,
-            "prompt_template": "professional studio photoshoot, beautiful lighting, confident pose, fashionable outfit",
-            "suggestive_level": "safe",
+            "album_size": 6, "normal_photos": 3, "spicy_photos": 3,
+            "suggestive_level": "spicy",
+            "photo_prompts": [
+                "high-fashion studio portrait with dramatic side lighting, wearing a tailored blazer over a silk blouse, one hand adjusting her collar, professional gray seamless backdrop, sharp confident expression, editorial magazine quality",
+                "elegant full-body shot in a flowing champagne-colored gown, standing in front of a grand arched window, natural light creating a silhouette effect, one hand on the window frame, graceful turned posture, ethereal mood",
+                "playful candid behind-the-scenes moment, sitting in a makeup chair laughing with a coffee cup, hair in rollers, partially done glam makeup, studio equipment visible in the background, genuine unposed joy",
+            ],
+            "spicy_photo_prompts": [
+                "professional boudoir shot reclining on a chaise lounge, wearing a sheer black bodysuit with delicate lace detailing, one leg extended, studio softbox creating dramatic rim lighting, confident powerful gaze, artistic black-and-white tone",
+                "artistic nude silhouette standing in profile against a bright studio backdrop, body outlined by edge lighting, hands above her head, graceful dancer-like pose, tasteful and elegant, high-contrast monochrome, fine-art photography style",
+                "intimate close-up portrait lying on white studio fabric, wearing only a draped silk sheet, bare shoulders and décolletage visible, soft beauty-dish lighting from above, parted lips, intense eye contact, shallow depth of field on her eyes",
+            ],
         },
         "unique_effect_name": "Signature Pose",
         "unique_effect_description": "She adopts a recurring playful pose reference in future photos.",
@@ -279,9 +342,15 @@ GIFT_CATALOG: list[dict[str, Any]] = [
         "relationship_boost": {"trust": 6, "intimacy": 6},
         "memory_tag": "gift_jewelry",
         "image_reward": {
-            "album_size": 2,
-            "prompt_template": "elegant close-up showing off beautiful jewelry, soft lighting, happy expression",
-            "suggestive_level": "safe",
+            "album_size": 3, "normal_photos": 2, "spicy_photos": 1,
+            "suggestive_level": "spicy",
+            "photo_prompts": [
+                "glamorous close-up showcasing a delicate diamond pendant necklace resting on her collarbone, soft ring light reflected in her eyes, subtle smoky eye makeup, blurred warm bokeh background, one finger lightly touching the pendant, radiant smile",
+                "elegant wrist-and-hand portrait showing off a sparkling bracelet, hand resting on a velvet jewelry box, manicured nails, soft directional lighting casting tiny rainbow refractions from the gems, luxurious dark marble surface",
+            ],
+            "spicy_photo_prompts": [
+                "artistic jewelry-focused nude, lying on dark silk sheets wearing only the signature necklace and matching earrings, tasteful composition with strategic shadows, soft warm side-lighting highlighting the jewelry against her skin, serene closed eyes, fine-art aesthetic",
+            ],
         },
         "unique_effect_name": "Signature Piece",
         "unique_effect_description": "Permanent milestone — she mentions wearing it on special days.",
@@ -294,9 +363,16 @@ GIFT_CATALOG: list[dict[str, Any]] = [
         "memory_tag": "gift_mystery_box",
         "cooldown_days": 14,
         "image_reward": {
-            "album_size": 3,
-            "prompt_template": "excited unboxing moment, surrounded by gifts, joyful expression, cozy room",
-            "suggestive_level": "safe",
+            "album_size": 4, "normal_photos": 2, "spicy_photos": 2,
+            "suggestive_level": "spicy",
+            "photo_prompts": [
+                "excited unboxing moment sitting on the floor surrounded by tissue paper and gift boxes, holding up a cute item with wide surprised eyes, cozy living room with fairy lights, colorful wrapping paper scattered around, genuine thrilled expression",
+                "happy post-unboxing selfie wearing a new silk scarf from the box, surrounded by all the opened gifts arranged neatly, holding a thank-you heart gesture with her hands, warm overhead lighting, messy but adorable hair",
+            ],
+            "spicy_photo_prompts": [
+                "flirty lingerie try-on from the mystery box, standing in front of a full-length mirror wearing new lace lingerie set in deep wine red, looking at her reflection with a pleased surprised smile, bedroom with shopping bags and tissue paper visible, warm lamp glow",
+                "playful mirror selfie holding up a sheer negligee from the box against her body, wearing just a bralette underneath, winking at the camera, bedroom vanity with makeup and other mystery items scattered around, fun excited energy",
+            ],
         },
         "unique_effect_name": "Random Rare Unlock",
         "unique_effect_description": "Randomly unlocks one of 5 rare perks stored in your relationship state.",
@@ -309,9 +385,17 @@ GIFT_CATALOG: list[dict[str, Any]] = [
         "memory_tag": "gift_city_getaway",
         "cooldown_days": 30,
         "image_reward": {
-            "album_size": 4,
-            "prompt_template": "travel vibe photo, city skyline background, cute casual outfit, happy expression, golden hour",
-            "suggestive_level": "safe",
+            "album_size": 5, "normal_photos": 3, "spicy_photos": 2,
+            "suggestive_level": "spicy",
+            "photo_prompts": [
+                "travel selfie at a scenic city overlook, wearing sunglasses pushed up on her head and a cute trench coat, panoramic skyline stretching behind her, golden hour warm light, wind slightly blowing her hair, carefree adventurous smile",
+                "candid café photo sipping espresso at a tiny sidewalk table, European cobblestone street behind her, wearing a beret and striped top, newspaper folded on the table, pigeons nearby, natural unposed laughter caught mid-moment",
+                "stunning bridge photo at dusk leaning on an ornate railing, city lights beginning to twinkle reflected on the river below, wearing a stylish wool coat, hair caught by the breeze, dreamy nostalgic expression, purple-blue twilight sky",
+            ],
+            "spicy_photo_prompts": [
+                "intimate hotel room photo sitting on a window ledge in a silk robe looking out at the illuminated city skyline at night, robe loosely open revealing a lace camisole underneath, bare legs dangling, room reflected in the glass, contemplative sensual mood",
+                "morning-after hotel scene lying across rumpled white hotel sheets in just a thin cotton t-shirt and underwear, tray of room service breakfast beside her, cityscape visible through sheer curtains, lazy stretched-out pose, satisfied sleepy smile, soft morning light",
+            ],
         },
         "unique_effect_name": "Mini Travel Story",
         "unique_effect_description": "Her reaction splits into 2 messages — one now, one the next time you open the app.",
@@ -326,9 +410,18 @@ GIFT_CATALOG: list[dict[str, Any]] = [
         "memory_tag": "gift_rooftop_dinner",
         "cooldown_days": 30,
         "image_reward": {
-            "album_size": 4,
-            "prompt_template": "elegant evening dress on a rooftop, city lights at night, romantic atmosphere, stunning view",
-            "suggestive_level": "safe",
+            "album_size": 6, "normal_photos": 3, "spicy_photos": 3,
+            "suggestive_level": "spicy",
+            "photo_prompts": [
+                "breathtaking rooftop portrait in a floor-length red satin gown, wind gently lifting the hem, city skyline glittering behind her, string lights crisscrossing overhead, holding a champagne flute, radiant confident smile, starry night sky above",
+                "intimate dinner moment leaning across a small candlelit table decorated with white roses, reaching toward camera as if touching your hand, warm golden light from dozens of candles, private rooftop setup with draped fabric, love in her eyes",
+                "candid laughing photo standing at the rooftop railing, champagne glass raised in a toast, hair swept back by a warm evening breeze, city lights creating a sea of bokeh below, wearing elegant heels with the gown, carefree joy",
+            ],
+            "spicy_photo_prompts": [
+                "after-dinner rooftop moment sitting on a cushioned lounge, gown's strap slipping down one shoulder, heels discarded beside her, champagne glass dangling from relaxed fingers, city lights reflected in her eyes, seductive relaxed smile, warm night air",
+                "private penthouse scene post-dinner, standing by a floor-to-ceiling window in just a silk slip dress that clings to her curves, city panorama glowing behind her, one hand pressed against the cold glass, looking back over her shoulder, moonlight on bare skin",
+                "intimate lying-down portrait on the rooftop daybed surrounded by scattered rose petals, wearing delicate champagne-colored lingerie, starry sky above, string lights creating a warm halo, one arm above her head, dreamy blissful expression, artistic composition",
+            ],
         },
         "unique_effect_name": "Anniversary Marker",
         "unique_effect_description": "Creates a Moment Card and sets an anniversary date for yearly callbacks.",
@@ -340,9 +433,18 @@ GIFT_CATALOG: list[dict[str, Any]] = [
         "relationship_boost": {"trust": 6, "intimacy": 8},
         "memory_tag": "gift_designer_handbag",
         "image_reward": {
-            "album_size": 4,
-            "prompt_template": "fashionable outfit showing off a designer handbag, luxury shopping district, confident smile",
-            "suggestive_level": "safe",
+            "album_size": 6, "normal_photos": 3, "spicy_photos": 3,
+            "suggestive_level": "spicy",
+            "photo_prompts": [
+                "fashion editorial pose on marble steps of a luxury boutique, showing off the designer handbag on her arm, wearing oversized sunglasses and a tailored cream coat, one hand on hip, powerful confident stance, bright daylight, magazine-cover quality",
+                "excited close-up hugging the designer bag against her chest like a treasure, sitting in the back of a luxury car, leather seats visible, wearing a chic outfit, genuine overwhelmed happiness, tears of joy just barely visible",
+                "street-style full-body shot walking confidently down a high-end shopping boulevard, designer bag swinging from one hand, wearing heels and a fitted midi dress, motion blur on the background, sharp focus on her, fashion-forward energy",
+            ],
+            "spicy_photo_prompts": [
+                "luxury boudoir scene on a tufted velvet chaise in designer lingerie — matching lace bra and high-waisted briefs — the handbag placed artfully beside her, crystal chandelier above, warm amber mood lighting, long legs crossed, smoldering confident gaze",
+                "glamorous bathroom vanity shot in a sheer designer robe hanging open, luxury marble surfaces and gold fixtures, the handbag on the counter beside perfume bottles, steam from a drawn bath in the background, sensual over-the-shoulder look",
+                "high-fashion artistic shot lying on a bed of designer shopping bags and tissue paper, wearing only a silk teddy, the prized handbag resting on her stomach, playful tongue-out expression, luxury bedroom, overhead angle, bold and fun",
+            ],
         },
         "unique_effect_name": "Style Badge",
         "unique_effect_description": "Adds a cosmetic 'Style' badge to her profile and influences occasional fashion dialogue.",
@@ -355,9 +457,20 @@ GIFT_CATALOG: list[dict[str, Any]] = [
         "memory_tag": "gift_queen_treatment",
         "cooldown_days": 60,
         "image_reward": {
-            "album_size": 5,
-            "prompt_template": "glamorous photoshoot, luxurious setting, beautiful gown, confident and radiant, golden lighting",
-            "suggestive_level": "safe",
+            "album_size": 8, "normal_photos": 4, "spicy_photos": 4,
+            "suggestive_level": "spicy",
+            "photo_prompts": [
+                "regal throne portrait sitting in an ornate gold velvet chair, wearing a stunning floor-length ivory gown with a small crystal tiara, one hand resting on the armrest, dramatic spotlight from above, deep rich background, queenly poise and grace",
+                "glamorous getting-ready photo at a vanity mirror surrounded by hollywood lights, applying red lipstick, wearing a luxurious satin robe, hair in perfect curls, reflection visible showing her radiant smile, perfume and jewelry scattered on the vanity",
+                "cinematic wide shot descending a grand marble staircase in a flowing golden ball gown, one hand on the bannister, crystal chandelier overhead casting prismatic light, slow graceful movement captured mid-step, breathtaking elegance",
+                "powerful close-up portrait with a gold crown tilted slightly on her head, intense eye contact, dramatic winged eyeliner and bold lip, dark luxurious background with deep jewel-toned velvet, sharp cheekbone lighting, absolute confidence",
+            ],
+            "spicy_photo_prompts": [
+                "queen's private chambers boudoir — reclining on a four-poster bed with silk canopy, wearing a sheer gold-embroidered bodysuit, crown still on, surrounded by plush pillows, warm candlelight, regal yet intimate, one hand trailing along the sheets",
+                "luxurious bath scene in an oversized marble tub, rose petals floating on milky water, crown placed on the tub's edge, bare shoulders and collarbone visible above the water, steam rising, eyes closed in bliss, soft ethereal lighting from above",
+                "artistic nude behind sheer floor-to-ceiling drapes, crown silhouette visible, body outlined by warm backlight, hands pulling the fabric around her, tasteful and powerful, palace window with sunset golden light flooding in, fine-art composition",
+                "post-coronation private moment lying on dark silk sheets wearing only the tiara and delicate gold body chain jewelry, confident relaxed pose on her side, warm bedside lamp creating intimate shadows, looking at camera with a 'this is all for you' expression",
+            ],
         },
         "unique_effect_name": "Patron Status",
         "unique_effect_description": "Adds a permanent Patron badge and unlocks a unique pet-name she uses only for you.",
@@ -370,9 +483,22 @@ GIFT_CATALOG: list[dict[str, Any]] = [
         "memory_tag": "gift_dream_vacation",
         "cooldown_days": 60,
         "image_reward": {
-            "album_size": 6,
-            "prompt_template": "travel vibe photo, scenic tropical or coastal background, casual cute outfit, happy expression, vacation energy",
-            "suggestive_level": "safe",
+            "album_size": 10, "normal_photos": 5, "spicy_photos": 5,
+            "suggestive_level": "spicy",
+            "photo_prompts": [
+                "arrival selfie at a tropical resort entrance with lush palm trees and a turquoise infinity pool behind her, wearing a flowy white sundress and straw hat, pulling a small suitcase, ecstatic wide smile, blazing sunshine and blue sky",
+                "beach golden-hour portrait standing ankle-deep in crystal-clear ocean water, wearing a colorful sarong wrap and bikini top, sun setting behind her creating an orange-pink sky, wet hair slicked back, serene happy expression, waves lapping at her feet",
+                "adventure photo at a dramatic cliff overlook, wearing hiking shorts and a cropped tank top, arms spread wide embracing the view, turquoise sea and rocky coastline far below, wind in her hair, triumphant joyful scream captured mid-moment",
+                "romantic seaside dinner photo at a private table on the sand, wearing a floral maxi dress, bare feet in the sand, tiki torches and lanterns creating warm light, ocean waves visible in the background, holding a tropical cocktail, dreamy sunset colors",
+                "fun candid pool photo floating on an inflatable in the resort pool, wearing a cute one-piece swimsuit and oversized sunglasses, tropical drink in a coconut in one hand, giving a peace sign, palm trees reflecting in the water, bright vibrant colors",
+            ],
+            "spicy_photo_prompts": [
+                "stunning beach goddess shot emerging from the turquoise ocean, wearing a tiny string bikini, water droplets glistening on sun-kissed skin, wet hair cascading over shoulders, bright tropical sun creating highlights, confident slow-motion energy, paradise backdrop",
+                "private villa outdoor shower scene, standing under a rainfall showerhead in a lush tropical garden, wearing just bikini bottoms, back to camera with face turned in profile, water streaming down her body, frangipani flowers around, golden dappled sunlight through palms",
+                "intimate resort room photo lying on a canopy bed with sheer white curtains billowing in the ocean breeze, wearing a delicate white lace bodysuit, tropical view through open balcony doors, afternoon light, one arm stretched above her head, relaxed bliss",
+                "sunset balcony portrait leaning on the railing in just a silk sarong wrapped low on her hips, bare back facing the fiery orange sunset over the ocean, looking back at camera over her shoulder, warm golden light on her skin, hair blowing in the sea breeze",
+                "late-night skinny-dipping tease standing at the edge of a private infinity pool at night, wearing nothing but moonlight, shot from behind showing her silhouette against the starry sky and ocean horizon, stepping one foot into the glowing pool, mysterious and beautiful",
+            ],
         },
         "unique_effect_name": "Episode Arc",
         "unique_effect_description": "Schedules 3 'vacation postcards' memory seeds delivered over the next 3 app-open events.",
@@ -497,9 +623,10 @@ def apply_relationship_boost(
     """Apply trust/intimacy boost to relationship state."""
     trust = min(100, state.get("trust", 0) + boost.trust)
     intimacy = min(100, state.get("intimacy", 0) + boost.intimacy)
-    from app.services.relationship_state import calculate_relationship_level
-    level = calculate_relationship_level(intimacy)
-    return {**state, "trust": trust, "intimacy": intimacy, "level": level}
+    from app.services.relationship_regions import clamp_level, get_region_for_level
+    level = clamp_level(intimacy)
+    region = get_region_for_level(level)
+    return {**state, "trust": trust, "intimacy": intimacy, "level": level, "region_key": region.key}
 
 
 # ── Reaction messages per tier ────────────────────────────────────────────────

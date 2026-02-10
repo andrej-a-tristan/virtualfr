@@ -29,6 +29,9 @@ export default function Landing() {
         if (!user.age_gate_passed) {
           if (!cancelled) setStatus("Passing age gate...")
           await postAgeGate()
+          // Update local store + invalidate cache so RequireAgeGate guard sees it
+          if (!cancelled) setUser({ ...user, age_gate_passed: true })
+          await queryClient.invalidateQueries({ queryKey: ["me"] })
         }
 
         if (!cancelled) navigate("/onboarding/appearance", { replace: true })

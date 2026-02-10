@@ -15,7 +15,7 @@
 import type {
   BigFive,
   BigFiveProfile,
-  RelationshipLevel,
+  RegionKey,
   RelationshipState,
 } from "../api/types"
 
@@ -168,12 +168,18 @@ function numberToIntensity(num: number): AbsenceReaction["maxIntensity"] {
   return map[clamped - 1]
 }
 
+const REGION_ORDER: RegionKey[] = [
+  "EARLY_CONNECTION", "COMFORT_FAMILIARITY", "GROWING_CLOSENESS",
+  "EMOTIONAL_TRUST", "DEEP_BOND", "MUTUAL_DEVOTION",
+  "INTIMATE_PARTNERSHIP", "SHARED_LIFE", "ENDURING_COMPANIONSHIP",
+]
+
 /**
- * Get relationship level order index (0-4).
+ * Get region order index (0-8).
  */
-function levelIndex(level: RelationshipLevel): number {
-  const order: RelationshipLevel[] = ["STRANGER", "FAMILIAR", "CLOSE", "INTIMATE", "EXCLUSIVE"]
-  return order.indexOf(level)
+function regionIndex(regionKey: string): number {
+  const idx = REGION_ORDER.indexOf(regionKey as RegionKey)
+  return idx >= 0 ? idx : 0
 }
 
 /**
@@ -319,7 +325,7 @@ export function applyBigFiveModulation(
   if (N > 0.8) {
     // Change absence reaction style to calm check-in
     // Unless already "worried" AND relationship is INTIMATE+
-    const isIntimate = levelIndex(relationship.level) >= levelIndex("INTIMATE")
+    const isIntimate = regionIndex(relationship.region_key) >= regionIndex("EMOTIONAL_TRUST")
     if (!(profile.absence.messageStyle === "worried" && isIntimate)) {
       profile.absence.messageStyle = "neutral" // "calm_checkin" mapped to neutral
       notes.push("High neuroticism softened absence reaction style")
@@ -402,9 +408,9 @@ export function applyBigFiveModulation(
     // Reduce teasing, prefer simpler messages
     ext.phrasing.teasingLevel = clamp(ext.phrasing.teasingLevel - 1, 0, 3)
     
-    // Cap sentence length at medium unless EXCLUSIVE
+    // Cap sentence length at medium unless ENDURING_COMPANIONSHIP
     if (
-      relationship.level !== "EXCLUSIVE" &&
+      relationship.region_key !== "ENDURING_COMPANIONSHIP" &&
       profile.messageStyling.response.avgSentenceLength === "long"
     ) {
       profile.messageStyling.response.avgSentenceLength = "medium"
@@ -420,7 +426,7 @@ export function applyBigFiveModulation(
     // Unless soft communication and INTIMATE+
     const isSoftIntimate =
       base.derivedFrom.communicationStyle === "Soft" &&
-      levelIndex(relationship.level) >= levelIndex("INTIMATE")
+      regionIndex(relationship.region_key) >= regionIndex("EMOTIONAL_TRUST")
     
     if (!isSoftIntimate && profile.messageStyling.response.avgSentenceLength === "long") {
       profile.messageStyling.response.avgSentenceLength = "medium"
@@ -442,27 +448,31 @@ export function applyBigFiveModulation(
   // RELATIONSHIP-LEVEL GATING (final pass)
   // =========================================================================
   
-  if (relationship.level === "STRANGER") {
-    // Enforce conservative settings for strangers
+  if (relationship.region_key === "EARLY_CONNECTION") {
+    // Enforce conservative settings at early connection
     ext.initiationExt.probabilityBoost = 0
     profile.initiation.baseFrequency = base.initiation.baseFrequency // Reset boost
     profile.initiation.cooldownHours = Math.max(profile.initiation.cooldownHours, 8)
     profile.messageStyling.petNames.enabled = false
     ext.phrasing.flirtiness = Math.min(ext.phrasing.flirtiness, 1)
     
-    notes.push("Stranger level: conservative initiation enforced")
+    notes.push("Early connection: conservative initiation enforced")
   }
   
-  // Pace-based flirtiness caps
+  // Pace-based flirtiness caps (by region)
   if (base.derivedFrom.relationshipPace === "Slow") {
-    const maxFlirtinessAtLevel: Record<RelationshipLevel, number> = {
-      STRANGER: 0,
-      FAMILIAR: 1,
-      CLOSE: 1,
-      INTIMATE: 2,
-      EXCLUSIVE: 3,
+    const maxFlirtinessAtRegion: Record<string, number> = {
+      EARLY_CONNECTION: 0,
+      COMFORT_FAMILIARITY: 1,
+      GROWING_CLOSENESS: 1,
+      EMOTIONAL_TRUST: 2,
+      DEEP_BOND: 2,
+      MUTUAL_DEVOTION: 3,
+      INTIMATE_PARTNERSHIP: 3,
+      SHARED_LIFE: 3,
+      ENDURING_COMPANIONSHIP: 3,
     }
-    const cap = maxFlirtinessAtLevel[relationship.level]
+    const cap = maxFlirtinessAtRegion[relationship.region_key] ?? 1
     ext.phrasing.flirtiness = Math.min(ext.phrasing.flirtiness, cap)
   }
   
@@ -600,7 +610,7 @@ export function runModulationTests(): void {
       },
       petNames: {
         enabled: true,
-        startAtLevel: "FAMILIAR",
+        startAtRegion: "COMFORT_FAMILIARITY",
         casualNames: ["sweetie"],
         affectionateNames: ["honey"],
         intimateNames: ["love"],
@@ -621,11 +631,15 @@ export function runModulationTests(): void {
       preferredTimeOfDay: "evening",
       messageVariety: "medium",
       levelMultipliers: {
-        STRANGER: 0,
-        FAMILIAR: 0.7,
-        CLOSE: 1.0,
-        INTIMATE: 1.3,
-        EXCLUSIVE: 1.5,
+        EARLY_CONNECTION: 0,
+        COMFORT_FAMILIARITY: 0.7,
+        GROWING_CLOSENESS: 1.0,
+        EMOTIONAL_TRUST: 1.3,
+        DEEP_BOND: 1.5,
+        MUTUAL_DEVOTION: 1.6,
+        INTIMATE_PARTNERSHIP: 1.6,
+        SHARED_LIFE: 1.6,
+        ENDURING_COMPANIONSHIP: 1.6,
       },
     },
     absence: {
@@ -653,9 +667,12 @@ export function runModulationTests(): void {
   const mockRelationship: RelationshipState = {
     trust: 50,
     intimacy: 50,
-    level: "CLOSE",
+    level: 50,
+    region_key: "EMOTIONAL_TRUST",
+    region_title: "Emotional Trust",
+    region_min_level: 46,
+    region_max_level: 70,
     last_interaction_at: new Date().toISOString(),
-    milestones_reached: [],
   }
   
   // Test 1: High extraversion increases initiation
@@ -699,22 +716,25 @@ export function runModulationTests(): void {
     "High C should limit emoji rate"
   )
   
-  // Test 4: Stranger level enforces conservative settings
-  const strangerRelationship: RelationshipState = {
+  // Test 4: Early connection enforces conservative settings
+  const earlyRelationship: RelationshipState = {
     trust: 10,
     intimacy: 10,
-    level: "STRANGER",
+    level: 5,
+    region_key: "EARLY_CONNECTION",
+    region_title: "Early Connection",
+    region_min_level: 1,
+    region_max_level: 10,
     last_interaction_at: new Date().toISOString(),
-    milestones_reached: [],
   }
-  const result4 = applyBigFiveModulation({ base: mockBase, bigFive: highE, relationship: strangerRelationship })
+  const result4 = applyBigFiveModulation({ base: mockBase, bigFive: highE, relationship: earlyRelationship })
   console.assert(
     result4.profile.initiation.cooldownHours >= 8,
-    "Stranger should have cooldown >= 8"
+    "Early connection should have cooldown >= 8"
   )
   console.assert(
     result4.profile.messageStyling.petNames.enabled === false,
-    "Stranger should have pet names disabled"
+    "Early connection should have pet names disabled"
   )
   
   console.log("✓ All Big Five modulation tests passed")

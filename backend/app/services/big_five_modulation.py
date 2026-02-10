@@ -55,15 +55,13 @@ class BigFiveProfile:
     source: BigFiveSource = "base"
 
 
-RelationshipLevel = Literal["STRANGER", "FAMILIAR", "CLOSE", "INTIMATE", "EXCLUSIVE"]
-
-
 @dataclass
 class RelationshipState:
     """Simplified relationship state for modulation."""
     trust: float = 10
     intimacy: float = 10
-    level: RelationshipLevel = "STRANGER"
+    level: int = 0
+    region_key: str = "EARLY_CONNECTION"
     last_interaction_at: Optional[str] = None
     milestones_reached: List[str] = field(default_factory=list)
 
@@ -186,12 +184,16 @@ def number_to_intensity(num: int) -> str:
     return NUM_TO_INTENSITY[clamped - 1]
 
 
-LEVEL_ORDER = ["STRANGER", "FAMILIAR", "CLOSE", "INTIMATE", "EXCLUSIVE"]
+REGION_ORDER = [
+    "EARLY_CONNECTION", "COMFORT_FAMILIARITY", "GROWING_CLOSENESS",
+    "EMOTIONAL_TRUST", "DEEP_BOND", "MUTUAL_DEVOTION",
+    "INTIMATE_PARTNERSHIP", "SHARED_LIFE", "ENDURING_COMPANIONSHIP",
+]
 
 
-def level_index(level: str) -> int:
-    """Get relationship level order index (0-4)."""
-    return LEVEL_ORDER.index(level) if level in LEVEL_ORDER else 0
+def region_index(region_key: str) -> int:
+    """Get region order index (0-8)."""
+    return REGION_ORDER.index(region_key) if region_key in REGION_ORDER else 0
 
 
 # =============================================================================
@@ -292,7 +294,7 @@ def apply_big_five_modulation(
     
     profile_pet_names = PetNameStyle(
         enabled=base.message_styling.pet_names.enabled,
-        start_at_level=base.message_styling.pet_names.start_at_level,
+        start_at_region=base.message_styling.pet_names.start_at_region,
         casual_names=list(base.message_styling.pet_names.casual_names),
         affectionate_names=list(base.message_styling.pet_names.affectionate_names),
         intimate_names=list(base.message_styling.pet_names.intimate_names),
@@ -370,7 +372,7 @@ def apply_big_five_modulation(
     # High neuroticism (N > 0.8)
     if N > 0.8:
         # Change absence reaction style to calm check-in
-        is_intimate = level_index(relationship.level) >= level_index("INTIMATE")
+        is_intimate = region_index(relationship.region_key) >= region_index("EMOTIONAL_TRUST")
         if not (profile_absence.message_style == "worried" and is_intimate):
             profile_absence.message_style = "neutral"
             notes.append("High neuroticism softened absence reaction style")
@@ -437,8 +439,8 @@ def apply_big_five_modulation(
         # Reduce teasing, prefer simpler messages
         ext.phrasing.teasing_level = int(clamp(ext.phrasing.teasing_level - 1, 0, 3))
         
-        # Cap sentence length at medium unless EXCLUSIVE
-        if (relationship.level != "EXCLUSIVE" and 
+        # Cap sentence length at medium unless ENDURING_COMPANIONSHIP
+        if (relationship.region_key != "ENDURING_COMPANIONSHIP" and 
             profile_response.avg_sentence_length == "long"):
             profile_response.avg_sentence_length = "medium"
     
@@ -450,7 +452,7 @@ def apply_big_five_modulation(
         # Tend toward medium sentence length
         is_soft_intimate = (
             base.derived_from.communication_style == "Soft" and
-            level_index(relationship.level) >= level_index("INTIMATE")
+            region_index(relationship.region_key) >= region_index("EMOTIONAL_TRUST")
         )
         
         if not is_soft_intimate and profile_response.avg_sentence_length == "long":
@@ -469,26 +471,30 @@ def apply_big_five_modulation(
     # RELATIONSHIP-LEVEL GATING (final pass)
     # =========================================================================
     
-    if relationship.level == "STRANGER":
-        # Enforce conservative settings
+    if relationship.region_key == "EARLY_CONNECTION":
+        # Enforce conservative settings at early connection
         ext.initiation_ext.probability_boost = 0
         profile_initiation.base_frequency = base.initiation.base_frequency
         profile_initiation.cooldown_hours = max(profile_initiation.cooldown_hours, 8)
         profile_pet_names.enabled = False
         ext.phrasing.flirtiness = min(ext.phrasing.flirtiness, 1)
         
-        notes.append("Stranger level: conservative initiation enforced")
+        notes.append("Early connection: conservative initiation enforced")
     
-    # Pace-based flirtiness caps
+    # Pace-based flirtiness caps (by region)
     if base.derived_from.relationship_pace == "Slow":
-        max_flirtiness_at_level = {
-            "STRANGER": 0,
-            "FAMILIAR": 1,
-            "CLOSE": 1,
-            "INTIMATE": 2,
-            "EXCLUSIVE": 3,
+        max_flirtiness_at_region = {
+            "EARLY_CONNECTION": 0,
+            "COMFORT_FAMILIARITY": 1,
+            "GROWING_CLOSENESS": 1,
+            "EMOTIONAL_TRUST": 2,
+            "DEEP_BOND": 2,
+            "MUTUAL_DEVOTION": 3,
+            "INTIMATE_PARTNERSHIP": 3,
+            "SHARED_LIFE": 3,
+            "ENDURING_COMPANIONSHIP": 3,
         }
-        cap = max_flirtiness_at_level.get(relationship.level, 1)
+        cap = max_flirtiness_at_region.get(relationship.region_key, 1)
         ext.phrasing.flirtiness = min(ext.phrasing.flirtiness, cap)
     
     # =========================================================================
@@ -571,10 +577,15 @@ def big_five_from_dict(data: Dict[str, float]) -> BigFiveProfile:
 
 def relationship_state_from_dict(data: Dict[str, Any]) -> RelationshipState:
     """Create RelationshipState from a dictionary."""
+    level = data.get("level", 0)
+    # Handle legacy string levels by converting to 0
+    if isinstance(level, str):
+        level = 0
     return RelationshipState(
         trust=data.get("trust", 10),
         intimacy=data.get("intimacy", 10),
-        level=data.get("level", "STRANGER"),
+        level=level,
+        region_key=data.get("region_key", "EARLY_CONNECTION"),
         last_interaction_at=data.get("last_interaction_at"),
         milestones_reached=data.get("milestones_reached", []),
     )

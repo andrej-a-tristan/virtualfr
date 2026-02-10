@@ -1,4 +1,5 @@
 """Image request, job status, gallery — all per-girlfriend."""
+import logging
 import uuid
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -9,9 +10,12 @@ from app.api.store import (
     get_girlfriend,
     get_gallery,
     add_gallery_item,
+    get_intimacy_state,
 )
+from app.services.image_decision_engine import decide_image_action
 
 router = APIRouter(prefix="/images", tags=["images"])
+logger = logging.getLogger(__name__)
 
 # In-memory job store: job_id -> {status, image_url, session_id, girlfriend_id}
 _jobs: dict[str, dict] = {}
@@ -48,19 +52,53 @@ def _mock_gallery_for_girlfriend(girlfriend_id: str) -> list[dict]:
 
 class ImageRequestBody(BaseModel):
     girlfriend_id: str | None = None
+    prompt: str = ""  # optional text describing desired image
 
 
 @router.post("/request")
 def request_image(request: Request, body: ImageRequestBody | None = None):
     sid = _session_id(request)
-    if not sid or not get_session_user(sid):
+    user = get_session_user(sid) if sid else None
+    if not sid or not user:
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
 
     # Resolve girlfriend_id
     gf_id = (body.girlfriend_id if body else None) or None
+    gf = get_girlfriend(sid)
     if not gf_id:
-        gf = get_girlfriend(sid)
         gf_id = gf["id"] if gf else None
+
+    # ── Image decision engine gate ────────────────────────────────────────
+    prompt_text = (body.prompt if body else "") or ""
+    if prompt_text and gf:
+        int_state = get_intimacy_state(sid, girlfriend_id=gf_id)
+        traits = gf.get("traits") or {}
+        content_prefs = gf.get("content_prefs") or {}
+        user_plan = (user or {}).get("plan", "free")
+        decision = decide_image_action(
+            text=prompt_text,
+            age_gate_passed=bool(user.get("age_gate_passed")),
+            wants_spicy=bool(content_prefs.get("wants_spicy_photos")),
+            intimacy_state=int_state,
+            girlfriend_traits=traits,
+            has_quota=True,  # TODO: wire real quota check
+            explicit_ask=True,
+            user_plan=user_plan,
+            girlfriend_id=gf_id or "",
+        )
+        if decision.action != "generate":
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "action": decision.action,
+                    "reason": decision.reason,
+                    "ui_copy": decision.ui_copy,
+                    "suggested_prompts": decision.suggested_prompts,
+                    "required_intimacy": decision.required_intimacy,
+                    "current_intimacy": decision.current_intimacy,
+                    "blurred_image_url": decision.blurred_image_url,
+                },
+            )
 
     job_id = str(uuid.uuid4())
     image_url = f"https://picsum.photos/seed/{job_id[:8]}/400/400"

@@ -14,6 +14,8 @@ import {
   Zap,
   Clock,
   ImageIcon,
+  Flame,
+  Lock,
   BookHeart,
   Check,
   Loader2,
@@ -77,6 +79,9 @@ export default function GiftModal({ open, onClose, girlfriendName }: GiftModalPr
     // Refetch chat + relationship state to show the gift bubble
     queryClient.invalidateQueries({ queryKey: ["chatHistory"] })
     queryClient.invalidateQueries({ queryKey: ["chatState"] })
+    // Refetch gift catalog (to update already_purchased flags) and collection
+    queryClient.invalidateQueries({ queryKey: ["giftCatalog"] })
+    queryClient.invalidateQueries({ queryKey: ["giftCollection"] })
   }
 
   if (!open) return null
@@ -176,14 +181,20 @@ function GiftCard({
   gift: GiftDefinition
   onSelect: () => void
 }) {
-  const hasAlbum = gift.image_reward.album_size > 0
+  const normalPhotos = gift.image_reward.normal_photos ?? 0
+  const spicyPhotos = gift.image_reward.spicy_photos ?? 0
+  const hasPhotos = normalPhotos > 0 || spicyPhotos > 0
+  const alreadyPurchased = gift.already_purchased ?? false
 
   return (
     <button
-      onClick={onSelect}
+      onClick={alreadyPurchased ? undefined : onSelect}
+      disabled={alreadyPurchased}
       className={cn(
-        "flex flex-col rounded-xl border p-4 transition-all text-left cursor-pointer group",
-        TIER_COLORS[gift.tier] || TIER_COLORS.everyday,
+        "flex flex-col rounded-xl border p-4 transition-all text-left group",
+        alreadyPurchased
+          ? "border-green-500/20 bg-green-500/[0.04] cursor-default opacity-70"
+          : cn("cursor-pointer", TIER_COLORS[gift.tier] || TIER_COLORS.everyday),
       )}
     >
       <div className="flex items-start justify-between gap-2 mb-2">
@@ -229,11 +240,29 @@ function GiftCard({
             </span>
           </>
         )}
-        {hasAlbum && (
-          <span className="flex items-center gap-0.5">
-            <ImageIcon className="h-3 w-3 text-primary" />
-            {gift.image_reward.album_size}
-          </span>
+        {hasPhotos && (
+          <div className="flex items-center gap-1.5">
+            {normalPhotos > 0 && (
+              <span className="flex items-center gap-0.5" title="Normal photos">
+                <ImageIcon className="h-3 w-3 text-blue-400" />
+                <span className="text-blue-400 font-medium">{normalPhotos}</span>
+              </span>
+            )}
+            {spicyPhotos > 0 && (
+              <span className="flex items-center gap-0.5" title={gift.spicy_unlocked ? "Spicy photos" : "Spicy photos (locked)"}>
+                <Flame className="h-3 w-3 text-rose-400" />
+                <span className={cn(
+                  "font-medium",
+                  gift.spicy_unlocked ? "text-rose-400" : "text-rose-400/40"
+                )}>
+                  {spicyPhotos}
+                </span>
+                {!gift.spicy_unlocked && (
+                  <Lock className="h-2.5 w-2.5 text-rose-400/40" />
+                )}
+              </span>
+            )}
+          </div>
         )}
         {gift.cooldown_days && (
           <span className="flex items-center gap-0.5">
@@ -246,12 +275,21 @@ function GiftCard({
       <div
         className={cn(
           "w-full rounded-lg py-1.5 text-center text-xs font-semibold transition-colors",
-          gift.tier === "legendary"
-            ? "bg-amber-500/20 text-amber-300 group-hover:bg-amber-500/30"
-            : "bg-primary/15 text-primary group-hover:bg-primary/25",
+          alreadyPurchased
+            ? "bg-green-500/15 text-green-400"
+            : gift.tier === "legendary"
+              ? "bg-amber-500/20 text-amber-300 group-hover:bg-amber-500/30"
+              : "bg-primary/15 text-primary group-hover:bg-primary/25",
         )}
       >
-        €{gift.price_eur.toFixed(2)}
+        {alreadyPurchased ? (
+          <span className="flex items-center justify-center gap-1.5">
+            <Check className="h-3 w-3" />
+            Already Gifted
+          </span>
+        ) : (
+          <>€{gift.price_eur.toFixed(2)}</>
+        )}
       </div>
     </button>
   )
@@ -431,11 +469,35 @@ function GiftPreviewDialog({
                 <span className="font-medium text-foreground">+{gift.relationship_boost.intimacy}</span> intimacy
               </span>
             )}
-            {gift.image_reward.album_size > 0 && (
-              <span className="flex items-center gap-1">
-                <ImageIcon className="h-3.5 w-3.5 text-primary" />
-                <span className="font-medium text-foreground">{gift.image_reward.album_size}</span> photo{gift.image_reward.album_size > 1 ? "s" : ""}
-              </span>
+            {(gift.image_reward.normal_photos > 0 || gift.image_reward.spicy_photos > 0) && (
+              <div className="flex items-center gap-2">
+                {gift.image_reward.normal_photos > 0 && (
+                  <span className="flex items-center gap-1" title="Normal photos">
+                    <ImageIcon className="h-3.5 w-3.5 text-blue-400" />
+                    <span className="font-medium text-blue-400">{gift.image_reward.normal_photos}</span>
+                    <span className="text-muted-foreground">photo{gift.image_reward.normal_photos > 1 ? "s" : ""}</span>
+                  </span>
+                )}
+                {gift.image_reward.spicy_photos > 0 && (
+                  <span className="flex items-center gap-1" title={gift.spicy_unlocked ? "Spicy photos" : "Spicy photos — pass age verification to unlock"}>
+                    <Flame className="h-3.5 w-3.5 text-rose-400" />
+                    <span className={cn(
+                      "font-medium",
+                      gift.spicy_unlocked ? "text-rose-400" : "text-rose-400/40"
+                    )}>
+                      {gift.image_reward.spicy_photos}
+                    </span>
+                    <span className={cn(
+                      gift.spicy_unlocked ? "text-rose-400/70" : "text-rose-400/30"
+                    )}>
+                      spicy
+                    </span>
+                    {!gift.spicy_unlocked && (
+                      <Lock className="h-3 w-3 text-rose-400/40" />
+                    )}
+                  </span>
+                )}
+              </div>
             )}
             {gift.cooldown_days && (
               <span className="flex items-center gap-1">

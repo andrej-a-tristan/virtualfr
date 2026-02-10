@@ -114,20 +114,59 @@ export interface ChatMessage {
   created_at: string
 }
 
-/** Relationship level (matches backend + engines). */
-export type RelationshipLevel =
-  | "STRANGER"
-  | "FAMILIAR"
-  | "CLOSE"
-  | "INTIMATE"
-  | "EXCLUSIVE"
+/** Region key (matches backend 9-region system). */
+export type RegionKey =
+  | "EARLY_CONNECTION"
+  | "COMFORT_FAMILIARITY"
+  | "GROWING_CLOSENESS"
+  | "EMOTIONAL_TRUST"
+  | "DEEP_BOND"
+  | "MUTUAL_DEVOTION"
+  | "INTIMATE_PARTNERSHIP"
+  | "SHARED_LIFE"
+  | "ENDURING_COMPANIONSHIP"
 
 export interface RelationshipState {
   trust: number
   intimacy: number
-  level: RelationshipLevel
+  level: number
+  region_key: RegionKey
+  region_title: string
+  region_min_level: number
+  region_max_level: number
   last_interaction_at: string | null
-  milestones_reached?: RelationshipLevel[]
+  // Bank/cap fields (visible/bank split)
+  trust_visible?: number
+  trust_bank?: number
+  trust_cap?: number
+  intimacy_visible?: number
+  intimacy_bank?: number
+  intimacy_cap?: number
+  // Achievement milestones
+  milestones_reached?: string[]
+  current_region_index?: number
+}
+
+// ── Achievement types ─────────────────────────────────────────────────────────
+
+export type AchievementRarity = "COMMON" | "UNCOMMON" | "RARE" | "EPIC" | "LEGENDARY"
+
+export interface RelationshipAchievement {
+  id: string
+  region_index: number
+  title: string
+  subtitle: string
+  rarity: AchievementRarity
+  sort_order: number
+  trigger: string
+  is_secret?: boolean
+  narrative_hook?: string
+}
+
+export type AchievementsByRegion = Record<number, RelationshipAchievement[]>
+
+export interface AchievementsCatalogResponse {
+  achievements_by_region: AchievementsByRegion
 }
 
 export interface UserHabitProfile {
@@ -318,8 +357,13 @@ export interface BigFiveProfile {
 
 export interface GiftImageReward {
   album_size: number
-  prompt_template: string
-  suggestive_level: string
+  normal_photos: number
+  spicy_photos: number
+  prompt_template?: string
+  spicy_prompt_template?: string
+  photo_prompts?: string[]
+  spicy_photo_prompts?: string[]
+  suggestive_level: "safe" | "mild" | "spicy"
 }
 
 export interface GiftRelationshipBoost {
@@ -341,10 +385,13 @@ export interface GiftDefinition {
   emoji: string
   unique_effect_name: string
   unique_effect_description: string
+  spicy_unlocked?: boolean
+  already_purchased?: boolean
 }
 
 export interface GiftListResponse {
   gifts: GiftDefinition[]
+  spicy_unlocked?: boolean
 }
 
 export interface GiftCheckoutResponse {
@@ -377,4 +424,17 @@ export interface GiftEventData {
   intimacy_gained: number
   unique_effect_name: string
   unique_effect_description: string
+}
+
+// ── Gift Collection ────────────────────────────────────────────────────────
+
+export interface GiftCollectionItem extends GiftDefinition {
+  purchased: boolean
+  purchased_at: string | null
+}
+
+export interface GiftCollectionResponse {
+  collection: GiftCollectionItem[]
+  total: number
+  owned: number
 }

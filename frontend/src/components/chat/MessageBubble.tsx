@@ -1,7 +1,11 @@
 import type { ChatMessage } from "@/lib/api/types"
 import { cn } from "@/lib/utils"
-import { Gift, Heart, Sparkles, Zap } from "lucide-react"
+import { Gift, Heart, Sparkles, Zap, ImageIcon, Flame } from "lucide-react"
 import AvatarCircle from "@/components/ui/AvatarCircle"
+import ImageTeaseCard from "./ImageTeaseCard"
+import BlurredImageCard from "./BlurredImageCard"
+import RelationshipGainCard from "./RelationshipGainCard"
+import AchievementUnlockedCard from "./AchievementUnlockedCard"
 
 interface MessageBubbleProps {
   message: ChatMessage
@@ -12,12 +16,75 @@ export default function MessageBubble({ message, className }: MessageBubbleProps
   const isUser = message.role === "user"
   const isMilestone = message.event_type === "milestone"
   const isGift = message.event_type === "gift_received"
+  const isImageDecision = message.event_type === "image_decision"
+  const isBlurredPreview = message.event_type === "blurred_preview"
+  const isRelationshipGain = message.event_type === "relationship_gain"
+  const isAchievement = message.event_type === "relationship_achievement"
 
   // Don't render system/memory messages
   if (message.role === "system") return null
 
   if (isGift) {
     return <GiftBubble message={message} className={className} />
+  }
+
+  // Achievement unlocked card
+  if (isAchievement) {
+    const achData = (message as unknown as Record<string, unknown>).achievement as
+      | { id: string; title: string; subtitle?: string; region_index?: number }
+      | undefined
+    if (achData) {
+      return <AchievementUnlockedCard achievement={achData} className={className} />
+    }
+    return null
+  }
+
+  // Relationship gain card (trust/intimacy change)
+  if (isRelationshipGain) {
+    const gainData = (message as unknown as Record<string, unknown>).gain_data as
+      | Record<string, unknown>
+      | undefined
+    if (gainData) {
+      return <RelationshipGainCard gainData={gainData as Parameters<typeof RelationshipGainCard>[0]["gainData"]} className={className} />
+    }
+    return null
+  }
+
+  // Blurred paywall — proactive surprise or explicit request gated by free plan
+  if (isBlurredPreview) {
+    const msgAny = message as unknown as Record<string, unknown>
+    return (
+      <BlurredImageCard
+        uiCopy={message.content || "She sent you something special... Upgrade to see it."}
+        blurredImageUrl={(msgAny.blurred_image_url as string) || undefined}
+        reason={(message.event_key as string) || "free_plan_upgrade"}
+      />
+    )
+  }
+
+  if (isImageDecision) {
+    const decisionData = (message as unknown as Record<string, unknown>).decision as
+      | { ui_copy?: string; suggested_prompts?: string[]; reason?: string; blurred_image_url?: string; action?: string }
+      | undefined
+
+    // If the decision is blurred_paywall, show the blurred card instead
+    if (decisionData?.action === "blurred_paywall") {
+      return (
+        <BlurredImageCard
+          uiCopy={decisionData?.ui_copy || message.content || "She sent you something special... Upgrade to see it."}
+          blurredImageUrl={decisionData?.blurred_image_url}
+          reason={decisionData?.reason || "free_plan_upgrade"}
+        />
+      )
+    }
+
+    return (
+      <ImageTeaseCard
+        uiCopy={decisionData?.ui_copy || message.content || "This content requires a deeper connection."}
+        suggestedPrompts={decisionData?.suggested_prompts}
+        reason={decisionData?.reason || message.event_key || undefined}
+      />
+    )
   }
 
   return (
@@ -60,6 +127,8 @@ function GiftBubble({ message, className }: MessageBubbleProps) {
         intimacy_gained?: number
         unique_effect_name?: string
         unique_effect_description?: string
+        normal_photos?: number
+        spicy_photos?: number
       }
     | undefined
 
@@ -69,6 +138,8 @@ function GiftBubble({ message, className }: MessageBubbleProps) {
   const trustGained = giftData?.trust_gained ?? 0
   const intimacyGained = giftData?.intimacy_gained ?? 0
   const effectName = giftData?.unique_effect_name || ""
+  const normalPhotos = giftData?.normal_photos ?? 0
+  const spicyPhotos = giftData?.spicy_photos ?? 0
 
   const tierColors: Record<string, string> = {
     everyday: "from-primary/20 to-primary/5 border-primary/30",
@@ -121,6 +192,24 @@ function GiftBubble({ message, className }: MessageBubbleProps) {
             <span className={cn("text-xs font-medium", effectAccent[tier] || effectAccent.everyday)}>
               {effectName}
             </span>
+          </div>
+        )}
+
+        {/* Photo reward indicator */}
+        {(normalPhotos > 0 || spicyPhotos > 0) && (
+          <div className="flex items-center justify-center gap-3 pt-1">
+            {normalPhotos > 0 && (
+              <span className="flex items-center gap-1 text-xs font-medium text-blue-400">
+                <ImageIcon className="h-3 w-3" />
+                {normalPhotos} photo{normalPhotos > 1 ? "s" : ""}
+              </span>
+            )}
+            {spicyPhotos > 0 && (
+              <span className="flex items-center gap-1 text-xs font-medium text-rose-400">
+                <Flame className="h-3 w-3" />
+                {spicyPhotos} spicy
+              </span>
+            )}
           </div>
         )}
 
