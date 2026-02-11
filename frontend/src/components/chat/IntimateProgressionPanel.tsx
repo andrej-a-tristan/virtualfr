@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { apiPost } from "@/lib/api/client"
-import { getIntimacyAchievements, mysteryUnlockIntimacyAchievement } from "@/lib/api/endpoints"
+import { getIntimacyAchievements, purchaseIntimateBox } from "@/lib/api/endpoints"
 import { useAppStore } from "@/lib/store/useAppStore"
 import type { IntimacyAchievementsByTier, IntimacyAchievementItem } from "@/lib/api/types"
 import { cn } from "@/lib/utils"
@@ -516,28 +515,65 @@ export default function IntimateProgressionPanel({ onClose, unlockedIds: initial
     return () => { document.body.style.overflow = prev }
   }, [])
 
-  const handleUnlock = useCallback(async (id: string) => {
-    // Optimistic local unlock
-    setUnlocked(prev => new Set([...prev, id]))
-    try {
-      // Persist to backend — mystery box bypasses tier/region gates
-      const res = await mysteryUnlockIntimacyAchievement(id, girlfriendId || undefined)
-      if (res.image_url) {
-        photoMap.current.set(id, res.image_url)
-      }
-    } catch (e) {
-      console.warn("Mystery unlock API failed:", e)
-    }
-    // Refresh from backend so photos appear
-    queryClient.invalidateQueries({ queryKey: ["intimacyAchievements"] })
-  }, [queryClient, girlfriendId])
+  // Track payment state
+  const [purchasing, setPurchasing] = useState<string | null>(null) // box id being purchased
+  const [purchaseError, setPurchaseError] = useState<string | null>(null)
 
-  const handleOpenBox = (boxId: string) => {
+  const handleUnlock = useCallback(async (id: string) => {
+    // Called AFTER the slot animation finishes — achievement already paid for, just update local state
+    setUnlocked(prev => new Set([...prev, id]))
+    queryClient.invalidateQueries({ queryKey: ["intimacyAchievements"] })
+  }, [queryClient])
+
+  const handleOpenBox = async (boxId: string) => {
     const box = INTIMATE_BOXES.find(b => b.id === boxId)
     if (!box) return
     const winner = pickRandomAchievement(box.weights, unlocked)
     if (!winner) return
-    setSlotWinner(winner)
+
+    // ── CHARGE FIRST, then show animation ────────────────────────────────
+    setPurchasing(boxId)
+    setPurchaseError(null)
+
+    try {
+      const res = await purchaseIntimateBox(boxId, winner.id, girlfriendId || undefined)
+
+      if (res.status === "no_card") {
+        setPurchaseError("No card on file. Add one in Payment Options first.")
+        return
+      }
+
+      if (res.status === "requires_action" && res.client_secret) {
+        // 3DS authentication needed
+        const { loadStripe } = await import("@stripe/stripe-js")
+        const stripeKey = (import.meta as any).env?.VITE_STRIPE_PUBLISHABLE_KEY
+        if (stripeKey) {
+          const stripeJs = await loadStripe(stripeKey)
+          if (stripeJs) {
+            const { error } = await stripeJs.confirmCardPayment(res.client_secret)
+            if (error) {
+              setPurchaseError(error.message || "3D Secure authentication failed")
+              return
+            }
+          }
+        }
+      }
+
+      if (res.ok || res.status === "succeeded" || res.status === "free") {
+        // Payment succeeded — update photo map and show slot animation
+        if (res.image_url) {
+          photoMap.current.set(winner.id, res.image_url)
+        }
+        setSlotWinner(winner)
+      } else {
+        setPurchaseError(res.error || "Payment failed. Please try again.")
+      }
+    } catch (e: any) {
+      console.warn("Intimate box purchase failed:", e)
+      setPurchaseError(e?.message || "Payment failed. Please try again.")
+    } finally {
+      setPurchasing(null)
+    }
   }
 
   return (
@@ -745,13 +781,16 @@ export default function IntimateProgressionPanel({ onClose, unlockedIds: initial
 
                       <button
                         onClick={() => handleOpenBox(box.id)}
-                        disabled={soldOut}
+                        disabled={soldOut || purchasing === box.id}
                         className={cn("w-full rounded-xl py-3.5 text-sm font-bold transition-all flex items-center justify-center gap-2",
                           soldOut ? "bg-white/[0.04] text-white/20 cursor-not-allowed"
+                            : purchasing === box.id ? "bg-gradient-to-r from-pink-600/60 to-red-600/60 text-white/60 cursor-wait"
                             : "bg-gradient-to-r from-pink-600 to-red-600 text-white shadow-lg shadow-pink-500/20 hover:shadow-pink-500/30 hover:scale-[1.02] active:scale-[0.98]")}
                       >
                         {soldOut ? (
                           <><Lock className="h-4 w-4" /> All unlocked!</>
+                        ) : purchasing === box.id ? (
+                          <><div className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" /> Processing Payment...</>
                         ) : (
                           <><Flame className="h-4 w-4" /> Seduce Her Now<ChevronRight className="h-4 w-4" /></>
                         )}
@@ -761,6 +800,19 @@ export default function IntimateProgressionPanel({ onClose, unlockedIds: initial
                 )
               })}
             </div>
+
+            {/* Purchase error */}
+            {purchaseError && (
+              <div className="mt-4 rounded-xl bg-red-500/10 border border-red-500/20 p-3 text-center">
+                <p className="text-sm text-red-300">{purchaseError}</p>
+                <button
+                  onClick={() => setPurchaseError(null)}
+                  className="mt-2 text-xs text-red-400/60 hover:text-red-400 transition-colors"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
 
             {/* How it works */}
             <div className="mt-10 space-y-3 pb-8">

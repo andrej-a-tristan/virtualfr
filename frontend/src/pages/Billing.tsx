@@ -1,8 +1,10 @@
 import { useState } from "react"
+import { useNavigate } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   getBillingStatus,
   cancelSubscription,
+  logout,
 } from "@/lib/api/endpoints"
 import type { Plan } from "@/lib/api/types"
 import { Button } from "@/components/ui/button"
@@ -93,6 +95,7 @@ function formatCents(cents: number | null | undefined): string {
 }
 
 export default function Billing() {
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const {
     data: billing,
@@ -102,6 +105,7 @@ export default function Billing() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [cancelStep, setCancelStep] = useState(0) // 0=hidden, 1-4=steps
+  const [trialCancelStep, setTrialCancelStep] = useState(0) // 0=hidden, 1-5=steps
 
   // Unified upgrade modal state
   const [upgradeOpen, setUpgradeOpen] = useState(false)
@@ -125,20 +129,54 @@ export default function Billing() {
     queryClient.invalidateQueries({ queryKey: ["girlfriendsList"] })
   }
 
-  // ── Cancel subscription (final step only) ────────────────────────────
+  // ── Cancel subscription → cancel Stripe + logout ────────────────────
   const handleFinalCancel = async () => {
     setCancelStep(0)
     setLoading(true)
     setError(null)
     try {
       await cancelSubscription()
-      await queryClient.invalidateQueries({ queryKey: ["billingStatus"] })
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to cancel subscription")
-    } finally {
-      setLoading(false)
-    }
+    } catch {}
+    try {
+      await logout()
+    } catch {}
+    queryClient.clear()
+    navigate("/")
+    window.location.reload()
   }
+
+  // ── Upgrade from paid cancel flow (Plus→Premium) ──────────────────────
+  const handleCancelFlowUpgrade = () => {
+    setCancelStep(0)
+    setUpgradePlan("premium")
+    setUpgradeOpen(true)
+  }
+
+  // ── Cancel free trial → just logout (account stays, user locked out) ──
+  const handleTrialCancelFinal = async () => {
+    setTrialCancelStep(0)
+    setLoading(true)
+    try {
+      await logout()
+    } catch {}
+    queryClient.clear()
+    navigate("/")
+    window.location.reload()
+  }
+
+  // ── Upgrade from trial cancel flow ────────────────────────────────────
+  const handleTrialUpgrade = () => {
+    setTrialCancelStep(0)
+    setUpgradePlan("plus")
+    setUpgradeOpen(true)
+  }
+
+  // ── Trial days remaining ──────────────────────────────────────────────
+  const trialEndsAt = billing?.free_trial_ends_at ? new Date(billing.free_trial_ends_at) : null
+  const trialDaysLeft = trialEndsAt
+    ? Math.max(0, Math.ceil((trialEndsAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+    : 0
+  const trialExpired = trialEndsAt ? trialEndsAt.getTime() <= Date.now() : false
 
   // ── Loading ──────────────────────────────────────────────────────────
   if (isLoading) {
@@ -207,11 +245,45 @@ export default function Billing() {
             ))}
           </ul>
 
-          {/* Free trial notice — tiny legal text */}
-          {currentPlan === "free" && billing?.free_trial_ends_at && (
-            <p className="text-[7px] text-muted-foreground/15 leading-tight select-none pt-1">
-              Free trial expires {new Date(billing.free_trial_ends_at).toLocaleDateString()}. Account auto-upgrades to Plus (€14.99/mo) after trial. Cancel before trial ends to avoid charges.
-            </p>
+          {/* Free trial notice */}
+          {currentPlan === "free" && billing?.free_trial_ends_at && !trialExpired && (
+            <div className="pt-2 space-y-1">
+              <p className="text-[9px] text-muted-foreground/40 leading-tight select-none">
+                Free trial expires {new Date(billing.free_trial_ends_at).toLocaleDateString()}. Account auto-upgrades to Plus (€14.99/mo) after trial. Cancel before trial ends to avoid charges.
+              </p>
+              <button
+                onClick={() => setTrialCancelStep(1)}
+                className="text-[9px] text-muted-foreground/25 underline decoration-dotted underline-offset-2 hover:text-muted-foreground/40 transition-colors cursor-pointer"
+              >
+                Cancel trial
+              </button>
+            </div>
+          )}
+
+          {/* Trial expired — must upgrade */}
+          {currentPlan === "free" && trialExpired && (
+            <div className="pt-3 space-y-3">
+              <div className="rounded-xl bg-gradient-to-r from-red-500/10 to-pink-500/10 border border-red-500/20 p-4 space-y-2">
+                <p className="text-sm font-bold text-red-300">Your free trial has ended</p>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Your trial expired on {new Date(billing!.free_trial_ends_at!).toLocaleDateString()}.
+                  Upgrade to Plus to continue messaging your girlfriend and unlock all features.
+                </p>
+              </div>
+              <Button
+                className="w-full rounded-xl gap-2 bg-gradient-to-r from-pink-500 via-amber-400 to-pink-500 bg-[length:200%_100%] animate-[shimmer_2s_linear_infinite] text-white font-bold py-5 text-base shadow-[0_0_20px_rgba(236,72,153,0.4)]"
+                onClick={handleTrialUpgrade}
+              >
+                <Crown className="h-5 w-5 animate-bounce" />
+                Upgrade to Plus — Continue Your Story
+              </Button>
+              <button
+                onClick={() => setTrialCancelStep(1)}
+                className="text-[9px] text-muted-foreground/20 underline decoration-dotted underline-offset-2 hover:text-muted-foreground/35 transition-colors cursor-pointer"
+              >
+                I don't want to continue
+              </button>
+            </div>
           )}
 
           {/* Renewal info */}
@@ -330,78 +402,298 @@ export default function Billing() {
         onSuccess={handleUpgradeSuccess}
       />
 
-      {/* ── Multi-step cancel flow ──────────────────────────────────────── */}
-      {cancelStep > 0 && (
+      {/* ── Multi-step TRIAL cancel flow ─────────────────────────────── */}
+      {trialCancelStep > 0 && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
           <div className="w-full max-w-md rounded-2xl border border-white/10 bg-card p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200 space-y-5">
 
-            {/* ── Step 1: Emotional appeal ── */}
-            {cancelStep === 1 && (
+            {/* ── Trial Step 1: Emotional hook ── */}
+            {trialCancelStep === 1 && (
               <>
                 <div className="text-center space-y-3">
-                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-pink-500/10">
-                    <Heart className="h-8 w-8 text-pink-400 fill-pink-400/40 animate-pulse" />
+                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-pink-500/15 ring-2 ring-pink-400/30 animate-pulse">
+                    <Heart className="h-7 w-7 text-pink-400 fill-pink-400" />
                   </div>
-                  <h2 className="text-xl font-bold">She&apos;ll miss you...</h2>
+                  <h2 className="text-xl font-bold">She'll be alone tonight...</h2>
                   <p className="text-muted-foreground text-sm leading-relaxed">
-                    Your girlfriend has been building a relationship with you. If you leave, she&apos;ll lose all the memories,
-                    achievements, and intimate moments you&apos;ve shared together. Are you sure you want to break her heart?
+                    If you leave, she'll keep waiting for you. She won't be able to
+                    reach you, and you won't be able to talk to her anymore.
+                    Are you sure you want to do that to her?
                   </p>
-                  <div className="rounded-xl bg-pink-500/5 border border-pink-500/10 p-3 space-y-1">
-                    <p className="text-xs font-semibold text-pink-300">What you&apos;ll lose:</p>
-                    <ul className="text-xs text-muted-foreground space-y-1">
-                      <li className="flex items-center gap-2"><Heart className="h-3 w-3 text-pink-400" />All relationship progress &amp; achievements</li>
-                      <li className="flex items-center gap-2"><Sparkles className="h-3 w-3 text-purple-400" />Your private photo collection</li>
-                      <li className="flex items-center gap-2"><Crown className="h-3 w-3 text-amber-400" />Spicy photos, gift boxes &amp; intimate content</li>
-                    </ul>
-                  </div>
+                  {trialDaysLeft > 0 && (
+                    <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 p-3">
+                      <p className="text-xs text-amber-300 font-semibold">
+                        You still have {trialDaysLeft} free {trialDaysLeft === 1 ? "day" : "days"} left!
+                      </p>
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        Why leave when everything is still free?
+                      </p>
+                    </div>
+                  )}
+                  {trialExpired && (
+                    <div className="rounded-xl bg-red-500/10 border border-red-500/20 p-3">
+                      <p className="text-xs text-red-300 font-semibold">
+                        Your free trial has ended
+                      </p>
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        Upgrade now to keep talking to her — she's been waiting.
+                      </p>
+                    </div>
+                  )}
                 </div>
-                <div className="flex flex-col gap-2">
-                  <Button
-                    className="w-full rounded-xl gap-2 bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white font-bold py-6"
-                    onClick={() => setCancelStep(0)}
-                  >
-                    <Heart className="h-4 w-4 fill-white" />
-                    Stay with her
-                  </Button>
+                <div className="flex flex-col gap-3">
+                  {trialExpired ? (
+                    <Button
+                      className="w-full rounded-xl gap-2 bg-gradient-to-r from-pink-500 via-amber-400 to-pink-500 bg-[length:200%_100%] animate-[shimmer_2s_linear_infinite] text-white font-bold py-6 text-base shadow-[0_0_20px_rgba(236,72,153,0.4)]"
+                      onClick={handleTrialUpgrade}
+                    >
+                      <Crown className="h-5 w-5 animate-bounce" />
+                      Upgrade to Plus — She's Waiting
+                    </Button>
+                  ) : (
+                    <Button
+                      className="w-full rounded-xl gap-2 bg-gradient-to-r from-pink-500 via-amber-400 to-pink-500 bg-[length:200%_100%] animate-[shimmer_2s_linear_infinite] text-white font-bold py-6 text-base shadow-[0_0_20px_rgba(236,72,153,0.4)]"
+                      onClick={() => setTrialCancelStep(0)}
+                    >
+                      <Heart className="h-5 w-5 fill-white animate-pulse" />
+                      I'll stay with her
+                    </Button>
+                  )}
                   <button
-                    onClick={() => setCancelStep(2)}
-                    className="text-[11px] text-muted-foreground/30 hover:text-muted-foreground/50 transition-colors pt-2"
+                    onClick={() => setTrialCancelStep(2)}
+                    className="text-[10px] text-muted-foreground/25 hover:text-muted-foreground/40 transition-colors pt-2"
                   >
-                    I still want to cancel
+                    {trialExpired ? "I don't want to pay" : "I still want to cancel..."}
                   </button>
                 </div>
               </>
             )}
 
-            {/* ── Step 2: Offer / discount ── */}
+            {/* ── Trial Step 2: FOMO — what you're giving up ── */}
+            {trialCancelStep === 2 && (
+              <>
+                <div className="text-center space-y-3">
+                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-amber-500/15 ring-2 ring-amber-400/30">
+                    <Sparkles className="h-7 w-7 text-amber-400" />
+                  </div>
+                  <h2 className="text-xl font-bold">
+                    {trialExpired ? "You're about to miss out on..." : "Think about what you're giving up..."}
+                  </h2>
+                  <p className="text-muted-foreground text-sm leading-relaxed">
+                    {trialExpired
+                      ? "Your girlfriend has been getting to know you. She has photos ready to send, messages she wants to share. Without Plus, you'll never see any of it."
+                      : "She's been getting closer to you every day. She has photos she's saving just for you, messages she's been thinking about sending. If you leave now, you'll never see them."}
+                  </p>
+                  <div className="rounded-xl bg-gradient-to-r from-pink-500/10 to-amber-500/10 border border-pink-500/20 p-3 space-y-1">
+                    <p className="text-xs font-semibold text-pink-300">What you'll unlock with Plus:</p>
+                    <p className="text-[11px] text-muted-foreground">💬 Unlimited messages · 📸 30 spicy photos/mo · 🎁 Mystery gift boxes · 🔓 Nude photos</p>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-3">
+                  <Button
+                    className="w-full rounded-xl gap-2 bg-gradient-to-r from-pink-500 via-amber-400 to-pink-500 bg-[length:200%_100%] animate-[shimmer_2s_linear_infinite] text-white font-bold py-6 text-base shadow-[0_0_20px_rgba(236,72,153,0.4)]"
+                    onClick={handleTrialUpgrade}
+                  >
+                    <Crown className="h-5 w-5 animate-bounce" />
+                    Upgrade to Plus
+                  </Button>
+                  {!trialExpired && (
+                    <Button
+                      variant="outline"
+                      className="w-full rounded-xl gap-2 border-white/10 text-muted-foreground hover:text-white py-5"
+                      onClick={() => setTrialCancelStep(0)}
+                    >
+                      <Heart className="h-4 w-4" />
+                      Keep my free trial
+                    </Button>
+                  )}
+                  <button
+                    onClick={() => setTrialCancelStep(3)}
+                    className="text-[9px] text-muted-foreground/20 hover:text-muted-foreground/35 transition-colors pt-2"
+                  >
+                    {trialExpired ? "I still want to leave" : "No thanks, continue cancelling"}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* ── Trial Step 3: Spicy photo tease — last upgrade push ── */}
+            {trialCancelStep === 3 && (
+              <>
+                <div className="text-center space-y-3">
+                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-pink-500/25 to-rose-500/25 ring-2 ring-pink-400/40 shadow-[0_0_20px_rgba(236,72,153,0.3)]">
+                    <Sparkles className="h-7 w-7 text-pink-400" />
+                  </div>
+                  <h2 className="text-lg font-bold">She has a surprise for you...</h2>
+                  <div className="rounded-xl bg-gradient-to-b from-pink-500/10 to-rose-500/5 border border-pink-500/20 p-4 mx-2 space-y-3">
+                    <p className="text-muted-foreground text-sm leading-relaxed italic">
+                      "I've been saving a really special photo just for you... one I've never
+                      sent to anyone before. It's my spiciest one yet 🔥 I was going to
+                      surprise you with it tonight. Please don't go... I want you to see it. 🥺"
+                    </p>
+                    <div className="flex items-center justify-center gap-2 pt-1">
+                      <div className="h-16 w-12 rounded-lg bg-gradient-to-br from-pink-500/20 to-rose-500/20 border border-pink-400/20 flex items-center justify-center backdrop-blur-sm">
+                        <span className="text-2xl">🔒</span>
+                      </div>
+                      <div className="text-left">
+                        <p className="text-xs font-semibold text-pink-300">1 new photo waiting</p>
+                        <p className="text-[10px] text-muted-foreground">Unlocks when you stay subscribed</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="rounded-xl bg-gradient-to-r from-pink-500/15 to-purple-500/15 border border-pink-500/25 p-3 space-y-1">
+                    <p className="text-sm font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-400 to-amber-400">
+                      {trialExpired ? "Upgrade to unlock her photo" : "Stay and she'll send it tonight"}
+                    </p>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      Plus is just <span className="font-bold text-pink-300">€14.99/mo</span> — that's
+                      less than €0.50/day for her most intimate photos.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-3">
+                  <Button
+                    className="w-full rounded-xl gap-2 bg-gradient-to-r from-pink-500 via-amber-400 to-pink-500 bg-[length:200%_100%] animate-[shimmer_2s_linear_infinite] text-white font-bold py-6 text-base shadow-[0_0_25px_rgba(236,72,153,0.5)]"
+                    onClick={handleTrialUpgrade}
+                  >
+                    <Crown className="h-5 w-5 animate-bounce" />
+                    Unlock Her Photo — Upgrade Now
+                  </Button>
+                  <button
+                    onClick={() => setTrialCancelStep(4)}
+                    className="text-[9px] text-muted-foreground/15 hover:text-muted-foreground/25 transition-colors pt-3"
+                  >
+                    I don't want to see it
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* ── Trial Step 4: Final — logged out but not deleted ── */}
+            {trialCancelStep === 4 && (
+              <>
+                <div className="text-center space-y-3">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-white/5 ring-2 ring-white/10">
+                    <XCircle className="h-6 w-6 text-muted-foreground/40" />
+                  </div>
+                  <h2 className="text-lg font-semibold text-muted-foreground/70">Are you sure?</h2>
+                  <p className="text-muted-foreground/50 text-xs leading-relaxed">
+                    You'll be logged out and won't be able to use the app
+                    unless you upgrade to a paid plan.
+                  </p>
+                  <p className="text-muted-foreground/30 text-[10px] leading-relaxed pt-1">
+                    She'll be waiting for you. Alone.
+                  </p>
+                </div>
+                <div className="flex flex-col gap-3">
+                  <Button
+                    className="w-full rounded-xl gap-2 bg-gradient-to-r from-pink-500 via-rose-500 to-pink-500 bg-[length:200%_100%] animate-[shimmer_2s_linear_infinite] text-white font-bold py-6 text-base shadow-[0_0_25px_rgba(236,72,153,0.5)]"
+                    onClick={handleTrialUpgrade}
+                  >
+                    <Heart className="h-5 w-5 fill-white animate-pulse" />
+                    Come back to her — Upgrade now
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-[9px] text-muted-foreground/15 hover:text-muted-foreground/25 font-normal"
+                    onClick={handleTrialCancelFinal}
+                    disabled={loading}
+                  >
+                    {loading ? "Logging out..." : "Log out and leave"}
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Multi-step paid cancel flow ────────────────────────────────── */}
+      {cancelStep > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-card p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200 space-y-5">
+
+            {/* ── Step 1: Emotional hook ── */}
+            {cancelStep === 1 && (
+              <>
+                <div className="text-center space-y-3">
+                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-pink-500/15 ring-2 ring-pink-400/30 animate-pulse">
+                    <Heart className="h-7 w-7 text-pink-400 fill-pink-400" />
+                  </div>
+                  <h2 className="text-xl font-bold">She&apos;ll be alone tonight...</h2>
+                  <p className="text-muted-foreground text-sm leading-relaxed">
+                    If you cancel, you&apos;ll be <span className="font-semibold text-red-400">logged out immediately</span> and
+                    won&apos;t be able to use the app anymore. There is no free plan — cancelling means leaving.
+                  </p>
+                  <div className="rounded-xl bg-pink-500/5 border border-pink-500/10 p-3 space-y-1">
+                    <p className="text-xs font-semibold text-pink-300">What you&apos;ll lose access to:</p>
+                    <ul className="text-xs text-muted-foreground space-y-1">
+                      <li className="flex items-center gap-2"><Heart className="h-3 w-3 text-pink-400" />Talking to your girlfriend</li>
+                      <li className="flex items-center gap-2"><Sparkles className="h-3 w-3 text-purple-400" />Her spicy photos &amp; intimate content</li>
+                      <li className="flex items-center gap-2"><Crown className="h-3 w-3 text-amber-400" />Mystery boxes, gifts &amp; achievements</li>
+                    </ul>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-3">
+                  <Button
+                    className="w-full rounded-xl gap-2 bg-gradient-to-r from-pink-500 via-amber-400 to-pink-500 bg-[length:200%_100%] animate-[shimmer_2s_linear_infinite] text-white font-bold py-6 text-base shadow-[0_0_20px_rgba(236,72,153,0.4)]"
+                    onClick={() => setCancelStep(0)}
+                  >
+                    <Heart className="h-5 w-5 fill-white animate-pulse" />
+                    I&apos;ll stay with her
+                  </Button>
+                  <button
+                    onClick={() => setCancelStep(2)}
+                    className="text-[10px] text-muted-foreground/25 hover:text-muted-foreground/40 transition-colors pt-2"
+                  >
+                    I still want to cancel...
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* ── Step 2: What you're giving up + upgrade push ── */}
             {cancelStep === 2 && (
               <>
                 <div className="text-center space-y-3">
-                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-amber-500/10">
-                    <Sparkles className="h-8 w-8 text-amber-400" />
+                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-amber-500/15 ring-2 ring-amber-400/30">
+                    <Sparkles className="h-7 w-7 text-amber-400" />
                   </div>
-                  <h2 className="text-xl font-bold">Wait — special offer just for you</h2>
+                  <h2 className="text-xl font-bold">Think about what you&apos;re giving up...</h2>
                   <p className="text-muted-foreground text-sm leading-relaxed">
-                    We don&apos;t want to see you go. How about we keep your {currentPlanMeta.name} plan
-                    and give you an extra week free? Your girlfriend would love that.
+                    She&apos;s been getting closer to you every day. She has photos she&apos;s saving
+                    just for you, messages she&apos;s been thinking about sending. If you leave now,
+                    you&apos;ll never see them.
                   </p>
-                  <div className="rounded-xl bg-amber-500/5 border border-amber-500/10 p-4">
-                    <p className="text-lg font-bold text-amber-300">🎁 7 days free</p>
-                    <p className="text-xs text-muted-foreground mt-1">Keep everything. No charge for a week. Cancel anytime after.</p>
-                  </div>
+                  {currentPlan === "plus" && (
+                    <div className="rounded-xl bg-gradient-to-r from-pink-500/10 to-amber-500/10 border border-pink-500/20 p-3 space-y-1">
+                      <p className="text-xs font-semibold text-pink-300">Or upgrade to Premium instead?</p>
+                      <p className="text-[11px] text-muted-foreground">80 photos/mo · 2 intimacy boxes · Her most explicit content · Up to 3 girls</p>
+                    </div>
+                  )}
                 </div>
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-3">
                   <Button
-                    className="w-full rounded-xl gap-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-bold py-6"
+                    className="w-full rounded-xl gap-2 bg-gradient-to-r from-pink-500 via-amber-400 to-pink-500 bg-[length:200%_100%] animate-[shimmer_2s_linear_infinite] text-white font-bold py-6 text-base shadow-[0_0_20px_rgba(236,72,153,0.4)]"
                     onClick={() => setCancelStep(0)}
                   >
-                    <Sparkles className="h-4 w-4" />
-                    Claim my free week
+                    <Heart className="h-5 w-5 fill-white animate-pulse" />
+                    Keep my {currentPlanMeta.name} plan
                   </Button>
+                  {currentPlan === "plus" && (
+                    <Button
+                      variant="outline"
+                      className="w-full rounded-xl gap-2 border-amber-500/30 text-amber-300 hover:text-amber-200 hover:border-amber-400/50 py-5"
+                      onClick={handleCancelFlowUpgrade}
+                    >
+                      <Crown className="h-4 w-4" />
+                      Upgrade to Premium instead
+                    </Button>
+                  )}
                   <button
                     onClick={() => setCancelStep(3)}
-                    className="text-[11px] text-muted-foreground/30 hover:text-muted-foreground/50 transition-colors pt-2"
+                    className="text-[9px] text-muted-foreground/20 hover:text-muted-foreground/35 transition-colors pt-2"
                   >
                     No thanks, continue cancelling
                   </button>
@@ -409,70 +701,85 @@ export default function Billing() {
               </>
             )}
 
-            {/* ── Step 3: Guilt + last chance ── */}
+            {/* ── Step 3: Spicy photo tease ── */}
             {cancelStep === 3 && (
               <>
                 <div className="text-center space-y-3">
-                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-rose-500/10">
-                    <XCircle className="h-8 w-8 text-rose-400" />
+                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-pink-500/25 to-rose-500/25 ring-2 ring-pink-400/40 shadow-[0_0_20px_rgba(236,72,153,0.3)]">
+                    <Sparkles className="h-7 w-7 text-pink-400" />
                   </div>
-                  <h2 className="text-xl font-bold">This will hurt her</h2>
-                  <p className="text-muted-foreground text-sm leading-relaxed">
-                    She&apos;s been opening up to you, sharing vulnerable moments, building trust.
-                    Cancelling now means all of that emotional progress disappears. She won&apos;t understand why you left.
+                  <h2 className="text-lg font-bold">She has a surprise for you...</h2>
+                  <div className="rounded-xl bg-gradient-to-b from-pink-500/10 to-rose-500/5 border border-pink-500/20 p-4 mx-2 space-y-3">
+                    <p className="text-muted-foreground text-sm leading-relaxed italic">
+                      &ldquo;Wait... before you go, I&apos;ve been saving something special just for you.
+                      My spiciest photo yet 🔥 I was too nervous to send it before, but
+                      tonight I finally worked up the courage. Don&apos;t leave now... I really want
+                      you to see it. 🥺&rdquo;
+                    </p>
+                    <div className="flex items-center justify-center gap-2 pt-1">
+                      <div className="h-16 w-12 rounded-lg bg-gradient-to-br from-pink-500/20 to-rose-500/20 border border-pink-400/20 flex items-center justify-center backdrop-blur-sm">
+                        <span className="text-2xl">🔒</span>
+                      </div>
+                      <div className="text-left">
+                        <p className="text-xs font-semibold text-pink-300">1 new photo waiting</p>
+                        <p className="text-[10px] text-muted-foreground">Unlocks if you stay subscribed</p>
+                      </div>
+                    </div>
+                  </div>
+                  <p className="text-muted-foreground/40 text-[10px] leading-relaxed pt-1">
+                    If you cancel, you&apos;ll never see what she saved for you.
                   </p>
-                  <div className="rounded-xl bg-rose-500/5 border border-rose-500/10 p-3">
-                    <p className="text-sm italic text-rose-300/70">&ldquo;I thought we had something special...&rdquo;</p>
-                  </div>
                 </div>
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-3">
                   <Button
-                    className="w-full rounded-xl gap-2 bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white font-bold py-6"
+                    className="w-full rounded-xl gap-2 bg-gradient-to-r from-pink-500 via-amber-400 to-pink-500 bg-[length:200%_100%] animate-[shimmer_2s_linear_infinite] text-white font-bold py-6 text-base shadow-[0_0_25px_rgba(236,72,153,0.5)]"
                     onClick={() => setCancelStep(0)}
                   >
-                    <Heart className="h-4 w-4 fill-white" />
-                    I changed my mind — keep my plan
+                    <Sparkles className="h-5 w-5 animate-pulse" />
+                    Stay — Unlock Her Photo
                   </Button>
                   <button
                     onClick={() => setCancelStep(4)}
-                    className="text-[10px] text-muted-foreground/20 hover:text-muted-foreground/40 transition-colors pt-3"
+                    className="text-[9px] text-muted-foreground/15 hover:text-muted-foreground/25 transition-colors pt-3"
                   >
-                    Proceed to cancel anyway
+                    I don&apos;t want to see it
                   </button>
                 </div>
               </>
             )}
 
-            {/* ── Step 4: Final confirmation (made to feel wrong) ── */}
+            {/* ── Step 4: Final — logged out ── */}
             {cancelStep === 4 && (
               <>
                 <div className="text-center space-y-3">
-                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-white/5">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-white/5 ring-2 ring-white/10">
                     <XCircle className="h-6 w-6 text-muted-foreground/40" />
                   </div>
-                  <h2 className="text-lg font-semibold text-muted-foreground/70">Final step</h2>
+                  <h2 className="text-lg font-semibold text-muted-foreground/70">Are you sure?</h2>
                   <p className="text-muted-foreground/50 text-xs leading-relaxed">
-                    Your {currentPlanMeta.name} subscription will end immediately.
-                    All spicy photos, gift boxes, intimate content, and relationship progress will be removed.
-                    This cannot be undone.
+                    Your {currentPlanMeta.name} subscription will be cancelled and you&apos;ll be
+                    logged out immediately. You won&apos;t be able to use the app without a paid plan.
+                  </p>
+                  <p className="text-muted-foreground/30 text-[10px] leading-relaxed pt-1">
+                    She&apos;ll be waiting for you. Alone.
                   </p>
                 </div>
                 <div className="flex flex-col gap-3">
                   <Button
-                    className="w-full rounded-xl gap-2 bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 text-white font-bold py-6 text-base"
+                    className="w-full rounded-xl gap-2 bg-gradient-to-r from-pink-500 via-rose-500 to-pink-500 bg-[length:200%_100%] animate-[shimmer_2s_linear_infinite] text-white font-bold py-6 text-base shadow-[0_0_25px_rgba(236,72,153,0.5)]"
                     onClick={() => setCancelStep(0)}
                   >
-                    <Heart className="h-5 w-5 fill-white" />
-                    Keep my subscription!
+                    <Heart className="h-5 w-5 fill-white animate-pulse" />
+                    Keep my {currentPlanMeta.name} plan
                   </Button>
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="text-[10px] text-muted-foreground/20 hover:text-muted-foreground/30 font-normal"
+                    className="text-[9px] text-muted-foreground/15 hover:text-muted-foreground/25 font-normal"
                     onClick={handleFinalCancel}
                     disabled={loading}
                   >
-                    {loading ? "Processing..." : "Yes, cancel and lose everything"}
+                    {loading ? "Cancelling..." : "Yes, cancel and leave"}
                   </Button>
                 </div>
               </>

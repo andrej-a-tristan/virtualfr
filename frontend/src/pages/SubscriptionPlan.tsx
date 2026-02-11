@@ -349,7 +349,7 @@ export default function SubscriptionPlan() {
               : "Upgrades are prorated. You can cancel anytime from settings."}
           </p>
           {selectedPlan === "free" && (
-            <p className="text-[7px] text-muted-foreground/20 text-center max-w-xs leading-tight mt-1">
+            <p className="text-[9px] text-muted-foreground/40 text-center max-w-xs leading-tight mt-2">
               Free trial lasts 7 days. After the trial period, your account will be automatically upgraded to the Plus plan (€14.99/mo). A valid payment method is required to continue. You may cancel before the trial ends to avoid charges.
             </p>
           )}

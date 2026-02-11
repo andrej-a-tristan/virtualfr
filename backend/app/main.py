@@ -34,6 +34,7 @@ from app.api.routes import (
     memory,
     moderation,
     onboarding,
+    profile,
     relationship,
 )
 from app.routers import chat as chat_gateway
@@ -74,6 +75,29 @@ def _log_api_key_status():
         log.warning("STRIPE_SECRET_KEY not configured or still placeholder!")
 
 
+@app.post("/api/dev/reset")
+def dev_reset(request: Request):
+    """DEV ONLY: Wipe all in-memory state and clear session cookie so user starts fresh."""
+    from app.api.store import (
+        _sessions, _all_girlfriends, _relationship_state, _messages,
+        _habit_profile, _gallery, _relationship_progress, _intimacy_state,
+        _trust_intimacy_state, _achievement_progress,
+        _intimacy_ach_unlocked, _intimacy_ach_last_award, _intimacy_ach_photos,
+        _intimacy_ach_pending_photos, _intimacy_ach_phrase_log,
+    )
+    for store in [
+        _sessions, _all_girlfriends, _relationship_state, _messages,
+        _habit_profile, _gallery, _relationship_progress, _intimacy_state,
+        _trust_intimacy_state, _achievement_progress,
+        _intimacy_ach_unlocked, _intimacy_ach_last_award, _intimacy_ach_photos,
+        _intimacy_ach_pending_photos, _intimacy_ach_phrase_log,
+    ]:
+        store.clear()
+    resp = JSONResponse(content={"ok": True, "message": "All state wiped. Reload the page."})
+    resp.delete_cookie("session")
+    return resp
+
+
 @app.get("/", response_class=HTMLResponse)
 def root():
     """Help users find the app. The actual UI runs on the frontend dev server."""
@@ -103,6 +127,7 @@ app.include_router(gifts.router, prefix="/api")
 app.include_router(moderation.router, prefix="/api")
 app.include_router(memory.router, prefix="/api")
 app.include_router(onboarding.router, prefix="/api")
+app.include_router(profile.router, prefix="/api")
 app.include_router(relationship.router, prefix="/api")
 app.include_router(intimacy_achievements.router, prefix="/api")
 

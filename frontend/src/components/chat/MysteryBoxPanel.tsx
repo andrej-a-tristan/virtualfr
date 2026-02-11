@@ -464,8 +464,53 @@ export default function MysteryBoxPanel({ onClose }: MysteryBoxPanelProps) {
         gift?: RevealedGift
         box?: { id: string; name: string; price_eur: number }
         error?: string
+        client_secret?: string
+        payment_intent_id?: string
       }>("/gifts/mystery-box/open", { box_id: boxId })
 
+      // No card on file
+      if (res.status === "no_card") {
+        setError(res.error ?? "No card on file. Add one in Payment Options first.")
+        return
+      }
+
+      // Payment failed
+      if (res.status === "failed") {
+        setError(res.error ?? "Payment failed. Please try again.")
+        return
+      }
+
+      // 3DS authentication required
+      if (res.status === "requires_action" && res.client_secret) {
+        try {
+          const { loadStripe } = await import("@stripe/stripe-js")
+          const stripeKey = (import.meta as any).env?.VITE_STRIPE_PUBLISHABLE_KEY
+          if (stripeKey) {
+            const stripeJs = await loadStripe(stripeKey)
+            if (stripeJs) {
+              const { error: stripeErr } = await stripeJs.confirmCardPayment(res.client_secret)
+              if (stripeErr) {
+                setError(stripeErr.message || "3D Secure authentication failed")
+                return
+              }
+              // 3DS succeeded — gift data is in the response already
+              if (res.gift && res.box) {
+                setRevealedGift({ gift: res.gift, boxName: res.box.name })
+                queryClient.invalidateQueries({ queryKey: ["giftCatalog"] })
+                queryClient.invalidateQueries({ queryKey: ["giftCollection"] })
+                queryClient.invalidateQueries({ queryKey: ["mysteryBoxes"] })
+                return
+              }
+            }
+          }
+          setError("Could not complete 3D Secure. Please try again.")
+        } catch (e3ds: any) {
+          setError(e3ds?.message || "3D Secure failed")
+        }
+        return
+      }
+
+      // Payment succeeded
       if (res.status === "succeeded" && res.gift && res.box) {
         setRevealedGift({ gift: res.gift, boxName: res.box.name })
         queryClient.invalidateQueries({ queryKey: ["giftCatalog"] })

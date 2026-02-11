@@ -1,6 +1,14 @@
 """In-memory session store keyed by cookie value.
 Supports multiple girlfriends per session with per-girlfriend messages and relationship state.
-When Supabase is configured, sessions are also persisted so login survives backend restart."""
+When Supabase is configured, sessions are also persisted so login survives backend restart.
+
+DATA PERSISTENCE: All in-memory dicts are automatically saved to a pickle file
+after every write, and loaded on startup. This ensures data survives uvicorn
+--reload without requiring a database."""
+import logging
+import os
+import pickle
+import threading
 from typing import Any
 from uuid import UUID
 
@@ -10,6 +18,13 @@ from app.services.relationship_progression import RelationshipProgressState
 from app.schemas.intimacy import IntimacyState
 from app.schemas.trust_intimacy import TrustIntimacyState
 from app.services.achievement_engine import AchievementProgress
+
+_logger = logging.getLogger(__name__)
+
+# ── Persistence layer ─────────────────────────────────────────────────────────
+
+_STORE_FILE = os.path.join(os.path.dirname(__file__), "..", "..", "_store_cache.pkl")
+_save_lock = threading.Lock()
 
 # session_id -> user dict (id, email, display_name; for Supabase also user_id UUID, current_girlfriend_id)
 _sessions: dict[str, dict[str, Any]] = {}
@@ -45,6 +60,73 @@ _intimacy_ach_pending_photos: dict[tuple[str, str], list[str]] = {}
 _intimacy_ach_phrase_log: dict[tuple[str, str], dict[str, float]] = {}
 
 
+def _persist() -> None:
+    """Save all in-memory dicts to a pickle file (thread-safe)."""
+    data = {
+        "sessions": _sessions,
+        "all_girlfriends": _all_girlfriends,
+        "relationship_state": _relationship_state,
+        "messages": _messages,
+        "habit_profile": _habit_profile,
+        "gallery": _gallery,
+        "relationship_progress": _relationship_progress,
+        "intimacy_state": _intimacy_state,
+        "trust_intimacy_state": _trust_intimacy_state,
+        "achievement_progress": _achievement_progress,
+        "intimacy_ach_unlocked": _intimacy_ach_unlocked,
+        "intimacy_ach_last_award": _intimacy_ach_last_award,
+        "intimacy_ach_photos": _intimacy_ach_photos,
+        "intimacy_ach_pending_photos": _intimacy_ach_pending_photos,
+        "intimacy_ach_phrase_log": _intimacy_ach_phrase_log,
+    }
+    with _save_lock:
+        try:
+            tmp = _STORE_FILE + ".tmp"
+            with open(tmp, "wb") as f:
+                pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+            os.replace(tmp, _STORE_FILE)
+        except Exception as e:
+            _logger.warning("Failed to persist store: %s", e)
+
+
+def _load_store() -> None:
+    """Load persisted data from pickle file into the in-memory dicts."""
+    global _sessions, _all_girlfriends, _relationship_state, _messages
+    global _habit_profile, _gallery, _relationship_progress, _intimacy_state
+    global _trust_intimacy_state, _achievement_progress
+    global _intimacy_ach_unlocked, _intimacy_ach_last_award, _intimacy_ach_photos
+    global _intimacy_ach_pending_photos, _intimacy_ach_phrase_log
+
+    if not os.path.exists(_STORE_FILE):
+        return
+    try:
+        with open(_STORE_FILE, "rb") as f:
+            data = pickle.load(f)
+        _sessions.update(data.get("sessions", {}))
+        _all_girlfriends.update(data.get("all_girlfriends", {}))
+        _relationship_state.update(data.get("relationship_state", {}))
+        _messages.update(data.get("messages", {}))
+        _habit_profile.update(data.get("habit_profile", {}))
+        _gallery.update(data.get("gallery", {}))
+        _relationship_progress.update(data.get("relationship_progress", {}))
+        _intimacy_state.update(data.get("intimacy_state", {}))
+        _trust_intimacy_state.update(data.get("trust_intimacy_state", {}))
+        _achievement_progress.update(data.get("achievement_progress", {}))
+        _intimacy_ach_unlocked.update(data.get("intimacy_ach_unlocked", {}))
+        _intimacy_ach_last_award.update(data.get("intimacy_ach_last_award", {}))
+        _intimacy_ach_photos.update(data.get("intimacy_ach_photos", {}))
+        _intimacy_ach_pending_photos.update(data.get("intimacy_ach_pending_photos", {}))
+        _intimacy_ach_phrase_log.update(data.get("intimacy_ach_phrase_log", {}))
+        _logger.info("Loaded store from %s (%d sessions, %d girlfriends)",
+                     _STORE_FILE, len(_sessions), sum(len(v) for v in _all_girlfriends.values()))
+    except Exception as e:
+        _logger.warning("Failed to load store cache (starting fresh): %s", e)
+
+
+# Load persisted data on module import (i.e., on server start/reload)
+_load_store()
+
+
 # ── Session / User ────────────────────────────────────────────────────────────
 
 def get_session_user(session_id: str) -> dict[str, Any] | None:
@@ -65,6 +147,7 @@ def set_session_user(session_id: str, data: dict[str, Any]) -> None:
     if "user_id" in out and isinstance(out["user_id"], UUID):
         out["user_id"] = str(out["user_id"])
     _sessions[session_id] = out
+    _persist()
     if get_supabase_admin() and (out.get("user_id") or out.get("id")):
         try:
             sb.set_session(session_id, out)
@@ -76,6 +159,7 @@ def set_session_girlfriend_id(session_id: str, girlfriend_id: str) -> None:
     existing = _sessions.get(session_id) or {}
     existing["current_girlfriend_id"] = girlfriend_id
     _sessions[session_id] = existing
+    _persist()
     if get_supabase_admin():
         try:
             sb.set_session(session_id, existing)
@@ -96,6 +180,7 @@ def clear_session(session_id: str) -> None:
         _relationship_progress.pop((session_id, gf_id), None)
         _intimacy_state.pop((session_id, gf_id), None)
         _trust_intimacy_state.pop((session_id, gf_id), None)
+    _persist()
     if get_supabase_admin():
         try:
             sb.delete_session(session_id)
@@ -120,6 +205,7 @@ def add_girlfriend(session_id: str, data: dict[str, Any]) -> None:
     if user:
         user["has_girlfriend"] = True
         user["current_girlfriend_id"] = data.get("id")
+    _persist()
 
 
 def get_girlfriend(session_id: str) -> dict[str, Any] | None:
@@ -166,6 +252,7 @@ def set_girlfriend(session_id: str, data: dict[str, Any]) -> None:
     if user:
         user["has_girlfriend"] = True
         user["current_girlfriend_id"] = gf_id
+    _persist()
 
 
 def set_current_girlfriend_id(session_id: str, girlfriend_id: str) -> bool:
@@ -176,6 +263,7 @@ def set_current_girlfriend_id(session_id: str, girlfriend_id: str) -> bool:
             user = _sessions.get(session_id)
             if user:
                 user["current_girlfriend_id"] = girlfriend_id
+            _persist()
             return True
     return False
 
@@ -204,6 +292,7 @@ def set_relationship_state(session_id: str, data: dict[str, Any], girlfriend_id:
     if not girlfriend_id:
         return
     _relationship_state[(session_id, girlfriend_id)] = data
+    _persist()
 
 
 # ── Messages (per girlfriend) ─────────────────────────────────────────────────
@@ -227,6 +316,7 @@ def append_message(session_id: str, msg: dict[str, Any], girlfriend_id: str | No
     if key not in _messages:
         _messages[key] = []
     _messages[key].append(msg)
+    _persist()
 
 
 # ── Habit Profile (per girlfriend) ─────────────────────────────────────────────
@@ -247,6 +337,7 @@ def set_habit_profile(session_id: str, data: dict[str, Any], girlfriend_id: str 
     if not girlfriend_id:
         return
     _habit_profile[(session_id, girlfriend_id)] = data
+    _persist()
 
 
 # ── Gallery (per girlfriend) ──────────────────────────────────────────────────
@@ -270,6 +361,7 @@ def add_gallery_item(session_id: str, item: dict[str, Any], girlfriend_id: str |
     if key not in _gallery:
         _gallery[key] = []
     _gallery[key].append(item)
+    _persist()
 
 
 def set_gallery(session_id: str, items: list[dict[str, Any]], girlfriend_id: str | None = None) -> None:
@@ -279,6 +371,7 @@ def set_gallery(session_id: str, items: list[dict[str, Any]], girlfriend_id: str
     if not girlfriend_id:
         return
     _gallery[(session_id, girlfriend_id)] = items
+    _persist()
 
 
 # ── Relationship Progression (per girlfriend) ─────────────────────────────────
@@ -300,6 +393,7 @@ def set_relationship_progress(session_id: str, state: RelationshipProgressState,
     if not girlfriend_id:
         return
     _relationship_progress[(session_id, girlfriend_id)] = state
+    _persist()
 
 
 # ── Intimacy State (per girlfriend) ──────────────────────────────────────────
@@ -321,6 +415,7 @@ def set_intimacy_state(session_id: str, state: IntimacyState, girlfriend_id: str
     if not girlfriend_id:
         return
     _intimacy_state[(session_id, girlfriend_id)] = state
+    _persist()
 
 
 # ── Trust + Intimacy State (per girlfriend) ──────────────────────────────────
@@ -342,6 +437,7 @@ def set_trust_intimacy_state(session_id: str, state: TrustIntimacyState, girlfri
     if not girlfriend_id:
         return
     _trust_intimacy_state[(session_id, girlfriend_id)] = state
+    _persist()
 
 
 # ── Achievement Progress (per girlfriend) ────────────────────────────────────
@@ -363,6 +459,7 @@ def set_achievement_progress(session_id: str, progress: AchievementProgress, gir
     if not girlfriend_id:
         return
     _achievement_progress[(session_id, girlfriend_id)] = progress
+    _persist()
 
 
 # ── Intimacy Achievement Storage (per girlfriend) ─────────────────────────────
@@ -390,6 +487,7 @@ def mark_intimacy_achievement_unlocked(session_id: str, achievement_id: str, unl
     if key not in _intimacy_ach_unlocked:
         _intimacy_ach_unlocked[key] = {}
     _intimacy_ach_unlocked[key][achievement_id] = unlocked_at
+    _persist()
 
 
 def get_intimacy_last_award_time(session_id: str, girlfriend_id: str | None = None) -> str | None:
@@ -404,6 +502,7 @@ def set_intimacy_last_award_time(session_id: str, award_time: str, girlfriend_id
     if not gf:
         return
     _intimacy_ach_last_award[(session_id, gf)] = award_time
+    _persist()
 
 
 def get_photo_for_intimacy_achievement(session_id: str, achievement_id: str, girlfriend_id: str | None = None) -> str | None:
@@ -421,6 +520,7 @@ def set_photo_for_intimacy_achievement(session_id: str, achievement_id: str, ima
     if key not in _intimacy_ach_photos:
         _intimacy_ach_photos[key] = {}
     _intimacy_ach_photos[key][achievement_id] = image_url
+    _persist()
 
 
 def get_pending_intimacy_photos(session_id: str, girlfriend_id: str | None = None) -> list[str]:
@@ -439,6 +539,7 @@ def add_pending_intimacy_photo(session_id: str, achievement_id: str, girlfriend_
         _intimacy_ach_pending_photos[key] = []
     if achievement_id not in _intimacy_ach_pending_photos[key]:
         _intimacy_ach_pending_photos[key].append(achievement_id)
+    _persist()
 
 
 def pop_pending_intimacy_photo(session_id: str, achievement_id: str, girlfriend_id: str | None = None) -> bool:
@@ -449,6 +550,7 @@ def pop_pending_intimacy_photo(session_id: str, achievement_id: str, girlfriend_
     pending = _intimacy_ach_pending_photos.get(key, [])
     if achievement_id in pending:
         pending.remove(achievement_id)
+        _persist()
         return True
     return False
 
@@ -465,3 +567,4 @@ def set_intimacy_phrase_log(session_id: str, phrase_log: dict[str, float], girlf
     if not gf:
         return
     _intimacy_ach_phrase_log[(session_id, gf)] = phrase_log
+    _persist()

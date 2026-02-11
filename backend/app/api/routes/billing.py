@@ -10,7 +10,12 @@ from pydantic import BaseModel
 
 from app.core.config import get_settings
 from app.api.store import get_session_user, set_session_user, get_girlfriend_count
-from app.schemas.payment_method import PaymentMethodCardSummary, PaymentMethodResponse
+from app.schemas.payment_method import (
+    PaymentMethodCardSummary,
+    PaymentMethodResponse,
+    PaymentMethodsListResponse,
+    SetDefaultCardRequest,
+)
 from app.schemas.billing import (
     ChangePlanRequest,
     ChangePlanResponse,
@@ -228,15 +233,125 @@ def get_payment_method(request: Request):
         return PaymentMethodResponse(
             has_card=True,
             card=PaymentMethodCardSummary(
+                id=default_pm_id,
                 brand=card_data.get("brand", "unknown"),
                 last4=card_data.get("last4", "????"),
                 exp_month=card_data.get("exp_month", 0),
                 exp_year=card_data.get("exp_year", 0),
+                is_default=True,
             ),
         )
     except Exception as e:
         logger.warning("Failed to fetch payment method: %s", e)
         return PaymentMethodResponse(has_card=False)
+
+
+# ── GET /api/billing/payment-methods (list all cards) ────────────────────────
+
+@router.get("/payment-methods", response_model=PaymentMethodsListResponse)
+def list_payment_methods(request: Request):
+    """Return all saved cards for the user, marking the default."""
+    sid, user = _require_user(request)
+
+    # Dev/demo fallback
+    settings = get_settings()
+    if not settings.stripe_secret_key:
+        return PaymentMethodsListResponse(cards=[], default_payment_method_id=None)
+
+    _init_stripe()
+    customer_id = user.get("stripe_customer_id")
+    if not customer_id:
+        return PaymentMethodsListResponse(cards=[], default_payment_method_id=None)
+
+    try:
+        # Get the default payment method
+        customer = stripe.Customer.retrieve(customer_id)
+        default_pm_id = None
+        inv_settings = customer.get("invoice_settings")
+        if inv_settings:
+            default_pm_id = inv_settings.get("default_payment_method")
+
+        # List all cards
+        pms = stripe.Customer.list_payment_methods(customer_id, type="card", limit=10)
+        cards = []
+        for pm in pms.data:
+            card_data = pm.get("card", {})
+            cards.append(PaymentMethodCardSummary(
+                id=pm.id,
+                brand=card_data.get("brand", "unknown"),
+                last4=card_data.get("last4", "????"),
+                exp_month=card_data.get("exp_month", 0),
+                exp_year=card_data.get("exp_year", 0),
+                is_default=pm.id == default_pm_id,
+            ))
+
+        # If no default was set but we have cards, mark the first as default
+        if cards and not default_pm_id:
+            cards[0].is_default = True
+            default_pm_id = cards[0].id
+
+        return PaymentMethodsListResponse(
+            cards=cards,
+            default_payment_method_id=default_pm_id,
+        )
+    except Exception as e:
+        logger.warning("Failed to list payment methods: %s", e)
+        return PaymentMethodsListResponse(cards=[], default_payment_method_id=None)
+
+
+# ── POST /api/billing/set-default-card ───────────────────────────────────────
+
+@router.post("/set-default-card")
+def set_default_card(request: Request, body: SetDefaultCardRequest):
+    """Set a payment method as the default for this customer."""
+    sid, user = _require_user(request)
+
+    # Dev/demo fallback
+    settings = get_settings()
+    if not settings.stripe_secret_key:
+        set_session_user(sid, {**user, "default_payment_method_id": body.payment_method_id})
+        return {"ok": True}
+
+    _init_stripe()
+    customer_id = user.get("stripe_customer_id")
+    if not customer_id:
+        raise HTTPException(status_code=400, detail="No customer on file")
+
+    try:
+        stripe.Customer.modify(
+            customer_id,
+            invoice_settings={"default_payment_method": body.payment_method_id},
+        )
+        set_session_user(sid, {**user, "default_payment_method_id": body.payment_method_id})
+        logger.info("Set default card %s for customer %s", body.payment_method_id, customer_id)
+        return {"ok": True}
+    except Exception as e:
+        logger.warning("Failed to set default card: %s", e)
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ── DELETE /api/billing/payment-method/{pm_id} ───────────────────────────────
+
+@router.delete("/payment-method/{pm_id}")
+def delete_payment_method(request: Request, pm_id: str):
+    """Detach (remove) a saved payment method."""
+    sid, user = _require_user(request)
+
+    settings = get_settings()
+    if not settings.stripe_secret_key:
+        return {"ok": True}
+
+    _init_stripe()
+    try:
+        stripe.PaymentMethod.detach(pm_id)
+        logger.info("Detached payment method %s", pm_id)
+        # If this was the default, clear it
+        if user.get("default_payment_method_id") == pm_id:
+            set_session_user(sid, {**user, "default_payment_method_id": None})
+        return {"ok": True}
+    except Exception as e:
+        logger.warning("Failed to detach payment method %s: %s", pm_id, e)
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # ── POST /api/billing/setup-intent ──────────────────────────────────────────
@@ -276,9 +391,23 @@ def create_setup_intent(request: Request):
 @router.post("/preview-change", response_model=PreviewChangeResponse)
 def preview_plan_change(request: Request, body: PreviewChangeRequest):
     """Preview the proration cost of switching to a different plan.
-    Uses Stripe Invoice.upcoming to compute the prorated amount."""
-    _init_stripe()
+    Uses Stripe Invoice.upcoming to compute the prorated amount.
+    Falls back to flat monthly price when Stripe is not configured."""
     sid, user = _require_user(request)
+
+    # ── Dev/demo fallback ─────────────────────────────────────────────────
+    settings = get_settings()
+    if not settings.stripe_secret_key:
+        monthly = PLAN_MONTHLY_CENTS.get(body.plan, 0)
+        return PreviewChangeResponse(
+            amount_due_now=monthly,
+            currency="eur",
+            next_recurring_amount=monthly,
+            next_renewal_date="",
+            proration_line_items=[],
+        )
+
+    _init_stripe()
 
     if body.plan == "free":
         # Downgrading to free — no charge
@@ -376,9 +505,23 @@ def change_plan(request: Request, body: ChangePlanRequest):
     - Upgrade: credit unused time on old plan, charge remaining time on new plan.
     - Downgrade to free: cancel subscription immediately.
     - If no subscription exists: create a new one.
-    Returns 409 with code NO_PAYMENT_METHOD if no card is on file."""
-    _init_stripe()
+    Returns 409 with code NO_PAYMENT_METHOD if no card is on file.
+    Falls back to demo mode (in-memory only) when Stripe is not configured."""
     sid, user = _require_user(request)
+
+    # ── Dev/demo fallback: just update session plan when Stripe isn't set up ──
+    settings = get_settings()
+    if not settings.stripe_secret_key:
+        current_plan = user.get("plan", "free")
+        set_session_user(sid, {**user, "plan": body.plan})
+        logger.info("DEV MODE: Changed plan %s → %s (no Stripe)", current_plan, body.plan)
+        return ChangePlanResponse(
+            plan=body.plan,
+            previous_plan=current_plan,
+            subscription_id=None,
+        )
+
+    _init_stripe()
 
     current_plan = user.get("plan", "free")
 
@@ -587,9 +730,17 @@ def subscribe(request: Request, body: SubscribeRequest):
 
 @router.post("/cancel")
 def cancel_subscription(request: Request):
-    """Cancel the current Stripe subscription and revert to free plan."""
-    _init_stripe()
+    """Cancel the current Stripe subscription. User will be logged out by the frontend."""
     sid, user = _require_user(request)
+
+    # Dev/demo fallback
+    settings = get_settings()
+    if not settings.stripe_secret_key:
+        set_session_user(sid, {**user, "plan": "free", "stripe_subscription_id": None})
+        logger.info("DEV MODE: Cancelled plan for session %s", sid)
+        return {"ok": True, "plan": "free"}
+
+    _init_stripe()
 
     sub_id = user.get("stripe_subscription_id")
     if not sub_id:
@@ -604,47 +755,6 @@ def cancel_subscription(request: Request):
 
     set_session_user(sid, {**user, "plan": "free", "stripe_subscription_id": None})
     return {"ok": True, "plan": "free"}
-
-
-# ── POST /api/billing/checkout ───────────────────────────────────────────────
-
-@router.post("/checkout")
-def create_checkout_session(request: Request):
-    """Create a Stripe Checkout Session to upgrade to Premium.
-    Returns checkout_url for frontend redirect."""
-    _init_stripe()
-    sid, user = _require_user(request)
-    settings = get_settings()
-
-    customer_id = user.get("stripe_customer_id")
-    if not customer_id:
-        customer = stripe.Customer.create(
-            email=user.get("email", ""),
-            metadata={"user_id": user.get("id", ""), "session_id": sid},
-        )
-        customer_id = customer.id
-        set_session_user(sid, {**user, "stripe_customer_id": customer_id})
-
-    price_id = _get_price_id("premium")
-
-    base = "http://localhost:5173"
-    if settings.stripe_success_url:
-        from urllib.parse import urlparse
-        parsed = urlparse(settings.stripe_success_url)
-        base = f"{parsed.scheme}://{parsed.netloc}"
-    success = f"{base}/app/chat?upgraded=1"
-    cancel = f"{base}/app/chat"
-
-    checkout_session = stripe.checkout.Session.create(
-        customer=customer_id,
-        mode="subscription",
-        line_items=[{"price": price_id, "quantity": 1}],
-        success_url=success,
-        cancel_url=cancel,
-        metadata={"session_id": sid, "user_id": user.get("id", "")},
-        subscription_data={"metadata": {"session_id": sid, "user_id": user.get("id", "")}},
-    )
-    return {"checkout_url": checkout_session.url}
 
 
 # ── POST /api/billing/webhook ────────────────────────────────────────────────

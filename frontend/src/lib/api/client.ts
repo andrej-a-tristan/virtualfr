@@ -29,7 +29,7 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
-    const fallback = (err as { error?: string }).error || res.statusText
+    const fallback = (err as { detail?: string; error?: string }).detail || (err as { error?: string }).error || res.statusText
     throw new Error(getErrorMessage(res, fallback))
   }
   if (res.headers.get("content-type")?.includes("application/json")) return res.json() as Promise<T>

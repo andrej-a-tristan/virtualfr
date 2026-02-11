@@ -36,9 +36,50 @@ _gift_purchases: dict[tuple[str, str], list[dict]] = {}
 # stripe_session_id -> bool (idempotency guard)
 _processed_sessions: set[str] = set()
 
+# ── Persist gift purchases across server reloads ──────────────────────────────
+import os as _os
+import pickle as _pickle
+import threading as _threading
+
+_GIFTS_STORE_FILE = _os.path.join(_os.path.dirname(__file__), "..", "..", "..", "_gifts_cache.pkl")
+_gifts_save_lock = _threading.Lock()
+
+
+def _persist_gifts() -> None:
+    """Save gift purchases to pickle file."""
+    with _gifts_save_lock:
+        try:
+            tmp = _GIFTS_STORE_FILE + ".tmp"
+            with open(tmp, "wb") as f:
+                _pickle.dump({"purchases": _gift_purchases, "processed": _processed_sessions}, f)
+            _os.replace(tmp, _GIFTS_STORE_FILE)
+        except Exception:
+            pass
+
+
+def _load_gifts() -> None:
+    """Load gift purchases from pickle file."""
+    if not _os.path.exists(_GIFTS_STORE_FILE):
+        return
+    try:
+        with open(_GIFTS_STORE_FILE, "rb") as f:
+            data = _pickle.load(f)
+        _gift_purchases.update(data.get("purchases", {}))
+        _processed_sessions.update(data.get("processed", set()))
+    except Exception:
+        pass
+
+
+_load_gifts()
+
 
 def _session_id(request: Request) -> str | None:
-    return request.cookies.get(SESSION_COOKIE)
+    return (
+        request.cookies.get(SESSION_COOKIE)
+        or request.cookies.get("session_id")
+        or request.headers.get("x-session-id")
+        or None
+    )
 
 
 def _require_user(request: Request) -> tuple[str, dict]:
@@ -74,6 +115,7 @@ def _add_purchase(sid: str, purchase: dict, user: dict | None = None) -> None:
     if key not in _gift_purchases:
         _gift_purchases[key] = []
     _gift_purchases[key].append(purchase)
+    _persist_gifts()
 
 
 def _update_purchase_status(stripe_session_id: str, status: str) -> dict | None:
@@ -82,6 +124,7 @@ def _update_purchase_status(stripe_session_id: str, status: str) -> dict | None:
         for p in purchases:
             if p.get("stripe_session_id") == stripe_session_id:
                 p["status"] = status
+                _persist_gifts()
                 return {**p, "_session_id": key[0]}
     return None
 
@@ -889,21 +932,13 @@ def list_mystery_boxes(request: Request):
 
 @router.post("/mystery-box/open")
 async def open_mystery_box(request: Request):
-    """Purchase and open a mystery box.
+    """Purchase and open a mystery box using the user's saved card.
 
-    Tries Stripe charge first. If no card on file, falls back to free demo mode
-    (gift is still delivered so the feature works during development).
-
+    Charges via Stripe PaymentIntent (no redirects). Returns error if no card.
     Body: { "box_id": "bronze" | "gold" | "diamond" }
     """
-    # Lenient auth: use session cookie, fall back to demo user for dev
-    sid = _session_id(request)
-    user: dict | None = get_session_user(sid) if sid else None
-    if not sid or not user:
-        import uuid as _uuid
-        sid = sid or str(_uuid.uuid4())
-        user = {"id": "", "plan": "free", "current_girlfriend_id": ""}
-        set_session_user(sid, user)
+    _init_stripe()
+    sid, user = _require_user(request)
 
     body = await request.json()
     box_id = body.get("box_id")
@@ -930,55 +965,97 @@ async def open_mystery_box(request: Request):
     user_id = user.get("id", "")
     girlfriend_id = user.get("current_girlfriend_id", "")
 
-    # ── Try Stripe charge (graceful fallback to demo) ──────────────────────
-    payment_succeeded = False
-    pi_id = ""
-    try:
-        _init_stripe()
-        stripe_customer_id = user.get("stripe_customer_id")
-        default_pm = user.get("default_payment_method_id")
-
-        if stripe_customer_id and default_pm:
-            pi = stripe.PaymentIntent.create(
-                amount=int(box["price_eur"] * 100),
-                currency="eur",
-                customer=stripe_customer_id,
-                payment_method=default_pm,
-                off_session=True,
-                confirm=True,
-                metadata={
-                    "type": "mystery_box",
-                    "box_id": box_id,
-                    "gift_id": gift.id,
-                    "user_id": user_id,
-                    "girlfriend_id": girlfriend_id,
-                    "session_id": sid,
-                },
+    # ── Ensure Stripe customer exists ─────────────────────────────────────
+    stripe_customer_id = user.get("stripe_customer_id")
+    if not stripe_customer_id:
+        try:
+            customer = stripe.Customer.create(
+                email=user.get("email", ""),
+                metadata={"user_id": user_id},
             )
-            pi_id = pi.id
-            if pi.status == "succeeded":
-                payment_succeeded = True
-            elif pi.status == "requires_action":
-                return {
-                    "status": "requires_action",
-                    "client_secret": pi.client_secret,
-                    "payment_intent_id": pi.id,
-                }
-            else:
-                logger.info("Mystery box PI status %s — falling back to demo", pi.status)
-        else:
-            logger.info("No card on file — mystery box delivered as demo")
-    except Exception as e:
-        logger.info("Stripe charge skipped for mystery box (%s) — demo mode", e)
+            stripe_customer_id = customer.id
+            set_session_user(sid, {**user, "stripe_customer_id": stripe_customer_id})
+            user = get_session_user(sid) or user
+            logger.info("Created Stripe customer %s for mystery box", stripe_customer_id)
+        except Exception as e:
+            logger.warning("Failed to create Stripe customer for mystery box: %s", e)
+            raise HTTPException(status_code=400, detail="Failed to create payment customer")
 
-    # ── Record purchase & deliver ──────────────────────────────────────────
+    # ── Get default payment method ────────────────────────────────────────
+    default_pm = user.get("default_payment_method_id")
+    if not default_pm:
+        try:
+            pms = stripe.Customer.list_payment_methods(stripe_customer_id, type="card", limit=1)
+            if pms.data:
+                default_pm = pms.data[0].id
+                set_session_user(sid, {**user, "default_payment_method_id": default_pm})
+        except Exception:
+            pass
+
+    if not default_pm:
+        return {"status": "no_card", "error": "No card on file. Please add a card first."}
+
+    # ── Charge the saved card ─────────────────────────────────────────────
+    amount_cents = int(round(box["price_eur"] * 100))
+    try:
+        pi = stripe.PaymentIntent.create(
+            amount=amount_cents,
+            currency="eur",
+            customer=stripe_customer_id,
+            payment_method=default_pm,
+            off_session=True,
+            confirm=True,
+            metadata={
+                "type": "mystery_box",
+                "box_id": box_id,
+                "gift_id": gift.id,
+                "user_id": user_id,
+                "girlfriend_id": girlfriend_id,
+                "session_id": sid,
+            },
+        )
+    except stripe.error.CardError as e:
+        return {"status": "failed", "error": str(e.user_message or e)}
+    except Exception as e:
+        logger.error("Stripe PaymentIntent failed for mystery box: %s", e)
+        return {"status": "failed", "error": "Payment failed. Please try again."}
+
+    pi_id = pi.id
+
+    if pi.status == "requires_action":
+        # 3DS needed — return client_secret for frontend to handle
+        return {
+            "status": "requires_action",
+            "client_secret": pi.client_secret,
+            "payment_intent_id": pi.id,
+            "gift": {
+                "id": gift.id,
+                "name": gift.name,
+                "emoji": gift.emoji,
+                "tier": gift.tier,
+                "price_eur": gift.price_eur,
+                "description": gift.description,
+                "normal_photos": gift.image_reward.normal_photos,
+                "spicy_photos": gift.image_reward.spicy_photos,
+            },
+            "box": {
+                "id": box_id,
+                "name": box["name"],
+                "price_eur": box["price_eur"],
+            },
+        }
+
+    if pi.status != "succeeded":
+        return {"status": "failed", "error": f"Payment not completed: {pi.status}"}
+
+    # ── Payment succeeded — record purchase & deliver ─────────────────────
     purchase = {
         "id": str(uuid4()),
         "gift_id": gift.id,
         "gift_name": gift.name,
         "amount_eur": box["price_eur"],
         "currency": "eur",
-        "stripe_session_id": pi_id or f"demo_{uuid4()}",
+        "stripe_session_id": pi_id,
         "status": "paid",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "emoji": gift.emoji,

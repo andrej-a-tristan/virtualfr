@@ -296,15 +296,22 @@ export interface SetupIntentResponse {
 // -----------------------------------------------------------------------------
 
 export interface PaymentMethodCardSummary {
+  id: string
   brand: string
   last4: string
   exp_month: number
   exp_year: number
+  is_default: boolean
 }
 
 export interface PaymentMethodResponse {
   has_card: boolean
   card: PaymentMethodCardSummary | null
+}
+
+export interface PaymentMethodsListResponse {
+  cards: PaymentMethodCardSummary[]
+  default_payment_method_id: string | null
 }
 
 // -----------------------------------------------------------------------------
@@ -465,4 +472,58 @@ export interface GiftCollectionResponse {
   collection: GiftCollectionItem[]
   total: number
   owned: number
+}
+
+// -----------------------------------------------------------------------------
+// Profile Stats (Girl Cards)
+// -----------------------------------------------------------------------------
+
+export interface RelationshipSnapshot {
+  level_label: string // STRANGER / FAMILIAR / CLOSE / INTIMATE / EXCLUSIVE
+  trust_visible: number
+  trust_cap: number
+  intimacy_visible: number
+  intimacy_cap: number
+  current_region_index: number | null
+  region_title: string | null
+}
+
+export interface ActivitySnapshot {
+  message_count: number
+  last_interaction_at: string | null // ISO
+  streak_current_days: number
+  streak_best_days: number
+  streak_active_today: boolean
+}
+
+export interface CollectionsSnapshot {
+  photos: number
+  gifts_owned: number
+  gifts_total: number
+  relationship_achievements_unlocked: number
+  relationship_achievements_total: number
+  intimacy_achievements_unlocked: number
+  intimacy_achievements_total: number
+}
+
+export interface GirlProfileStats {
+  girlfriend_id: string
+  name: string
+  avatar_url: string | null
+  vibe_line: string
+  relationship: RelationshipSnapshot
+  activity: ActivitySnapshot
+  collections: CollectionsSnapshot
+}
+
+export interface ProfileTotals {
+  girls: number
+  messages: number
+  photos: number
+  gifts_owned: number
+}
+
+export interface ProfileGirlsResponse {
+  girls: GirlProfileStats[]
+  totals: ProfileTotals
 }

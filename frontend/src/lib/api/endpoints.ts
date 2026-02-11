@@ -1,5 +1,5 @@
 /** API endpoint helpers and response types */
-import { apiGet, apiPost } from "./client"
+import { apiGet, apiPost, apiFetch } from "./client"
 import type {
   User,
   Girlfriend,
@@ -183,13 +183,18 @@ export async function cancelSubscription() {
 export async function getPaymentMethod() {
   return apiGet<import("./types").PaymentMethodResponse>("/billing/payment-method")
 }
+export async function listPaymentMethods() {
+  return apiGet<import("./types").PaymentMethodsListResponse>("/billing/payment-methods")
+}
+export async function setDefaultCard(paymentMethodId: string) {
+  return apiPost<{ ok: boolean }>("/billing/set-default-card", { payment_method_id: paymentMethodId })
+}
+export async function deletePaymentMethod(paymentMethodId: string) {
+  return apiFetch<{ ok: boolean }>(`/billing/payment-method/${paymentMethodId}`, { method: "DELETE" })
+}
 export async function getStripePublishableKey() {
   return apiGet<{ publishable_key: string }>("/billing/stripe-key")
 }
-export async function checkout() {
-  return apiPost<{ checkout_url: string }>("/billing/checkout")
-}
-
 // ── Plan change with proration ────────────────────────────────────────────
 export async function previewPlanChange(plan: Plan): Promise<PreviewPlanChangeResponse> {
   return apiPost<PreviewPlanChangeResponse>("/billing/preview-change", { plan })
@@ -274,6 +279,34 @@ export async function getIntimacyAchievements(girlfriendId?: string) {
   if (girlfriendId) params.set("girlfriend_id", girlfriendId)
   const qs = params.toString() ? `?${params.toString()}` : ""
   return apiGet<import("./types").IntimacyAchievementsByTier>(`/intimacy/achievements${qs}`)
+}
+
+// Profile stats
+export async function getProfileGirls() {
+  return apiGet<import("./types").ProfileGirlsResponse>("/profile/girls")
+}
+
+export async function purchaseIntimateBox(boxId: string, achievementId: string, girlfriendId?: string) {
+  return apiPost<{
+    status: "succeeded" | "requires_action" | "no_card" | "free"
+    ok?: boolean
+    already_unlocked?: boolean
+    achievement_id?: string
+    title?: string
+    subtitle?: string
+    rarity?: string
+    tier?: number
+    icon?: string
+    image_url?: string | null
+    unlocked_at?: string
+    client_secret?: string
+    payment_intent_id?: string
+    error?: string
+  }>("/intimacy/purchase-box", {
+    box_id: boxId,
+    achievement_id: achievementId,
+    girlfriend_id: girlfriendId,
+  })
 }
 
 export async function mysteryUnlockIntimacyAchievement(achievementId: string, girlfriendId?: string) {

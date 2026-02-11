@@ -11,12 +11,22 @@
 - **Onboarding Flow**: Multi-step persona creation (traits, appearance, identity, preferences)
 - **Chat System**: Real-time SSE streaming chat with personality-aware responses
 - **Relationship Engine**: Dynamic trust/intimacy system with relationship levels (STRANGER → FAMILIAR → CLOSE → INTIMATE → EXCLUSIVE)
+- **Intimacy Achievements**: Tiered intimate content progression system
 - **Memory System**: Long-term factual and emotional memory extraction from conversations
 - **Gifting System**: Stripe-powered gift purchases (€2–€200) with unique effects and relationship boosts
-- **Billing**: Stripe subscriptions (Free, Plus, Premium tiers) with message/image caps
+- **Mystery Boxes**: "Surprise Her" slot machine and "Seduce Her Now" intimate gift boxes
+- **Billing**: Stripe subscriptions (Free w/ 7-day trial, Plus, Premium tiers) with message/image caps and multi-card management
+- **Multi-Girlfriend**: Support for up to 3 companions on paid plans
 - **Personality Engines**: Big Five personality mapping, trait behavior rules, initiation engine, habit profiling
 - **Gallery**: Image generation and storage
-- **Safety & Moderation**: Content preferences and reporting
+- **Safety & Moderation**: Reporting system
+
+**Subscription Tiers:**
+- **Free**: 7-day trial (auto-upgrades to Plus), limited messages (20/day), 1 girl max, blurred image paywall
+- **Plus**: Unlimited messages, 30 photos/month, unlock spicy nude photos, 2 free gift mystery boxes, up to 3 girls
+- **Premium**: Unlimited messages, 80 photos/month, 2 free gift + 2 free intimacy boxes/month, more explicit photos, up to 3 girls
+
+**Cancellation Flows:** Multi-step manipulative retention flows for both trial and paid plan cancellations (emotional hooks, FOMO, spicy photo tease).
 
 **Tech Stack:**
 - **Backend**: FastAPI (Python 3.11+), Supabase (optional PostgreSQL), Stripe
@@ -32,43 +42,146 @@ virtualfr/
 ├── backend/
 │   ├── app/
 │   │   ├── api/
-│   │   │   ├── routes/          # API route handlers
-│   │   │   ├── store.py         # In-memory session store
-│   │   │   └── supabase_store.py # Supabase persistence layer
-│   │   ├── core/                # Core config, auth, CORS, rate limiting
-│   │   ├── routers/             # Chat gateway, mock model
-│   │   ├── schemas/             # Pydantic models
-│   │   ├── services/            # Business logic engines
-│   │   ├── utils/               # Utilities (SSE, moderation, identity canon)
-│   │   └── main.py              # FastAPI app entry point
-│   ├── docs/                    # Setup guides
-│   ├── inference/               # Docker inference container
-│   ├── logs/                    # Chat JSONL logs
-│   ├── scripts/                 # Utility scripts
-│   ├── tests/                   # Test suite
-│   ├── supabase_schema.sql      # Database schema
-│   ├── requirements.txt         # Python dependencies
-│   └── .env.example             # Environment template
+│   │   │   ├── routes/              # API route handlers
+│   │   │   │   ├── auth.py
+│   │   │   │   ├── billing.py
+│   │   │   │   ├── chat.py
+│   │   │   │   ├── gifts.py
+│   │   │   │   ├── girlfriends.py
+│   │   │   │   ├── health.py
+│   │   │   │   ├── images.py
+│   │   │   │   ├── intimacy_achievements.py
+│   │   │   │   ├── me.py
+│   │   │   │   ├── memory.py
+│   │   │   │   ├── moderation.py
+│   │   │   │   ├── onboarding.py
+│   │   │   │   └── relationship.py
+│   │   │   ├── store.py             # In-memory session store
+│   │   │   └── supabase_store.py    # Supabase persistence layer
+│   │   ├── core/                    # Core config, auth, CORS, rate limiting
+│   │   ├── routers/                 # Chat gateway, mock model
+│   │   ├── schemas/                 # Pydantic models
+│   │   │   ├── auth.py
+│   │   │   ├── billing.py
+│   │   │   ├── chat.py
+│   │   │   ├── gift.py
+│   │   │   ├── girlfriend.py
+│   │   │   ├── image.py
+│   │   │   ├── intimacy.py
+│   │   │   ├── intimacy_achievements.py
+│   │   │   ├── payment_method.py
+│   │   │   ├── relationship.py
+│   │   │   └── trust_intimacy.py
+│   │   ├── services/                # Business logic engines
+│   │   ├── utils/                   # Utilities (SSE, moderation, identity canon)
+│   │   └── main.py                  # FastAPI app entry point
+│   ├── docs/                        # Setup guides
+│   ├── inference/                   # Docker inference container
+│   ├── logs/                        # Chat JSONL logs
+│   ├── scripts/                     # Utility scripts
+│   ├── tests/                       # Test suite
+│   ├── supabase_schema.sql          # Database schema
+│   ├── requirements.txt             # Python dependencies
+│   └── .env.example                 # Environment template
 │
 └── frontend/
     ├── src/
-    │   ├── components/          # React components
-    │   │   ├── billing/        # Stripe card collection
-    │   │   ├── chat/           # Chat UI components
-    │   │   ├── gallery/        # Image gallery
-    │   │   ├── layout/         # App shell, nav, footer
-    │   │   ├── onboarding/     # Onboarding wizard components
-    │   │   ├── safety/         # Content preferences, reporting
-    │   │   └── ui/              # shadcn/ui components
+    │   ├── components/
+    │   │   ├── billing/             # Stripe card & upgrade modals
+    │   │   │   ├── AddCardModal.tsx
+    │   │   │   └── UpgradeModal.tsx
+    │   │   ├── chat/                # Chat UI components
+    │   │   │   ├── AchievementUnlockedCard.tsx
+    │   │   │   ├── BlurredImageCard.tsx
+    │   │   │   ├── ChatHeader.tsx
+    │   │   │   ├── Composer.tsx
+    │   │   │   ├── GiftCollectionPanel.tsx
+    │   │   │   ├── GiftModal.tsx
+    │   │   │   ├── ImageMessage.tsx
+    │   │   │   ├── ImageTeaseCard.tsx
+    │   │   │   ├── IntimateProgressionPanel.tsx
+    │   │   │   ├── MessageBubble.tsx
+    │   │   │   ├── MessageList.tsx
+    │   │   │   ├── MysteryBoxPanel.tsx
+    │   │   │   ├── PaywallInlineCard.tsx
+    │   │   │   ├── RelationshipGainCard.tsx
+    │   │   │   ├── RelationshipMeter.tsx
+    │   │   │   └── TypingIndicator.tsx
+    │   │   ├── gallery/             # Image gallery
+    │   │   │   ├── GalleryGrid.tsx
+    │   │   │   └── ImageViewerModal.tsx
+    │   │   ├── layout/              # App shell, nav, footer
+    │   │   │   ├── AppShell.tsx
+    │   │   │   ├── Footer.tsx
+    │   │   │   ├── MobileNav.tsx
+    │   │   │   ├── SideNav.tsx
+    │   │   │   └── TopNav.tsx
+    │   │   ├── onboarding/          # Onboarding wizard components
+    │   │   │   ├── AppearanceStepPage.tsx
+    │   │   │   ├── OnboardingSignIn.tsx
+    │   │   │   ├── PersonaPreviewCard.tsx
+    │   │   │   ├── ProgressStepper.tsx
+    │   │   │   ├── TraitCard.tsx
+    │   │   │   └── TraitSelector.tsx
+    │   │   ├── safety/              # Reporting
+    │   │   │   ├── ContentPreferences.tsx  (legacy, removed from UI)
+    │   │   │   └── ReportDialog.tsx
+    │   │   └── ui/                  # shadcn/ui components
+    │   │       ├── AvatarCircle.tsx
+    │   │       ├── badge.tsx
+    │   │       ├── button.tsx
+    │   │       ├── card.tsx
+    │   │       ├── checkbox.tsx
+    │   │       ├── dialog.tsx
+    │   │       ├── dropdown-menu.tsx
+    │   │       ├── input.tsx
+    │   │       ├── label.tsx
+    │   │       ├── separator.tsx
+    │   │       ├── skeleton.tsx
+    │   │       ├── tabs.tsx
+    │   │       └── tooltip.tsx
     │   ├── lib/
-    │   │   ├── api/            # API client, endpoints, types
-    │   │   ├── engines/        # Frontend personality engines (mirrors backend)
-    │   │   ├── hooks/          # React hooks (auth, SSE chat)
-    │   │   ├── store/          # Zustand stores
-    │   │   └── constants/      # Identity constants
-    │   ├── pages/              # Route pages
-    │   ├── routes/             # React Router config + guards
-    │   └── styles/             # Global CSS
+    │   │   ├── api/                 # API client, endpoints, types
+    │   │   ├── engines/             # Frontend personality engines
+    │   │   ├── hooks/               # React hooks (auth, SSE chat)
+    │   │   ├── store/               # Zustand stores
+    │   │   └── constants/           # Identity constants
+    │   ├── pages/                   # Route pages
+    │   │   ├── appearance/          # Appearance sub-pages
+    │   │   │   ├── AppearanceAge.tsx
+    │   │   │   ├── AppearanceBody.tsx
+    │   │   │   ├── AppearanceBodyDetails.tsx
+    │   │   │   ├── AppearanceBreast.tsx
+    │   │   │   ├── AppearanceButt.tsx
+    │   │   │   ├── AppearanceEthnicity.tsx
+    │   │   │   ├── AppearanceEyes.tsx
+    │   │   │   ├── AppearanceHairColor.tsx
+    │   │   │   ├── AppearanceHairEyes.tsx
+    │   │   │   └── AppearanceHairStyle.tsx
+    │   │   ├── AgeGate.tsx
+    │   │   ├── Billing.tsx
+    │   │   ├── Chat.tsx
+    │   │   ├── Gallery.tsx
+    │   │   ├── GirlfriendReveal.tsx
+    │   │   ├── GirlPage.tsx
+    │   │   ├── Landing.tsx
+    │   │   ├── Login.tsx
+    │   │   ├── OnboardingAppearance.tsx
+    │   │   ├── OnboardingGenerating.tsx
+    │   │   ├── OnboardingIdentity.tsx
+    │   │   ├── OnboardingPreferences.tsx
+    │   │   ├── OnboardingTraits.tsx
+    │   │   ├── PaymentOptions.tsx
+    │   │   ├── PersonaPreview.tsx
+    │   │   ├── Profile.tsx
+    │   │   ├── Relationship.tsx
+    │   │   ├── RevealSuccess.tsx
+    │   │   ├── Safety.tsx
+    │   │   ├── Settings.tsx
+    │   │   ├── Signup.tsx
+    │   │   └── SubscriptionPlan.tsx
+    │   ├── routes/                  # React Router config + guards
+    │   └── styles/                  # Global CSS
     ├── package.json
     └── vite.config.ts
 ```
@@ -93,30 +206,50 @@ All routes are mounted under `/api` prefix.
 #### **`girlfriends.py`** — Girlfriend CRUD
 - `POST /api/girlfriends` — Create girlfriend from displayName + traits
 - `GET /api/girlfriends/current` — Get current girlfriend (404 if none)
+- `GET /api/girlfriends/list` — List all girlfriends for multi-girl support
+- `POST /api/girlfriends/switch` — Switch active girlfriend
+- `POST /api/girlfriends/create-additional` — Create additional girlfriend (plan limits: free=1, plus=3, premium=3)
 
 #### **`chat.py`** — Chat System
 - `GET /api/chat/history` — Get message history
 - `GET /api/chat/state` — Get relationship state (trust, intimacy, level)
-- `POST /api/chat/send` — Send message (SSE stream response)
+- `POST /api/chat/send` — Send message (SSE stream response, 20/day cap for free)
 - `POST /api/chat/app_open` — App open handler (initiation + jealousy reactions)
 
 #### **`onboarding.py`** — Onboarding
 - `GET /api/onboarding/prompt-images` — Get prompt image URLs for appearance steps
 - `POST /api/onboarding/complete` — Finalize onboarding (create girlfriend with identity canon)
 
-#### **`billing.py`** — Stripe Billing
-- `GET /api/billing/status` — Get plan, caps, card status
+#### **`billing.py`** — Stripe Billing & Payment Methods
+- `GET /api/billing/status` — Get plan, caps, card status, free_trial_ends_at
+- `GET /api/billing/stripe-key` — Get Stripe publishable key
+- `GET /api/billing/payment-method` — Get primary payment method card summary
+- `GET /api/billing/payment-methods` — List all saved payment cards (with default marker)
+- `POST /api/billing/set-default-card` — Set a specific card as default payment method
+- `DELETE /api/billing/payment-method/{pm_id}` — Remove (detach) a saved card
 - `POST /api/billing/setup-intent` — Create Stripe SetupIntent for card saving
+- `POST /api/billing/preview-change` — Preview proration cost for plan change
+- `POST /api/billing/change-plan` — Change subscription plan (upgrade/downgrade with proration)
 - `POST /api/billing/subscribe` — Create subscription (plus/premium)
-- `POST /api/billing/cancel` — Cancel subscription
+- `POST /api/billing/cancel` — Cancel subscription (user logged out by frontend)
+- `POST /api/billing/checkout` — Create Stripe Checkout Session
 - `POST /api/billing/webhook` — Stripe webhook handler
 - `POST /api/billing/confirm-card` — Optimistic card confirmation
+
+**Dev/Demo Fallback:** When Stripe is not configured (`stripe_secret_key` is empty), `change-plan`, `preview-change`, and `cancel` endpoints fall back to in-memory-only plan changes.
 
 #### **`gifts.py`** — Gift System
 - `GET /api/gifts/list` — Get full gift catalog
 - `POST /api/gifts/checkout` — Create Stripe Checkout Session for gift
 - `POST /api/gifts/webhook` — Stripe webhook for gift payments
 - `GET /api/gifts/history` — Get gift purchase history
+- `GET /api/gifts/collection` — Get gift collection
+
+#### **`relationship.py`** — Relationship & Achievements
+- `GET /api/relationship/achievements` — Get relationship achievements catalog
+
+#### **`intimacy_achievements.py`** — Intimacy Progression
+- Tiered intimacy achievement endpoints for intimate content progression
 
 #### **`images.py`** — Image Generation
 - `POST /api/images/request` — Request image generation (returns job_id)
@@ -171,6 +304,9 @@ All routes are mounted under `/api` prefix.
 - `produce_gift_reaction_message()` — Generate personality-aware gift reaction
 - `build_memory_summary()` — Create memory entry for gift
 
+#### **`image_decision_engine.py`**
+- Gating logic for images based on plan (blurred paywall for Free users)
+
 #### **`initiation_engine.py`**
 - `should_initiate_conversation()` — Decide if girlfriend should initiate
 - `get_initiation_message()` — Generate initiation message based on level/attachment
@@ -191,11 +327,16 @@ All routes are mounted under `/api` prefix.
 ### 3.4 Schemas (`backend/app/schemas/`)
 
 - **`auth.py`**: `SignupRequest`, `LoginRequest`, `UserResponse`
+- **`billing.py`**: `BillingStatusResponse` (includes `free_trial_ends_at`), `ChangePlanResponse`, `PreviewChangeResponse`, `ChangePlanRequest`, `PreviewChangeRequest`
 - **`chat.py`**: `SendMessageRequest`, `AppOpenRequest`, `ChatMessage`, `RelationshipState`
-- **`girlfriend.py`**: `CreateGirlfriendRequest`, `GirlfriendResponse`, `IdentityResponse`, `OnboardingCompletePayload`
 - **`gift.py`**: `GiftDefinition`, `RelationshipBoost`, `ImageReward`
+- **`girlfriend.py`**: `CreateGirlfriendRequest`, `GirlfriendResponse`, `IdentityResponse`, `OnboardingCompletePayload`
 - **`image.py`**: `ImageRequestResponse`, `ImageJobResponse`, `GalleryItem`
+- **`intimacy.py`**: Intimacy-related models
+- **`intimacy_achievements.py`**: Tiered intimacy achievement models
+- **`payment_method.py`**: `PaymentMethodCardSummary` (id, brand, last4, exp, is_default), `PaymentMethodResponse`, `PaymentMethodsListResponse`, `SetDefaultCardRequest`
 - **`relationship.py`**: Relationship state models
+- **`trust_intimacy.py`**: Trust/intimacy state models
 
 ### 3.5 Core (`backend/app/core/`)
 
@@ -250,49 +391,67 @@ In-memory session store (falls back to Supabase if configured):
 - `AgeGate.tsx` — Age verification gate
 - `OnboardingTraits.tsx` — Trait selection (6 questions)
 - `OnboardingAppearance.tsx` — Appearance wizard entry
-- `AppearanceAge.tsx` — Age range selection
-- `AppearanceEthnicity.tsx` — Ethnicity selection
-- `AppearanceBodyDetails.tsx` — Body type, breast, butt size
-- `AppearanceHairEyes.tsx` — Hair color/style, eye color
+- `appearance/AppearanceAge.tsx` — Age range selection
+- `appearance/AppearanceEthnicity.tsx` — Ethnicity selection
+- `appearance/AppearanceBody.tsx` — Body type
+- `appearance/AppearanceBodyDetails.tsx` — Body details
+- `appearance/AppearanceBreast.tsx` — Breast size
+- `appearance/AppearanceButt.tsx` — Butt size
+- `appearance/AppearanceHairColor.tsx` — Hair color
+- `appearance/AppearanceHairStyle.tsx` — Hair style
+- `appearance/AppearanceEyes.tsx` — Eye color
+- `appearance/AppearanceHairEyes.tsx` — Combined hair/eyes selection
 - `OnboardingPreferences.tsx` — Content preferences (spicy photos)
 - `OnboardingIdentity.tsx` — Identity (name, job, hobbies, origin)
 - `OnboardingGenerating.tsx` — Loading state during generation
 - `GirlfriendReveal.tsx` — Reveal animation
-- `SubscriptionPlan.tsx` — Subscription selection
+- `SubscriptionPlan.tsx` — Subscription selection (includes 7-day trial notice)
 - `RevealSuccess.tsx` — Success page
 - `PersonaPreview.tsx` — Final persona preview
 
 #### **App Pages** (under `/app`)
-- `Chat.tsx` — Main chat interface with SSE streaming
-- `Gallery.tsx` — Image gallery grid
-- `Profile.tsx` — Girlfriend profile
+- `GirlPage.tsx` — Main girlfriend page (chat, gallery, relationship meter, sidebar buttons)
+  - Desktop sidebar order: My Relationship → Intimate Progression → Seduce Her Now → Gift Collection → Surprise Her
+- `Relationship.tsx` — Relationship achievements and milestones
+- `Profile.tsx` — Girlfriend profile (companion card with avatar, traits)
 - `Settings.tsx` — User settings
-- `Billing.tsx` — Billing management (Stripe card, subscriptions)
-- `Safety.tsx` — Content preferences and reporting
+  - **Notifications**: Push notification master toggle, new messages toggle, new photos toggle
+  - **Account**: Change password (expandable form), Log out, Delete account (with destructive confirmation)
+- `Billing.tsx` — Billing management
+  - Current plan card with features and free trial notice
+  - Upgrade options with proration preview
+  - 4-step manipulative trial cancel flow (emotional hook → FOMO → spicy photo tease → final)
+  - 4-step manipulative paid cancel flow (emotional hook → what you lose → spicy photo tease → final)
+- `PaymentOptions.tsx` — Payment card management
+  - Lists all saved cards (always at least one)
+  - Default card selection (click to set)
+  - Card deletion (trash icon)
+  - Add new card via AddCardModal
+- `Safety.tsx` — Report & moderation (ContentPreferences removed from UI)
 
 ### 4.2 Components (`frontend/src/components/`)
 
-#### **Chat**
-- `ChatHeader.tsx` — Chat header with girlfriend info
-- `Composer.tsx` — Message input
-- `MessageBubble.tsx` — Message display
-- `MessageList.tsx` — Message list container
-- `GiftModal.tsx` — Gift purchase modal
-- `RelationshipMeter.tsx` — Trust/intimacy visualization
-- `TypingIndicator.tsx` — Typing animation
-- `ImageMessage.tsx` — Image message display
-- `PaywallInlineCard.tsx` — Paywall card for free tier limits
-
-#### **Onboarding**
-- `TraitSelector.tsx` — Trait selection UI
-- `TraitCard.tsx` — Individual trait card
-- `PersonaPreviewCard.tsx` — Live persona preview
-- `ProgressStepper.tsx` — Onboarding progress indicator
-- `AppearanceStepPage.tsx` — Appearance step wrapper
-- `OnboardingSignIn.tsx` — Sign-in prompt during onboarding
-
 #### **Billing**
 - `AddCardModal.tsx` — Stripe card collection modal
+- `UpgradeModal.tsx` — Plan upgrade modal with shimmer animations (handles NO_PAYMENT_METHOD → opens AddCardModal)
+
+#### **Chat**
+- `AchievementUnlockedCard.tsx` — Achievement unlock notification
+- `BlurredImageCard.tsx` — Blurred image preview with paywall for free users
+- `ChatHeader.tsx` — Chat header with girlfriend info
+- `Composer.tsx` — Message input
+- `GiftCollectionPanel.tsx` — Gift collection display
+- `GiftModal.tsx` — Gift purchase modal
+- `ImageMessage.tsx` — Image message display
+- `ImageTeaseCard.tsx` — Image tease card
+- `IntimateProgressionPanel.tsx` — Intimate achievements and "Seduce Her Now" mystery boxes (prices: €4.99+)
+- `MessageBubble.tsx` — Message display
+- `MessageList.tsx` — Message list container
+- `MysteryBoxPanel.tsx` — "Surprise Her" slot machine panel
+- `PaywallInlineCard.tsx` — Paywall card for free tier limits (gradient, shimmer)
+- `RelationshipGainCard.tsx` — Relationship gain notification
+- `RelationshipMeter.tsx` — Trust/intimacy visualization
+- `TypingIndicator.tsx` — Typing animation
 
 #### **Gallery**
 - `GalleryGrid.tsx` — Image grid display
@@ -301,12 +460,20 @@ In-memory session store (falls back to Supabase if configured):
 #### **Layout**
 - `AppShell.tsx` — Main app layout wrapper
 - `TopNav.tsx` — Top navigation bar
-- `SideNav.tsx` — Side navigation
+- `SideNav.tsx` — Side navigation (girlsMax: 3 for paid, 1 for free)
 - `MobileNav.tsx` — Mobile navigation
 - `Footer.tsx` — Footer component
 
+#### **Onboarding**
+- `AppearanceStepPage.tsx` — Appearance step wrapper
+- `OnboardingSignIn.tsx` — Sign-in prompt during onboarding
+- `PersonaPreviewCard.tsx` — Live persona preview
+- `ProgressStepper.tsx` — Onboarding progress indicator
+- `TraitCard.tsx` — Individual trait card
+- `TraitSelector.tsx` — Trait selection UI
+
 #### **Safety**
-- `ContentPreferences.tsx` — Content preference settings
+- `ContentPreferences.tsx` — Legacy file (removed from Safety and Settings UI)
 - `ReportDialog.tsx` — Report dialog
 
 #### **UI** (shadcn/ui)
@@ -315,9 +482,33 @@ In-memory session store (falls back to Supabase if configured):
 ### 4.3 Lib (`frontend/src/lib/`)
 
 #### **API Client** (`lib/api/`)
-- **`client.ts`**: `apiGet()`, `apiPost()` helpers with cookie auth
-- **`endpoints.ts`**: All API endpoint functions (signup, login, chat, gifts, etc.)
-- **`types.ts`**: TypeScript types matching backend schemas
+- **`client.ts`**: `apiGet()`, `apiPost()`, `apiDelete()` helpers with cookie auth. Parses `err.detail` (FastAPI) and `err.error` from non-2xx responses.
+- **`endpoints.ts`**: All API endpoint functions:
+  - Auth: `signup`, `login`, `logout`
+  - Me: `getMe`, `postAgeGate`
+  - Girlfriends: `createGirlfriend`, `getCurrentGirlfriend`, `listGirlfriends`, `switchGirlfriend`, `createAdditionalGirlfriend`
+  - Chat: `getChatHistory`, `getChatState`, `postChatAppOpen`, `getChatSendStreamUrl`
+  - Images: `requestImage`, `getImageJob`, `getGallery`
+  - Billing: `getBillingStatus`, `createSetupIntent`, `confirmCard`, `subscribeToPlan`, `cancelSubscription`, `getPaymentMethod`, `listPaymentMethods`, `setDefaultCard`, `deletePaymentMethod`, `getStripePublishableKey`, `checkout`, `previewPlanChange`, `changePlan`
+  - Gifts: `getGiftsList`, `createGiftCheckout`, `confirmGiftPayment`, `getGiftHistory`, `getGiftCollection`
+  - Memory: `getMemorySummaryContext`, `getFactualMemoryItems`, `getEmotionalMemoryItems`, `getMemoryStats`
+  - Moderation: `report`
+  - Onboarding: `getOnboardingPromptImages`, `completeOnboarding`
+  - Relationship: `getAchievementsCatalog`
+  - Intimacy: `getIntimacyAchievements`, `mysteryUnlockIntimacyAchievement`
+- **`types.ts`**: TypeScript types matching backend schemas:
+  - Core: `User`, `TraitSelection`, `AppearancePrefs`, `ContentPrefs`, `IdentityPrefs`, `IdentityCanon`, `OnboardingCompleteRequest`, `Girlfriend`, `Traits`
+  - Chat: `ChatMessage`, `ChatMessageRole`, `RelationshipState`, `RegionKey`
+  - Achievements: `AchievementRarity`, `RelationshipAchievement`, `AchievementsByRegion`, `AchievementsCatalogResponse`
+  - Intimacy: `IntimacyAchievementItem`, `IntimacyTierInfo`, `IntimacyAchievementsByTier`
+  - Habits: `UserHabitProfile`
+  - Images: `ImageJob`, `GalleryItem`
+  - Billing: `Plan`, `BillingStatus` (includes `free_trial_ends_at`), `PreviewPlanChangeResponse`, `ChangePlanResponse`, `ProrationLineItem`, `InvoiceSummary`
+  - Multi-girl: `GirlfriendListResponse`, `SetCurrentGirlfriendRequest`, `SwitchGirlfriendResponse`, `CreateGirlfriendResponse`
+  - Payment: `SetupIntentResponse`, `PaymentMethodCardSummary` (id, brand, last4, exp_month, exp_year, is_default), `PaymentMethodResponse`, `PaymentMethodsListResponse`
+  - Memory: `MemoryType`, `FactualMemoryItem`, `EmotionalMemoryItem`, `MemoryContext`, `MemorySummary`, `MemoryItemsResponse`
+  - Big Five: `BigFive`, `BigFiveSource`, `BigFiveProfile`
+  - Gifts: `GiftImageReward`, `GiftRelationshipBoost`, `GiftDefinition`, `GiftListResponse`, `GiftCheckoutResponse`, `GiftHistoryItem`, `GiftHistoryResponse`, `GiftEventData`, `GiftCollectionItem`, `GiftCollectionResponse`
 - **`zod.ts`**: Zod validation schemas
 
 #### **Engines** (`lib/engines/`)
@@ -331,7 +522,7 @@ Frontend mirrors of backend personality engines:
 
 #### **Hooks** (`lib/hooks/`)
 - `useAuth.ts` — Authentication hook (getMe, logout)
-- `useSSEChat.ts` — SSE chat streaming hook
+- `useSSEChat.ts` — SSE chat streaming hook (handles 429 daily_limit_reached for free users)
 
 #### **Stores** (`lib/store/`)
 - `useAppStore.ts` — Global app state (user, girlfriend, onboarding progress)
@@ -350,13 +541,24 @@ Frontend mirrors of backend personality engines:
 - `/login`, `/signup` — Auth
 - `/age-gate` — Age gate (requires auth)
 - `/onboarding/*` — Onboarding flow (requires auth + age gate)
+  - `/onboarding/traits` — Trait selection
+  - `/onboarding/appearance` — Appearance wizard
+  - `/onboarding/preferences` — Content preferences
+  - `/onboarding/identity` — Identity creation
+  - `/onboarding/generating` — Generation loading
+  - `/onboarding/reveal` — Girlfriend reveal
+  - `/onboarding/subscribe` — Subscription selection
+  - `/onboarding/reveal-success` — Reveal success
+  - `/onboarding/preview` — Persona preview
 - `/app/*` — App pages (requires auth + age gate + girlfriend)
-  - `/app/chat` — Chat
-  - `/app/gallery` — Gallery
-  - `/app/profile` — Profile
-  - `/app/settings` — Settings
-  - `/app/billing` — Billing
-  - `/app/safety` — Safety
+  - `/app/girl` — Main girlfriend page (chat, gallery, sidebar actions)
+  - `/app/girls/:girlId/relationship` — Per-girl relationship page
+  - `/app/profile` — Girlfriend profile
+  - `/app/settings` — Settings (notifications + account)
+  - `/app/billing` — Billing & subscription management
+  - `/app/payment-options` — Payment card management
+  - `/app/safety` — Safety & reporting
+- Legacy redirects: `/app/chat`, `/app/gallery`, `/app/relationship` → `/app/girl`
 
 ---
 
@@ -367,7 +569,10 @@ Frontend mirrors of backend personality engines:
 **Billing:**
 - SetupIntent for card saving (`/api/billing/setup-intent`)
 - Subscriptions (Plus, Premium tiers)
+- Plan changes with proration (`/api/billing/change-plan`, `/api/billing/preview-change`)
+- Multi-card management (`/api/billing/payment-methods`, `/api/billing/set-default-card`, `DELETE /api/billing/payment-method/{pm_id}`)
 - Webhook handler (`/api/billing/webhook`) for subscription events
+- Dev/demo fallback: in-memory plan changes when Stripe is not configured
 
 **Gifting:**
 - Checkout Sessions for one-time gift purchases (`/api/gifts/checkout`)
@@ -536,52 +741,69 @@ curl -N -X POST http://localhost:8000/v1/chat/stream \
 
 ## 8. Architecture Highlights
 
-### 8.1 Relationship System
+### 8.1 Subscription & Trial System
+
+- **Free Plan**: 7-day trial, after which user is auto-upgraded to Plus. Legal disclosure shown on onboarding and billing pages. Includes 20 messages/day, 1 girlfriend, blurred image paywall.
+- **Plus Plan**: Unlimited messages, 30 photos/month, spicy content, 2 free gift boxes, up to 3 girls.
+- **Premium Plan**: Unlimited messages, 80 photos/month, explicit content, 2 gift + 2 intimacy boxes/month, up to 3 girls.
+- **Cancellation**: Multi-step manipulative retention flows (emotional hooks, FOMO, "spicy photo she's been saving" tease). Cancelling logs user out; free plan is not a fallback for paid users.
+- **Payment**: Card required at signup. Multi-card support with default card selection.
+
+### 8.2 Relationship System
 
 - **Levels**: STRANGER (0-15 intimacy) → FAMILIAR (16-35) → CLOSE (36-60) → INTIMATE (61-80) → EXCLUSIVE (81-100)
 - **Trust/Intimacy**: 0-100 scale, updated on interactions
 - **Decay**: Intimacy decays after 24h/72h inactivity (based on attachment style)
 - **Milestones**: Automatic milestone detection on level transitions
 - **Jealousy**: Reactions based on absence duration and jealousy level trait
+- **Achievements**: Relationship achievement catalog with rarity tiers
 
-### 8.2 Memory System
+### 8.3 Memory System
 
 - **Factual Memory**: Stable facts (name, city, preferences) extracted via regex patterns
 - **Emotional Memory**: Events + feelings (stress, affection, etc.) via keyword detection
 - **Memory Context**: Compact summaries for LLM prompts (max 8 facts, 5 emotions, habit hints)
 
-### 8.3 Personality Engines
+### 8.4 Personality Engines
 
 - **Big Five Mapping**: 6 onboarding traits → Big Five scores (Openness, Conscientiousness, Extraversion, Agreeableness, Neuroticism)
 - **Trait Behavior Rules**: Trait-specific behavior expressions
 - **Initiation Engine**: Decides when girlfriend should initiate conversations
 - **Habit Profiling**: Analyzes user message patterns (preferred hours, typical gaps)
 
-### 8.4 Gifting System
+### 8.5 Gifting & Mystery Boxes
 
 - **24 Gifts**: €2–€200 range, 4 tiers (everyday, dates, luxury, legendary)
 - **Relationship Boosts**: Trust/intimacy gains per gift
 - **Unique Effects**: Gift-specific effects (patron badge, outfit era, theme song, etc.)
 - **Image Rewards**: Some gifts trigger image generation (1-6 images)
 - **Cooldowns**: Rare gifts have 14-60 day cooldowns
+- **Mystery Boxes**: "Surprise Her" slot machine, "Seduce Her Now" intimate gift boxes (€4.99+)
+- **Gift Collection**: Tracked collection panel
 
-### 8.5 Onboarding Flow
+### 8.6 Intimacy Progression
+
+- Tiered intimate content system with achievements
+- Progressive unlocks based on relationship level and subscription tier
+
+### 8.7 Onboarding Flow
 
 1. **Traits** (6 questions): Emotional style, attachment, reaction to absence, communication style, relationship pace, cultural personality
-2. **Appearance**: Vibe, age, ethnicity, body details, hair/eyes
+2. **Appearance**: Vibe, age, ethnicity, body details (body type, breast, butt), hair (color, style), eyes
 3. **Preferences**: Content preferences (spicy photos)
 4. **Identity**: Name, job vibe, hobbies, origin vibe
 5. **Generation**: Creates identity canon (backstory, daily routine, favorites, memory seeds)
-6. **Reveal**: Animated reveal + subscription selection
+6. **Reveal**: Animated reveal + subscription selection (7-day trial notice)
 
 ---
 
 ## 9. Key Files Reference
 
 ### Backend Entry Points
-- `backend/app/main.py` — Main FastAPI app
+- `backend/app/main.py` — Main FastAPI app (includes `POST /api/dev/reset` for wiping in-memory state)
 - `backend/app/mock_main.py` — Mock model server
 - `backend/app/routers/chat.py` — Chat gateway
+- `backend/app/routers/mock_model.py` — Mock OpenAI-compatible model
 
 ### Frontend Entry Points
 - `frontend/src/main.tsx` — React app entry
@@ -641,10 +863,11 @@ Test files:
 - @stripe/react-stripe-js, @stripe/stripe-js
 - zod, react-hook-form
 - tailwindcss, shadcn/ui components
+- lucide-react (icons)
 - vite, typescript
 
 ---
 
-**Last Updated**: February 9, 2026  
+**Last Updated**: February 11, 2026  
 **Project**: VirtualFR  
 **Repository**: `c:\Users\matej\OneDrive\Desktop\virtualfr`

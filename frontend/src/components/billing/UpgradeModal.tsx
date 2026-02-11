@@ -97,8 +97,9 @@ export default function UpgradeModal({
     try {
       const data = await previewPlanChange(plan)
       setPreview(data)
-    } catch {
+    } catch (err) {
       // Preview failed — still allow upgrade, just without proration info
+      console.warn("[UpgradeModal] preview failed:", err)
       setPreview(null)
     } finally {
       setPreviewLoading(false)
@@ -134,7 +135,16 @@ export default function UpgradeModal({
       }
     } catch (e: any) {
       const msg = e?.response?.data?.detail || e?.message || ""
-      if (msg === "NO_PAYMENT_METHOD" || msg.includes("card") || msg.includes("payment method") || msg.includes("No Stripe customer")) {
+      console.error("[UpgradeModal] changePlan error:", msg, e)
+      if (
+        msg === "NO_PAYMENT_METHOD" ||
+        msg === "Conflict" ||
+        msg.includes("card") ||
+        msg.includes("payment method") ||
+        msg.includes("No Stripe customer") ||
+        msg.includes("NO_PAYMENT") ||
+        msg.includes("409")
+      ) {
         setShowCardModal(true)
         setError("")
       } else {

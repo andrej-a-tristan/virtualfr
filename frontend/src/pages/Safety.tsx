@@ -1,6 +1,5 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import ReportDialog from "@/components/safety/ReportDialog"
-import ContentPreferences from "@/components/safety/ContentPreferences"
 import { Shield } from "lucide-react"
 
 export default function Safety() {
@@ -19,7 +18,6 @@ export default function Safety() {
           <ReportDialog />
         </CardContent>
       </Card>
-      <ContentPreferences />
     </div>
   )
 }
