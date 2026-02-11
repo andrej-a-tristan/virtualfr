@@ -55,9 +55,10 @@ export default function SideNav() {
 
   const plan = billing?.plan ?? "free"
   const isPremium = plan === "premium"
+  const isPaid = plan !== "free"
   const girlfriends = gfList?.girlfriends ?? []
-  const girlsMax = billing?.girls_max ?? (isPremium ? 5 : 1)
-  const atMax = isPremium && girlfriends.length >= girlsMax
+  const girlsMax = billing?.girls_max ?? (isPaid ? 3 : 1)
+  const atMax = girlfriends.length >= girlsMax
 
   const handleSwitch = async (girlfriendId: string) => {
     if (girlfriendId === currentGirlfriendId) {
@@ -84,7 +85,7 @@ export default function SideNav() {
   }
 
   const handleCreateMore = () => {
-    if (!isPremium) {
+    if (!isPaid) {
       setUpgradeOpen(true)
       return
     }
@@ -138,12 +139,12 @@ export default function SideNav() {
               "mt-1.5 flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-sm transition-all",
               atMax
                 ? "cursor-not-allowed text-muted-foreground/40"
-                : isPremium
+                : isPaid
                   ? "text-muted-foreground hover:bg-accent hover:text-foreground"
                   : "text-muted-foreground hover:bg-accent hover:text-foreground"
             )}
           >
-            {isPremium ? (
+            {isPaid ? (
               <PlusCircle className="h-7 w-7 shrink-0 text-pink-400" />
             ) : (
               <Lock className="h-7 w-7 shrink-0 text-muted-foreground" />
@@ -151,7 +152,7 @@ export default function SideNav() {
             <span className="flex-1 truncate font-medium">
               {atMax ? "Max reached" : "New girl"}
             </span>
-            {!isPremium && (
+            {!isPaid && (
               <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold text-amber-400">
                 PRO
               </span>
@@ -194,7 +195,7 @@ export default function SideNav() {
         >
           <div className="flex flex-col items-center gap-0.5">
             <div className="flex items-center gap-2">
-              {isPremium ? (
+              {isPaid ? (
                 <Sparkles className="h-4 w-4" />
               ) : (
                 <Lock className="h-4 w-4" />
@@ -204,9 +205,9 @@ export default function SideNav() {
               </span>
             </div>
             <span className="text-[10px] font-normal opacity-80">
-              {isPremium
+              {isPaid
                 ? `${girlfriends.length}/${girlsMax} girls`
-                : "Premium: up to 5 girls"}
+                : "Upgrade: up to 3 girls"}
             </span>
           </div>
         </Button>

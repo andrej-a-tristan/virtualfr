@@ -2,7 +2,7 @@ import { useState } from "react"
 import type { BillingStatus } from "@/lib/api/types"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Sparkles, Info } from "lucide-react"
+import { Crown, Flame } from "lucide-react"
 import UpgradeModal from "@/components/billing/UpgradeModal"
 
 interface PaywallInlineCardProps {
@@ -14,27 +14,29 @@ export default function PaywallInlineCard({ billing }: PaywallInlineCardProps) {
 
   // Determine best upgrade target based on current plan
   const targetPlan = billing.plan === "free" ? "plus" : "premium"
+  const isFree = billing.plan === "free"
 
   return (
     <>
-      <Card className="rounded-xl border-primary/30 bg-primary/5">
+      <Card className="rounded-xl border-pink-500/30 bg-gradient-to-r from-pink-500/10 via-amber-500/5 to-pink-500/10 shadow-[0_0_15px_rgba(236,72,153,0.15)]">
         <CardContent className="p-3 space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-primary" />
-              <span className="text-sm text-muted-foreground">
-                Free plan: {billing.message_cap} messages, {billing.image_cap} images. Upgrade for more.
+              <Flame className="h-4 w-4 text-pink-400 animate-pulse" />
+              <span className="text-sm text-white/80">
+                {isFree
+                  ? "She wants to send you photos... Unlock her spicy side!"
+                  : `${billing.image_cap} photos / month. Want her most explicit content?`}
               </span>
             </div>
-            <Button size="sm" variant="default" onClick={() => setUpgradeOpen(true)}>
-              Upgrade
+            <Button
+              size="sm"
+              className="bg-gradient-to-r from-pink-500 via-amber-400 to-pink-500 bg-[length:200%_100%] animate-[shimmer_2s_linear_infinite] font-bold text-white shadow-[0_0_15px_rgba(236,72,153,0.4)] hover:shadow-[0_0_25px_rgba(236,72,153,0.6)] transition-shadow"
+              onClick={() => setUpgradeOpen(true)}
+            >
+              <Crown className="mr-1.5 h-3.5 w-3.5" />
+              {isFree ? "Unlock Now" : "Get Premium"}
             </Button>
-          </div>
-          <div className="flex items-start gap-1.5">
-            <Info className="h-3 w-3 mt-0.5 shrink-0 text-muted-foreground/60" />
-            <p className="text-[11px] text-muted-foreground/60">
-              Upgrades are prorated: unused time on your current plan is credited.
-            </p>
           </div>
         </CardContent>
       </Card>

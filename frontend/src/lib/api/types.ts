@@ -169,6 +169,32 @@ export interface AchievementsCatalogResponse {
   achievements_by_region: AchievementsByRegion
 }
 
+// ── Intimacy Achievements ────────────────────────────────────────────────────
+
+export interface IntimacyAchievementItem {
+  id: string
+  tier: number
+  title: string
+  subtitle: string
+  rarity: string
+  sort_order: number
+  is_secret: boolean
+  unlocked: boolean
+  unlocked_at: string | null
+  image_url: string | null
+  icon: string
+}
+
+export interface IntimacyTierInfo {
+  tier: number
+  rarity: string
+  required_region_index: number
+  required_intimacy_visible: number | null
+  achievements: IntimacyAchievementItem[]
+}
+
+export type IntimacyAchievementsByTier = Record<number, IntimacyTierInfo>
+
 export interface UserHabitProfile {
   preferred_hours?: number[]
   typical_gap_hours?: number | null
@@ -193,6 +219,7 @@ export interface BillingStatus {
   plan: Plan
   has_card_on_file: boolean
   message_cap: number
+  message_cap_period: "day" | "unlimited"
   image_cap: number
   girls_max: number
   girls_count: number
@@ -201,6 +228,7 @@ export interface BillingStatus {
   next_renewal_date: string | null
   next_invoice_amount: number | null
   subscription_status: string | null
+  free_trial_ends_at: string | null
 }
 
 // ── Plan change (proration) types ─────────────────────────────────────────

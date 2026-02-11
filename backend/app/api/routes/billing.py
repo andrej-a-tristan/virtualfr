@@ -112,6 +112,8 @@ def _ts_to_iso(ts: int | None) -> str | None:
 
 # ── GET /api/billing/status ──────────────────────────────────────────────────
 
+FREE_TRIAL_DAYS = 7  # free plan auto-upgrades to Plus after this many days
+
 @router.get("/status", response_model=BillingStatusResponse)
 def billing_status(request: Request):
     sid = _session_id(request)
@@ -120,7 +122,29 @@ def billing_status(request: Request):
     user = get_session_user(sid)
     plan = (user or {}).get("plan", "free")
     has_card = (user or {}).get("has_card_on_file", False)
-    girls_max = 5 if plan == "premium" else 1
+
+    # ── Free trial: stamp start date on first check, auto-upgrade after 7 days ──
+    free_trial_ends_at: str | None = None
+    if plan == "free" and user:
+        from datetime import timedelta
+        trial_start_iso = user.get("free_trial_started_at")
+        if not trial_start_iso:
+            trial_start = datetime.now(timezone.utc)
+            trial_start_iso = trial_start.isoformat().replace("+00:00", "Z")
+            set_session_user(sid, {**user, "free_trial_started_at": trial_start_iso})
+        else:
+            trial_start = datetime.fromisoformat(trial_start_iso.replace("Z", "+00:00"))
+
+        trial_end = trial_start + timedelta(days=FREE_TRIAL_DAYS)
+        free_trial_ends_at = trial_end.isoformat().replace("+00:00", "Z")
+
+        if datetime.now(timezone.utc) >= trial_end:
+            # Auto-upgrade to Plus
+            plan = "plus"
+            set_session_user(sid, {**user, "plan": "plus"})
+            user = get_session_user(sid)  # refresh
+
+    girls_max = 3 if plan in ("premium", "plus") else 1
     girls_count = get_girlfriend_count(sid)
 
     # Try to fetch subscription period info from Stripe
@@ -149,7 +173,8 @@ def billing_status(request: Request):
     return BillingStatusResponse(
         plan=plan,
         has_card_on_file=has_card,
-        message_cap=50 if plan == "free" else 999,
+        message_cap=20 if plan == "free" else 999,
+        message_cap_period="day" if plan == "free" else "unlimited",
         image_cap=0 if plan == "free" else 30 if plan == "plus" else 80,
         girls_max=girls_max,
         girls_count=girls_count,
@@ -158,6 +183,7 @@ def billing_status(request: Request):
         next_renewal_date=current_period_end,
         next_invoice_amount=next_invoice_amount,
         subscription_status=subscription_status,
+        free_trial_ends_at=free_trial_ends_at,
     )
 
 

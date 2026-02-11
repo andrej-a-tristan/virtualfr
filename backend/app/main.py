@@ -29,6 +29,7 @@ from app.api.routes import (
     girlfriends,
     health,
     images,
+    intimacy_achievements,
     me,
     memory,
     moderation,
@@ -103,6 +104,7 @@ app.include_router(moderation.router, prefix="/api")
 app.include_router(memory.router, prefix="/api")
 app.include_router(onboarding.router, prefix="/api")
 app.include_router(relationship.router, prefix="/api")
+app.include_router(intimacy_achievements.router, prefix="/api")
 
 # Chat gateway: /v1/chat/stream and /api/chat/stream (same handler; /api works with proxy)
 app.include_router(chat_gateway.router, prefix="/v1")

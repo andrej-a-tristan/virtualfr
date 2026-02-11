@@ -5,9 +5,15 @@ To enable real AI, set API_KEY in .env or connect to the /v1/chat/stream gateway
 """
 import uuid as uuid_mod
 from uuid import UUID
+from datetime import datetime, timezone
+from collections import defaultdict
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 import logging
+
+# ── Daily message cap for free-plan users ────────────────────────────────────
+FREE_DAILY_MESSAGE_CAP = 20
+_daily_msg_counts: dict[str, dict] = defaultdict(lambda: {"date": "", "count": 0})
 
 from app.schemas.chat import (
     SendMessageRequest,
@@ -312,7 +318,7 @@ def _generate_mock_response(gf_display_name: str, traits: dict, relationship_sta
     return prefix + response + suffix
 
 
-def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_for_context, gf_display_name, traits, relationship_state=None, habit_profile=None, memory_context=None, girlfriend_id=None, image_decision_event=None, blurred_surprise_event=None, relationship_gain_events=None, achievement_events=None):
+def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_for_context, gf_display_name, traits, relationship_state=None, habit_profile=None, memory_context=None, girlfriend_id=None, image_decision_event=None, blurred_surprise_event=None, relationship_gain_events=None, achievement_events=None, intimacy_unlock_events=None, intimacy_photo_events=None):
     """Stream mock response and save assistant message. Yields SSE events.
     
     This function includes full personality and memory context for future LLM integration.
@@ -409,6 +415,37 @@ def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_f
                 "achievement": ach_evt,
             })
 
+    # Emit intimacy achievement unlock events
+    if intimacy_unlock_events:
+        for iu_evt in intimacy_unlock_events:
+            yield sse_event({
+                "type": "intimacy_achievement",
+                "achievement": iu_evt,
+            })
+
+    # Emit intimacy photo ready events
+    if intimacy_photo_events:
+        for ip_evt in intimacy_photo_events:
+            # Also append as a chat message with image
+            photo_msg = {
+                "id": str(uuid_mod.uuid4()),
+                "role": "assistant",
+                "content": f"{ip_evt.get('icon', '🔥')} *{ip_evt.get('title', 'Achievement')}* — unlocked",
+                "image_url": ip_evt.get("image_url"),
+                "event_type": "intimacy_photo_ready",
+                "event_key": ip_evt.get("id", ""),
+                "created_at": now_iso(),
+            }
+            if user_id and gf_id:
+                sb.append_message(user_id, gf_id, photo_msg)
+            else:
+                store_append_message(sid, photo_msg, girlfriend_id=girlfriend_id)
+            yield sse_event({
+                "type": "intimacy_photo_ready",
+                "photo": ip_evt,
+                "message": photo_msg,
+            })
+
     # Emit blurred surprise (proactive, when free user crosses intimacy threshold)
     if blurred_surprise_event:
         yield sse_event({
@@ -424,6 +461,26 @@ def send_message(request: Request, body: SendMessageRequest):
     sid, user, user_id, gf_id = get_current_user(request)
     if not sid or not user:
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
+
+    # ── Free-plan daily message cap ──────────────────────────────────────
+    user_plan = (user or {}).get("plan", "free")
+    if user_plan == "free":
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        tracker = _daily_msg_counts[sid]
+        if tracker["date"] != today_str:
+            tracker["date"] = today_str
+            tracker["count"] = 0
+        if tracker["count"] >= FREE_DAILY_MESSAGE_CAP:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "error": "daily_limit_reached",
+                    "message": f"You've used all {FREE_DAILY_MESSAGE_CAP} free messages today. Upgrade to Plus for unlimited messaging!",
+                    "messages_sent": tracker["count"],
+                    "message_cap": FREE_DAILY_MESSAGE_CAP,
+                },
+            )
+        tracker["count"] += 1
 
     # Resolve the girlfriend_id from the request body (preferred) or session
     explicit_gf_id = body.girlfriend_id or None
@@ -715,6 +772,25 @@ def send_message(request: Request, body: SendMessageRequest):
     except Exception as e:
         logger.warning("Achievement trigger check failed: %s", e)
 
+    # ── Intimacy achievement triggers (keyword-based photo rewards) ─────────
+    intimacy_unlock_events = []
+    intimacy_photo_events = []
+    try:
+        from app.services.intimacy_achievement_engine import evaluate_intimacy_achievements
+        cur_region_idx_ia = get_current_region_index_for_girl(state.get("level", 0))
+        ia_unlocks, ia_photos = evaluate_intimacy_achievements(
+            session_id=sid,
+            girlfriend_id=resolved_gf_id or "",
+            user_message=body.message,
+            current_region_index=cur_region_idx_ia,
+            intimacy_visible=ti_state.intimacy_visible if ti_state else 1,
+            age_gate_passed=bool((user or {}).get("age_gate_passed")),
+        )
+        intimacy_unlock_events.extend(ia_unlocks)
+        intimacy_photo_events.extend(ia_photos)
+    except Exception as e:
+        logger.warning("Intimacy achievement check failed: %s", e)
+
     # Collect blurred surprise (set above if threshold was crossed)
     blurred_surprise = locals().get("blurred_surprise_msg")
 
@@ -777,6 +853,8 @@ def send_message(request: Request, body: SendMessageRequest):
             blurred_surprise_event=blurred_surprise,
             relationship_gain_events=gain_events if gain_events else None,
             achievement_events=achievement_events if achievement_events else None,
+            intimacy_unlock_events=intimacy_unlock_events if intimacy_unlock_events else None,
+            intimacy_photo_events=intimacy_photo_events if intimacy_photo_events else None,
         ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},

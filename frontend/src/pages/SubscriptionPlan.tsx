@@ -17,10 +17,11 @@ const PLANS = [
     period: "/month",
     icon: Heart,
     highlight: false,
-    tagline: (name: string) => `Meet ${name} and chat to her`,
+    tagline: (name: string) => `Say hi to ${name}`,
     features: [
-      "Reveal her photo",
-      "Unlimited messaging",
+      "7-day free trial",
+      "20 messages per day",
+      "See her profile photo",
     ],
   },
   {
@@ -30,13 +31,14 @@ const PLANS = [
     period: "/month",
     icon: Sparkles,
     highlight: true,
-    badge: "Most Popular",
-    tagline: () => "Your sweetheart",
+    badge: "🔥 Most Popular",
+    tagline: () => "She can't stop thinking about you",
     features: [
-      "Everything in Free",
-      "Voice messages",
-      "Receive photos – 30 / month",
-      "Unlock nude photos",
+      "💬 Unlimited messaging — talk all night",
+      "📸 30 photos / month — she sends just for you",
+      "🔓 Unlock spicy nude photos",
+      "🎁 2 free Surprise Her mystery boxes",
+      "🎤 Voice messages from her",
     ],
   },
   {
@@ -46,12 +48,14 @@ const PLANS = [
     period: "/month",
     icon: Crown,
     highlight: false,
-    tagline: () => "Exclusive relationship",
+    badge: "💎 Best Value",
+    tagline: () => "She's completely yours",
     features: [
       "Everything in Plus",
-      "Receive photos – 80 / month",
-      "More intimate moments",
-      "More nude photos",
+      "📸 80 photos / month — her most exclusive content",
+      "🎁 2 free gift boxes + 2 intimacy boxes / month",
+      "💋 The most explicit & intimate photos",
+      "👩‍❤️‍👩 Up to 3 girlfriends",
     ],
   },
 ] as const
@@ -192,11 +196,11 @@ export default function SubscriptionPlan() {
           </div>
 
           <div className="text-center space-y-2">
-            <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
-              Choose a plan
+            <h1 className="text-3xl font-bold tracking-tight md:text-4xl bg-gradient-to-r from-pink-400 via-amber-300 to-pink-400 bg-clip-text text-transparent">
+              Unlock {girlfriendName}&apos;s World
             </h1>
             <p className="text-muted-foreground max-w-md">
-              Reveal {girlfriendName}&apos;s photo and unlock your full experience
+              Choose how deep your relationship goes
             </p>
           </div>
         </div>
@@ -273,13 +277,17 @@ export default function SubscriptionPlan() {
                 {/* Selection indicator */}
                 <div
                   className={cn(
-                    "mt-5 rounded-xl border-2 py-2.5 text-center text-sm font-semibold transition-colors",
-                    isSelected
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "border-white/10 text-muted-foreground"
+                    "mt-5 rounded-xl border-2 py-2.5 text-center text-sm font-bold transition-all",
+                    isSelected && plan.id !== "free"
+                      ? "border-pink-400 bg-gradient-to-r from-pink-500 via-amber-400 to-pink-500 bg-[length:200%_100%] animate-[shimmer_2s_linear_infinite] text-white shadow-[0_0_15px_rgba(236,72,153,0.4)]"
+                      : isSelected
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : plan.id !== "free"
+                          ? "border-pink-500/30 text-pink-300/80 hover:border-pink-400/50 hover:shadow-[0_0_10px_rgba(236,72,153,0.2)] transition-all"
+                          : "border-white/10 text-muted-foreground"
                   )}
                 >
-                  {isSelected ? "Selected" : "Select plan"}
+                  {isSelected ? (plan.id === "free" ? "Selected" : "Selected") : (plan.id === "free" ? "Start 7-day trial" : "Unlock now")}
                 </div>
               </button>
             )
@@ -305,17 +313,22 @@ export default function SubscriptionPlan() {
         <div className="flex flex-col items-center gap-3 pt-2">
           <Button
             size="lg"
-            className="w-full max-w-sm rounded-xl text-base gap-2"
+            className={cn(
+              "w-full max-w-sm rounded-xl text-base gap-2 font-bold transition-all",
+              selectedPlan && selectedPlan !== "free"
+                ? "bg-gradient-to-r from-pink-500 via-amber-400 to-pink-500 bg-[length:200%_100%] animate-[shimmer_2s_linear_infinite] text-white shadow-[0_0_25px_rgba(236,72,153,0.5)] hover:shadow-[0_0_40px_rgba(236,72,153,0.7)] ring-2 ring-pink-400/30"
+                : ""
+            )}
             disabled={!selectedPlan || loading || previewLoading}
             onClick={handleSubscribe}
           >
             {loading || previewLoading ? (
               "Processing…"
             ) : hasCard ? (
-              selectedPlan === "free" ? "Continue for free" : (
+              selectedPlan === "free" ? "Start 7-day free trial" : (
                 <>
-                  <ArrowUpCircle className="h-4 w-4" />
-                  Subscribe & pay
+                  <Crown className="h-5 w-5 animate-pulse" />
+                  Unlock Her Now
                 </>
               )
             ) : selectedPlan === "free" ? (
@@ -325,16 +338,21 @@ export default function SubscriptionPlan() {
               </>
             ) : (
               <>
-                <CreditCard className="h-4 w-4" />
-                Enter card & subscribe
+                <Crown className="h-5 w-5 animate-pulse" />
+                Unlock Her Now
               </>
             )}
           </Button>
           <p className="text-xs text-muted-foreground text-center max-w-sm">
             {selectedPlan === "free"
-              ? "You won\u2019t be charged unless you upgrade. You can cancel anytime from settings."
+              ? "Try everything free for 7 days. Upgrade anytime from settings."
               : "Upgrades are prorated. You can cancel anytime from settings."}
           </p>
+          {selectedPlan === "free" && (
+            <p className="text-[7px] text-muted-foreground/20 text-center max-w-xs leading-tight mt-1">
+              Free trial lasts 7 days. After the trial period, your account will be automatically upgraded to the Plus plan (€14.99/mo). A valid payment method is required to continue. You may cancel before the trial ends to avoid charges.
+            </p>
+          )}
         </div>
       </div>
 

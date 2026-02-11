@@ -1,5 +1,5 @@
 """Girlfriend CRUD: create, list, get current, switch.
-Supports multiple girlfriends per user (Premium: up to 5, Free: max 1)."""
+Supports multiple girlfriends per user (Free: 1, Plus: 3, Premium: 3)."""
 import hashlib
 import json
 from datetime import datetime, timezone
@@ -29,7 +29,7 @@ from app.utils.identity_canon import generate_identity_canon
 
 router = APIRouter(prefix="/girlfriends", tags=["girlfriends"])
 
-PLAN_LIMITS = {"free": 1, "plus": 1, "premium": 5}
+PLAN_LIMITS = {"free": 1, "plus": 3, "premium": 3}
 
 
 def _session_id(request: Request) -> str | None:
@@ -123,7 +123,7 @@ def switch_girlfriend(request: Request, body: SetCurrentRequest):
 
 @router.post("/create")
 def create_additional_girlfriend(request: Request, body: OnboardingCompletePayload):
-    """Create an additional girlfriend. Enforces plan limits (Free: 1, Premium: 5)."""
+    """Create an additional girlfriend. Enforces plan limits (Free: 1, Plus: 3, Premium: 5)."""
     sid, user = _require_user(request)
 
     plan = user.get("plan", "free")
@@ -131,10 +131,10 @@ def create_additional_girlfriend(request: Request, body: OnboardingCompletePaylo
     current_count = get_girlfriend_count(sid)
 
     if current_count >= girls_max:
-        if plan == "premium":
-            raise HTTPException(status_code=403, detail=f"Premium users can have up to {girls_max} girls.")
+        if plan in ("premium", "plus"):
+            raise HTTPException(status_code=403, detail=f"You can have up to {girls_max} girlfriends on your plan.")
         else:
-            raise HTTPException(status_code=403, detail="Upgrade to Premium to create more girls.")
+            raise HTTPException(status_code=403, detail="Upgrade to Plus or Premium to create more girlfriends.")
 
     girlfriend_name = body.identity.girlfriend_name.strip()
     traits = body.traits.model_dump()

@@ -6,6 +6,7 @@ Sensitive/nude requests are gated by:
   2. User content opt-in (wants_spicy_photos)
   3. Intimacy Index threshold (personality-dependent)
   4. Plan check — free users get a blurred preview + upgrade CTA
+  5. Monthly photo quota (plus=30, premium=80)
 
 Non-sensitive requests pass through normally (quota/cooldown only).
 """
@@ -178,7 +179,7 @@ def decide_image_action(
         return ImageDecision(
             action="blurred_paywall",
             reason="free_plan_upgrade",
-            ui_copy="She sent you something special... Upgrade to see it.",
+            ui_copy="She wants to show you more... Upgrade to Plus to unlock her photos.",
             blurred_image_url=_pick_blurred_url(girlfriend_id),
             current_intimacy=current,
             required_intimacy=required,

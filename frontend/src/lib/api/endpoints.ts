@@ -267,3 +267,29 @@ export async function getAchievementsCatalog(includeSecrets = false) {
   const qs = includeSecrets ? "?include_secrets=true" : ""
   return apiGet<import("./types").AchievementsCatalogResponse>(`/relationship/achievements${qs}`)
 }
+
+// Intimacy achievements
+export async function getIntimacyAchievements(girlfriendId?: string) {
+  const params = new URLSearchParams()
+  if (girlfriendId) params.set("girlfriend_id", girlfriendId)
+  const qs = params.toString() ? `?${params.toString()}` : ""
+  return apiGet<import("./types").IntimacyAchievementsByTier>(`/intimacy/achievements${qs}`)
+}
+
+export async function mysteryUnlockIntimacyAchievement(achievementId: string, girlfriendId?: string) {
+  return apiPost<{
+    ok: boolean
+    already_unlocked: boolean
+    achievement_id: string
+    title: string
+    subtitle: string
+    rarity: string
+    tier: number
+    icon: string
+    image_url: string | null
+    unlocked_at?: string
+  }>("/intimacy/mystery-unlock", {
+    achievement_id: achievementId,
+    girlfriend_id: girlfriendId,
+  })
+}

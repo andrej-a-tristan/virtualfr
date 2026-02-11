@@ -53,6 +53,7 @@ class BillingStatusResponse(BaseModel):
     plan: Plan
     has_card_on_file: bool
     message_cap: int
+    message_cap_period: str = "day"  # "day" for free, "unlimited" for paid
     image_cap: int
     girls_max: int
     girls_count: int
@@ -61,3 +62,4 @@ class BillingStatusResponse(BaseModel):
     next_renewal_date: str | None = None  # same as current_period_end
     next_invoice_amount: int | None = None  # cents, if available
     subscription_status: str | None = None  # "active", "canceled", etc.
+    free_trial_ends_at: str | None = None  # ISO timestamp — free trial expiry (7 days from signup)

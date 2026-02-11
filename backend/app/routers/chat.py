@@ -3,6 +3,7 @@ import asyncio
 import json
 import time
 import uuid
+from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
 
@@ -15,8 +16,12 @@ from app.core import get_settings
 from app.core.auth import require_chat_api_key
 from app.core.chat_logging import write_chat_log
 from app.core.rate_limit import check_rate_limit
-from app.api.store import get_girlfriend
+from app.api.store import get_girlfriend, get_session_user
 from app.utils.prompt_identity import build_girlfriend_canon_system_prompt
+
+# ── Daily message cap for free-plan users ────────────────────────────────────
+FREE_DAILY_MESSAGE_CAP = 20
+_daily_msg_counts: dict[str, dict] = defaultdict(lambda: {"date": "", "count": 0})
 
 router = APIRouter(prefix="/chat", tags=["chat-gateway"])
 
@@ -223,6 +228,28 @@ async def chat_stream(
             content={"error": "rate limit exceeded", "retry_after_seconds": retry_after},
             headers={"Retry-After": str(retry_after)},
         )
+
+    # ── Free-plan daily message cap ──────────────────────────────────────
+    sid = body.session_id
+    user = get_session_user(sid) if sid else None
+    user_plan = (user or {}).get("plan", "free")
+    if user_plan == "free":
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        tracker = _daily_msg_counts[sid]
+        if tracker["date"] != today_str:
+            tracker["date"] = today_str
+            tracker["count"] = 0
+        if tracker["count"] >= FREE_DAILY_MESSAGE_CAP:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "error": "daily_limit_reached",
+                    "message": f"You've used all {FREE_DAILY_MESSAGE_CAP} free messages today. Upgrade to Plus for unlimited messaging!",
+                    "messages_sent": tracker["count"],
+                    "message_cap": FREE_DAILY_MESSAGE_CAP,
+                },
+            )
+        tracker["count"] += 1
 
     request_id = str(uuid.uuid4())
     stream_start = time.monotonic()

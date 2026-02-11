@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Lock, Crown, Eye } from "lucide-react"
+import { Lock, Crown, Eye, Flame } from "lucide-react"
 import UpgradeModal from "@/components/billing/UpgradeModal"
 
 interface BlurredImageCardProps {
@@ -23,7 +23,7 @@ export default function BlurredImageCard({
   return (
     <>
       <div className="flex w-full justify-center py-2">
-        <Card className="w-full max-w-sm overflow-hidden rounded-2xl border-pink-500/30 bg-gradient-to-b from-pink-500/10 to-purple-500/10">
+        <Card className="w-full max-w-sm overflow-hidden rounded-2xl border-pink-500/40 bg-gradient-to-b from-pink-500/15 to-purple-500/15 shadow-[0_0_30px_rgba(236,72,153,0.2)]">
           <CardContent className="p-0">
             {/* Blurred image preview */}
             <div className="relative">
@@ -45,18 +45,18 @@ export default function BlurredImageCard({
                 {/* Overlay gradient for text readability */}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent" />
 
-                {/* Lock icon centered */}
+                {/* Pulsing lock icon */}
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/10 backdrop-blur-md ring-1 ring-white/20">
-                    <Lock className="h-7 w-7 text-white/80" />
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-pink-500/20 backdrop-blur-md ring-2 ring-pink-400/40 shadow-[0_0_30px_rgba(236,72,153,0.4)] animate-pulse">
+                    <Lock className="h-7 w-7 text-pink-300" />
                   </div>
                 </div>
 
                 {/* Peek hint */}
                 <div className="absolute bottom-3 left-0 right-0 flex items-center justify-center gap-1.5">
-                  <Eye className="h-3 w-3 text-white/50" />
-                  <span className="text-[11px] font-medium text-white/50">
-                    Premium content
+                  <Eye className="h-3 w-3 text-pink-300/70" />
+                  <span className="text-[11px] font-bold text-pink-300/70 tracking-wide uppercase">
+                    She sent something spicy...
                   </span>
                 </div>
               </div>
@@ -65,22 +65,23 @@ export default function BlurredImageCard({
             {/* CTA section */}
             <div className="space-y-3 p-4">
               {/* Message */}
-              <p className="text-center text-sm leading-relaxed text-muted-foreground">
+              <p className="text-center text-sm leading-relaxed text-white/70 font-medium">
                 {uiCopy}
               </p>
 
-              {/* Upgrade button */}
+              {/* Upgrade button — super colorful slot-style */}
               <Button
-                className="w-full bg-gradient-to-r from-amber-500 to-pink-500 font-semibold text-white shadow-lg hover:from-amber-600 hover:to-pink-600"
+                className="w-full relative overflow-hidden bg-gradient-to-r from-pink-500 via-amber-400 to-pink-500 bg-[length:200%_100%] animate-[shimmer_2s_linear_infinite] font-bold text-white text-base py-3 shadow-[0_0_25px_rgba(236,72,153,0.5)] hover:shadow-[0_0_40px_rgba(236,72,153,0.7)] transition-all ring-2 ring-pink-400/30"
                 onClick={() => setUpgradeOpen(true)}
               >
-                <Crown className="mr-2 h-4 w-4" />
-                Upgrade to Unlock
+                <Crown className="mr-2 h-5 w-5 animate-bounce" />
+                Unlock Her Photos Now
+                <Flame className="ml-2 h-5 w-5 text-amber-200" />
               </Button>
 
               {/* Sub-copy */}
-              <p className="text-center text-[11px] text-muted-foreground/60">
-                Plus starts at €14.99/mo · Cancel anytime
+              <p className="text-center text-[11px] text-pink-300/50 font-medium">
+                30 spicy photos + unlimited messaging · Plus from €14.99/mo
               </p>
             </div>
           </CardContent>

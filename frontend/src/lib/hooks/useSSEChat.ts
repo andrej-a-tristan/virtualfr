@@ -37,7 +37,11 @@ export async function sendChatMessage(message: string): Promise<void> {
       body: JSON.stringify(body),
     })
     if (!res.ok) {
-      const err = await res.json().catch(() => ({})) as { error?: string; detail?: string | unknown }
+      const err = await res.json().catch(() => ({})) as { error?: string; message?: string; detail?: string | unknown }
+      // Friendly message for daily limit
+      if (res.status === 429 && err.error === "daily_limit_reached") {
+        throw new Error(err.message || "You've used all your free messages today. Upgrade to Plus for unlimited messaging!")
+      }
       let msg = err.error
       if (msg == null) {
         if (typeof err.detail === "string") msg = err.detail
@@ -124,6 +128,36 @@ export async function sendChatMessage(message: string): Promise<void> {
                 event_key: (ach.id as string) || "",
                 created_at: new Date().toISOString(),
                 achievement: ach,
+              } as Parameters<typeof appendMessage>[0])
+              continue
+            }
+            // Handle intimacy_achievement events (intimacy achievement unlocked)
+            if ((lastEvent === "intimacy_achievement" || data.type === "intimacy_achievement") && (data as Record<string, unknown>).achievement) {
+              const ach = (data as Record<string, unknown>).achievement as Record<string, unknown>
+              appendMessage({
+                id: `intach-${Date.now()}`,
+                role: "assistant",
+                content: `${(ach.icon as string) || "🔥"} **${(ach.title as string) || "Achievement"}** unlocked — ${(ach.subtitle as string) || ""}`,
+                image_url: null,
+                event_type: "intimacy_achievement",
+                event_key: (ach.id as string) || "",
+                created_at: new Date().toISOString(),
+                achievement: ach,
+              } as Parameters<typeof appendMessage>[0])
+              continue
+            }
+            // Handle intimacy_photo_ready events (photo reward for intimacy achievement)
+            if ((lastEvent === "intimacy_photo_ready" || data.type === "intimacy_photo_ready") && (data as Record<string, unknown>).photo) {
+              const photo = (data as Record<string, unknown>).photo as Record<string, unknown>
+              const msg = (data as Record<string, unknown>).message as Record<string, string | null> | undefined
+              appendMessage({
+                id: msg?.id || `intphoto-${Date.now()}`,
+                role: "assistant",
+                content: msg?.content || `${(photo.icon as string) || "🔥"} *${(photo.title as string) || "Achievement"}* — unlocked`,
+                image_url: (photo.image_url as string) || null,
+                event_type: "intimacy_photo_ready",
+                event_key: (photo.id as string) || "",
+                created_at: msg?.created_at || new Date().toISOString(),
               } as Parameters<typeof appendMessage>[0])
               continue
             }

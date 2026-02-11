@@ -32,6 +32,18 @@ _trust_intimacy_state: dict[tuple[str, str], TrustIntimacyState] = {}
 # (session_id, girlfriend_id) -> AchievementProgress
 _achievement_progress: dict[tuple[str, str], AchievementProgress] = {}
 
+# ── Intimacy Achievements (per girlfriend) ────────────────────────────────────
+# (session_id, girlfriend_id) -> { achievement_id: unlocked_at_iso }
+_intimacy_ach_unlocked: dict[tuple[str, str], dict[str, str]] = {}
+# (session_id, girlfriend_id) -> last award datetime iso
+_intimacy_ach_last_award: dict[tuple[str, str], str] = {}
+# (session_id, girlfriend_id) -> { achievement_id: image_url }
+_intimacy_ach_photos: dict[tuple[str, str], dict[str, str]] = {}
+# (session_id, girlfriend_id) -> list of achievement_ids awaiting photo generation
+_intimacy_ach_pending_photos: dict[tuple[str, str], list[str]] = {}
+# (session_id, girlfriend_id) -> { phrase_hash: timestamp } for anti-spam
+_intimacy_ach_phrase_log: dict[tuple[str, str], dict[str, float]] = {}
+
 
 # ── Session / User ────────────────────────────────────────────────────────────
 
@@ -351,3 +363,105 @@ def set_achievement_progress(session_id: str, progress: AchievementProgress, gir
     if not girlfriend_id:
         return
     _achievement_progress[(session_id, girlfriend_id)] = progress
+
+
+# ── Intimacy Achievement Storage (per girlfriend) ─────────────────────────────
+
+def _resolve_gf(session_id: str, girlfriend_id: str | None) -> str:
+    if girlfriend_id:
+        return girlfriend_id
+    user = _sessions.get(session_id)
+    return (user or {}).get("current_girlfriend_id", "")
+
+
+def get_intimacy_achievements_unlocked(session_id: str, girlfriend_id: str | None = None) -> dict[str, str]:
+    """Return {achievement_id: unlocked_at_iso} for this girlfriend."""
+    gf = _resolve_gf(session_id, girlfriend_id)
+    if not gf:
+        return {}
+    return dict(_intimacy_ach_unlocked.get((session_id, gf), {}))
+
+
+def mark_intimacy_achievement_unlocked(session_id: str, achievement_id: str, unlocked_at: str, girlfriend_id: str | None = None) -> None:
+    gf = _resolve_gf(session_id, girlfriend_id)
+    if not gf:
+        return
+    key = (session_id, gf)
+    if key not in _intimacy_ach_unlocked:
+        _intimacy_ach_unlocked[key] = {}
+    _intimacy_ach_unlocked[key][achievement_id] = unlocked_at
+
+
+def get_intimacy_last_award_time(session_id: str, girlfriend_id: str | None = None) -> str | None:
+    gf = _resolve_gf(session_id, girlfriend_id)
+    if not gf:
+        return None
+    return _intimacy_ach_last_award.get((session_id, gf))
+
+
+def set_intimacy_last_award_time(session_id: str, award_time: str, girlfriend_id: str | None = None) -> None:
+    gf = _resolve_gf(session_id, girlfriend_id)
+    if not gf:
+        return
+    _intimacy_ach_last_award[(session_id, gf)] = award_time
+
+
+def get_photo_for_intimacy_achievement(session_id: str, achievement_id: str, girlfriend_id: str | None = None) -> str | None:
+    gf = _resolve_gf(session_id, girlfriend_id)
+    if not gf:
+        return None
+    return _intimacy_ach_photos.get((session_id, gf), {}).get(achievement_id)
+
+
+def set_photo_for_intimacy_achievement(session_id: str, achievement_id: str, image_url: str, girlfriend_id: str | None = None) -> None:
+    gf = _resolve_gf(session_id, girlfriend_id)
+    if not gf:
+        return
+    key = (session_id, gf)
+    if key not in _intimacy_ach_photos:
+        _intimacy_ach_photos[key] = {}
+    _intimacy_ach_photos[key][achievement_id] = image_url
+
+
+def get_pending_intimacy_photos(session_id: str, girlfriend_id: str | None = None) -> list[str]:
+    gf = _resolve_gf(session_id, girlfriend_id)
+    if not gf:
+        return []
+    return list(_intimacy_ach_pending_photos.get((session_id, gf), []))
+
+
+def add_pending_intimacy_photo(session_id: str, achievement_id: str, girlfriend_id: str | None = None) -> None:
+    gf = _resolve_gf(session_id, girlfriend_id)
+    if not gf:
+        return
+    key = (session_id, gf)
+    if key not in _intimacy_ach_pending_photos:
+        _intimacy_ach_pending_photos[key] = []
+    if achievement_id not in _intimacy_ach_pending_photos[key]:
+        _intimacy_ach_pending_photos[key].append(achievement_id)
+
+
+def pop_pending_intimacy_photo(session_id: str, achievement_id: str, girlfriend_id: str | None = None) -> bool:
+    gf = _resolve_gf(session_id, girlfriend_id)
+    if not gf:
+        return False
+    key = (session_id, gf)
+    pending = _intimacy_ach_pending_photos.get(key, [])
+    if achievement_id in pending:
+        pending.remove(achievement_id)
+        return True
+    return False
+
+
+def get_intimacy_phrase_log(session_id: str, girlfriend_id: str | None = None) -> dict[str, float]:
+    gf = _resolve_gf(session_id, girlfriend_id)
+    if not gf:
+        return {}
+    return dict(_intimacy_ach_phrase_log.get((session_id, gf), {}))
+
+
+def set_intimacy_phrase_log(session_id: str, phrase_log: dict[str, float], girlfriend_id: str | None = None) -> None:
+    gf = _resolve_gf(session_id, girlfriend_id)
+    if not gf:
+        return
+    _intimacy_ach_phrase_log[(session_id, gf)] = phrase_log

@@ -42,9 +42,11 @@ const PLAN_META: Record<string, { name: string; price: string; icon: typeof Crow
     icon: Sparkles,
     color: "text-primary",
     features: [
-      "Voice messages",
-      "Receive photos – 30/month",
-      "Unlock nude photos",
+      "💬 Unlimited messaging — talk all night",
+      "📸 30 photos / month — she sends just for you",
+      "🔓 Unlock her spicy nude photos",
+      "🎁 2 free Surprise Her mystery boxes",
+      "🎤 Voice messages from her",
     ],
   },
   premium: {
@@ -53,10 +55,10 @@ const PLAN_META: Record<string, { name: string; price: string; icon: typeof Crow
     icon: Crown,
     color: "text-amber-400",
     features: [
-      "Up to 5 girls",
-      "Receive photos – 80/month",
-      "More intimate moments",
-      "Unlimited messages & images",
+      "📸 80 photos / month — her most exclusive content",
+      "🎁 2 free gift boxes + 2 intimacy boxes / month",
+      "💋 The most explicit & intimate photos",
+      "👩‍❤️‍👩 Up to 3 girlfriends",
     ],
   },
 }
@@ -177,7 +179,7 @@ export default function UpgradeModal({
             <DialogDescription className="text-muted-foreground">
               {success
                 ? plan === "premium"
-                  ? "You can now create up to 5 girls"
+                  ? "You can now create up to 3 girlfriends"
                   : "Enjoy your upgraded experience"
                 : "Unlock the full experience"}
             </DialogDescription>
@@ -267,7 +269,7 @@ export default function UpgradeModal({
                 Not now
               </Button>
               <Button
-                className="flex-1 bg-gradient-to-r from-amber-500 to-pink-500 font-semibold text-white shadow-lg hover:from-amber-600 hover:to-pink-600"
+                className="flex-1 relative overflow-hidden bg-gradient-to-r from-pink-500 via-amber-400 to-pink-500 bg-[length:200%_100%] animate-[shimmer_2s_linear_infinite] font-bold text-white text-base shadow-[0_0_25px_rgba(236,72,153,0.5)] hover:shadow-[0_0_35px_rgba(236,72,153,0.7)] transition-shadow ring-2 ring-pink-400/30"
                 onClick={handleConfirm}
                 disabled={confirming || previewLoading}
               >
@@ -278,13 +280,13 @@ export default function UpgradeModal({
                   </span>
                 ) : preview ? (
                   <span className="flex items-center gap-2">
-                    <ArrowUpCircle className="h-4 w-4" />
-                    Confirm & pay {formatCents(preview.amount_due_now, preview.currency)}
+                    <Crown className="h-5 w-5 animate-pulse" />
+                    Unlock Now — {formatCents(preview.amount_due_now, preview.currency)}
                   </span>
                 ) : (
                   <span className="flex items-center gap-2">
-                    <ArrowUpCircle className="h-4 w-4" />
-                    Subscribe & Pay
+                    <Crown className="h-5 w-5 animate-pulse" />
+                    Unlock Her Now
                   </span>
                 )}
               </Button>

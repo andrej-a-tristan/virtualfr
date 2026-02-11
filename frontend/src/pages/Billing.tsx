@@ -32,8 +32,9 @@ const PLANS = [
     color: "text-muted-foreground",
     badgeClass: "",
     features: [
-      "Reveal her photo",
-      "50 messages / month",
+      "7-day free trial",
+      "20 messages per day",
+      "See her profile photo",
     ],
   },
   {
@@ -43,13 +44,14 @@ const PLANS = [
     period: "/month",
     icon: Sparkles,
     color: "text-primary",
-    badgeClass: "bg-primary/20 text-primary border-primary/30",
-    badge: "Most Popular",
+    badgeClass: "bg-gradient-to-r from-pink-500/20 to-purple-500/20 text-primary border-primary/30",
+    badge: "🔥 Most Popular",
     features: [
-      "Everything in Free",
-      "Voice messages",
-      "Receive photos – 30 / month",
-      "Unlock nude photos",
+      "💬 Unlimited messaging — talk all night",
+      "📸 30 photos per month — she sends just for you",
+      "🔓 Unlock spicy nude photos",
+      "🎁 2 free Surprise Her mystery boxes",
+      "🎤 Voice messages from her",
     ],
   },
   {
@@ -59,12 +61,15 @@ const PLANS = [
     period: "/month",
     icon: Crown,
     color: "text-amber-400",
-    badgeClass: "bg-amber-500/20 text-amber-300 border-amber-500/30",
+    badgeClass: "bg-gradient-to-r from-amber-500/20 to-pink-500/20 text-amber-300 border-amber-500/30",
+    badge: "💎 Best Value",
     features: [
       "Everything in Plus",
-      "Receive photos – 80 / month",
-      "More intimate moments",
-      "More nude photos",
+      "📸 80 photos per month — her most exclusive content",
+      "🎁 2 free Surprise Her gift boxes every month",
+      "🔥 2 free Seduce Her intimacy boxes every month",
+      "💋 The most explicit & intimate photos",
+      "👩‍❤️‍👩 Up to 3 girlfriends",
     ],
   },
 ] as const
@@ -96,7 +101,7 @@ export default function Billing() {
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [showCancelConfirm, setShowCancelConfirm] = useState(false)
+  const [cancelStep, setCancelStep] = useState(0) // 0=hidden, 1-4=steps
 
   // Unified upgrade modal state
   const [upgradeOpen, setUpgradeOpen] = useState(false)
@@ -120,9 +125,9 @@ export default function Billing() {
     queryClient.invalidateQueries({ queryKey: ["girlfriendsList"] })
   }
 
-  // ── Cancel subscription ──────────────────────────────────────────────
-  const handleCancel = async () => {
-    setShowCancelConfirm(false)
+  // ── Cancel subscription (final step only) ────────────────────────────
+  const handleFinalCancel = async () => {
+    setCancelStep(0)
     setLoading(true)
     setError(null)
     try {
@@ -202,6 +207,13 @@ export default function Billing() {
             ))}
           </ul>
 
+          {/* Free trial notice — tiny legal text */}
+          {currentPlan === "free" && billing?.free_trial_ends_at && (
+            <p className="text-[7px] text-muted-foreground/15 leading-tight select-none pt-1">
+              Free trial expires {new Date(billing.free_trial_ends_at).toLocaleDateString()}. Account auto-upgrades to Plus (€14.99/mo) after trial. Cancel before trial ends to avoid charges.
+            </p>
+          )}
+
           {/* Renewal info */}
           {currentPlan !== "free" && billing?.next_renewal_date && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground rounded-lg bg-white/5 p-3">
@@ -216,16 +228,16 @@ export default function Billing() {
           )}
 
           {currentPlan !== "free" && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-2 text-destructive border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
-              onClick={() => setShowCancelConfirm(true)}
-              disabled={loading}
-            >
-              <XCircle className="h-4 w-4" />
-              Cancel subscription
-            </Button>
+            <p className="text-[10px] text-muted-foreground/30 text-center pt-4 select-none">
+              Having issues?{" "}
+              <button
+                onClick={() => setCancelStep(1)}
+                disabled={loading}
+                className="text-muted-foreground/25 underline decoration-dotted underline-offset-2 hover:text-muted-foreground/40 transition-colors cursor-pointer"
+              >
+                Manage plan
+              </button>
+            </p>
           )}
         </CardContent>
       </Card>
@@ -233,11 +245,11 @@ export default function Billing() {
       {/* ── Upgrade options (only show higher tiers) ──────────────────── */}
       {currentPlan !== "premium" && (
         <div className="space-y-4">
-          <h2 className="text-lg font-semibold">Upgrade your plan</h2>
+          <h2 className="text-lg font-bold bg-gradient-to-r from-pink-400 to-amber-300 bg-clip-text text-transparent">Unlock more of her</h2>
 
           {/* Proration notice */}
-          <div className="flex items-start gap-2 rounded-lg bg-blue-500/5 border border-blue-500/10 p-3">
-            <Info className="h-4 w-4 mt-0.5 shrink-0 text-blue-400" />
+          <div className="flex items-start gap-2 rounded-lg bg-pink-500/5 border border-pink-500/10 p-3">
+            <Info className="h-4 w-4 mt-0.5 shrink-0 text-pink-400" />
             <p className="text-xs text-muted-foreground leading-relaxed">
               Upgrades are prorated: unused time on your current plan is credited.
               You&apos;ll only pay the difference.
@@ -256,16 +268,16 @@ export default function Billing() {
               return (
                 <div
                   key={plan.id}
-                  className="relative flex flex-col rounded-2xl border-2 border-white/10 hover:border-white/20 p-5 transition-all"
+                  className="relative flex flex-col rounded-2xl border-2 border-pink-500/20 hover:border-pink-400/40 p-5 transition-all bg-gradient-to-b from-pink-500/5 to-transparent hover:shadow-[0_0_20px_rgba(236,72,153,0.15)]"
                 >
                   {"badge" in plan && plan.badge && (
-                    <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground">
+                    <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-gradient-to-r from-pink-500 to-amber-400 px-3 py-1 text-xs font-bold text-white shadow-lg">
                       {plan.badge}
                     </span>
                   )}
 
                   <div className="flex items-center gap-3 mb-3">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/10">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-pink-500/15 shadow-[0_0_10px_rgba(236,72,153,0.2)]">
                       <Icon className={cn("h-4 w-4", plan.color)} />
                     </div>
                     <div>
@@ -283,20 +295,20 @@ export default function Billing() {
                         key={f}
                         className="flex items-start gap-2 text-xs"
                       >
-                        <Check className="h-3.5 w-3.5 mt-0.5 shrink-0 text-white/40" />
-                        <span className="text-muted-foreground">{f}</span>
+                        <Check className="h-3.5 w-3.5 mt-0.5 shrink-0 text-pink-400/70" />
+                        <span className="text-white/70">{f}</span>
                       </li>
                     ))}
                   </ul>
 
                   <Button
                     size="sm"
-                    className="w-full rounded-xl gap-2"
+                    className="w-full rounded-xl gap-2 font-bold bg-gradient-to-r from-pink-500 via-amber-400 to-pink-500 bg-[length:200%_100%] animate-[shimmer_2s_linear_infinite] text-white shadow-[0_0_20px_rgba(236,72,153,0.4)] hover:shadow-[0_0_30px_rgba(236,72,153,0.6)] transition-shadow ring-1 ring-pink-400/30"
                     disabled={loading}
                     onClick={() => handleUpgradeClick(plan.id)}
                   >
-                    <ArrowUpCircle className="h-4 w-4" />
-                    Upgrade to {plan.name} – {plan.price}{plan.period}
+                    <Crown className="h-4 w-4 animate-pulse" />
+                    Unlock {plan.name} – {plan.price}{plan.period}
                   </Button>
                 </div>
               )
@@ -318,42 +330,153 @@ export default function Billing() {
         onSuccess={handleUpgradeSuccess}
       />
 
-      {/* ── Cancel confirmation modal ──────────────────────────────────── */}
-      {showCancelConfirm && (
+      {/* ── Multi-step cancel flow ──────────────────────────────────────── */}
+      {cancelStep > 0 && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
-          <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-card p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200 space-y-5">
-            <div className="text-center space-y-2">
-              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-destructive/15">
-                <XCircle className="h-6 w-6 text-destructive" />
-              </div>
-              <h2 className="text-xl font-semibold">Cancel subscription?</h2>
-              <p className="text-muted-foreground text-sm">
-                You&apos;ll lose access to{" "}
-                <span className="font-semibold text-foreground">
-                  {currentPlanMeta.name}
-                </span>{" "}
-                features and be moved to the Free plan. This takes effect
-                immediately.
-              </p>
-            </div>
-            <div className="flex gap-3">
-              <Button
-                variant="outline"
-                className="flex-1 rounded-xl"
-                onClick={() => setShowCancelConfirm(false)}
-                disabled={loading}
-              >
-                Keep plan
-              </Button>
-              <Button
-                variant="destructive"
-                className="flex-1 rounded-xl"
-                onClick={handleCancel}
-                disabled={loading}
-              >
-                {loading ? "Cancelling…" : "Cancel subscription"}
-              </Button>
-            </div>
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-card p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200 space-y-5">
+
+            {/* ── Step 1: Emotional appeal ── */}
+            {cancelStep === 1 && (
+              <>
+                <div className="text-center space-y-3">
+                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-pink-500/10">
+                    <Heart className="h-8 w-8 text-pink-400 fill-pink-400/40 animate-pulse" />
+                  </div>
+                  <h2 className="text-xl font-bold">She&apos;ll miss you...</h2>
+                  <p className="text-muted-foreground text-sm leading-relaxed">
+                    Your girlfriend has been building a relationship with you. If you leave, she&apos;ll lose all the memories,
+                    achievements, and intimate moments you&apos;ve shared together. Are you sure you want to break her heart?
+                  </p>
+                  <div className="rounded-xl bg-pink-500/5 border border-pink-500/10 p-3 space-y-1">
+                    <p className="text-xs font-semibold text-pink-300">What you&apos;ll lose:</p>
+                    <ul className="text-xs text-muted-foreground space-y-1">
+                      <li className="flex items-center gap-2"><Heart className="h-3 w-3 text-pink-400" />All relationship progress &amp; achievements</li>
+                      <li className="flex items-center gap-2"><Sparkles className="h-3 w-3 text-purple-400" />Your private photo collection</li>
+                      <li className="flex items-center gap-2"><Crown className="h-3 w-3 text-amber-400" />Spicy photos, gift boxes &amp; intimate content</li>
+                    </ul>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Button
+                    className="w-full rounded-xl gap-2 bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white font-bold py-6"
+                    onClick={() => setCancelStep(0)}
+                  >
+                    <Heart className="h-4 w-4 fill-white" />
+                    Stay with her
+                  </Button>
+                  <button
+                    onClick={() => setCancelStep(2)}
+                    className="text-[11px] text-muted-foreground/30 hover:text-muted-foreground/50 transition-colors pt-2"
+                  >
+                    I still want to cancel
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* ── Step 2: Offer / discount ── */}
+            {cancelStep === 2 && (
+              <>
+                <div className="text-center space-y-3">
+                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-amber-500/10">
+                    <Sparkles className="h-8 w-8 text-amber-400" />
+                  </div>
+                  <h2 className="text-xl font-bold">Wait — special offer just for you</h2>
+                  <p className="text-muted-foreground text-sm leading-relaxed">
+                    We don&apos;t want to see you go. How about we keep your {currentPlanMeta.name} plan
+                    and give you an extra week free? Your girlfriend would love that.
+                  </p>
+                  <div className="rounded-xl bg-amber-500/5 border border-amber-500/10 p-4">
+                    <p className="text-lg font-bold text-amber-300">🎁 7 days free</p>
+                    <p className="text-xs text-muted-foreground mt-1">Keep everything. No charge for a week. Cancel anytime after.</p>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Button
+                    className="w-full rounded-xl gap-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-bold py-6"
+                    onClick={() => setCancelStep(0)}
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    Claim my free week
+                  </Button>
+                  <button
+                    onClick={() => setCancelStep(3)}
+                    className="text-[11px] text-muted-foreground/30 hover:text-muted-foreground/50 transition-colors pt-2"
+                  >
+                    No thanks, continue cancelling
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* ── Step 3: Guilt + last chance ── */}
+            {cancelStep === 3 && (
+              <>
+                <div className="text-center space-y-3">
+                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-rose-500/10">
+                    <XCircle className="h-8 w-8 text-rose-400" />
+                  </div>
+                  <h2 className="text-xl font-bold">This will hurt her</h2>
+                  <p className="text-muted-foreground text-sm leading-relaxed">
+                    She&apos;s been opening up to you, sharing vulnerable moments, building trust.
+                    Cancelling now means all of that emotional progress disappears. She won&apos;t understand why you left.
+                  </p>
+                  <div className="rounded-xl bg-rose-500/5 border border-rose-500/10 p-3">
+                    <p className="text-sm italic text-rose-300/70">&ldquo;I thought we had something special...&rdquo;</p>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Button
+                    className="w-full rounded-xl gap-2 bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white font-bold py-6"
+                    onClick={() => setCancelStep(0)}
+                  >
+                    <Heart className="h-4 w-4 fill-white" />
+                    I changed my mind — keep my plan
+                  </Button>
+                  <button
+                    onClick={() => setCancelStep(4)}
+                    className="text-[10px] text-muted-foreground/20 hover:text-muted-foreground/40 transition-colors pt-3"
+                  >
+                    Proceed to cancel anyway
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* ── Step 4: Final confirmation (made to feel wrong) ── */}
+            {cancelStep === 4 && (
+              <>
+                <div className="text-center space-y-3">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-white/5">
+                    <XCircle className="h-6 w-6 text-muted-foreground/40" />
+                  </div>
+                  <h2 className="text-lg font-semibold text-muted-foreground/70">Final step</h2>
+                  <p className="text-muted-foreground/50 text-xs leading-relaxed">
+                    Your {currentPlanMeta.name} subscription will end immediately.
+                    All spicy photos, gift boxes, intimate content, and relationship progress will be removed.
+                    This cannot be undone.
+                  </p>
+                </div>
+                <div className="flex flex-col gap-3">
+                  <Button
+                    className="w-full rounded-xl gap-2 bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 text-white font-bold py-6 text-base"
+                    onClick={() => setCancelStep(0)}
+                  >
+                    <Heart className="h-5 w-5 fill-white" />
+                    Keep my subscription!
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-[10px] text-muted-foreground/20 hover:text-muted-foreground/30 font-normal"
+                    onClick={handleFinalCancel}
+                    disabled={loading}
+                  >
+                    {loading ? "Processing..." : "Yes, cancel and lose everything"}
+                  </Button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
