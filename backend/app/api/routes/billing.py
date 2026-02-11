@@ -2,6 +2,7 @@
 plan changes with proration, proration previews, payment methods, webhook."""
 import logging
 from datetime import datetime, timezone
+from uuid import UUID
 
 import stripe
 from fastapi import APIRouter, Request, HTTPException
@@ -10,6 +11,8 @@ from pydantic import BaseModel
 
 from app.core.config import get_settings
 from app.api.store import get_session_user, set_session_user, get_girlfriend_count
+from app.api import supabase_store as sb_store
+from app.core.supabase_client import get_supabase_admin
 from app.schemas.payment_method import (
     PaymentMethodCardSummary,
     PaymentMethodResponse,
@@ -40,6 +43,15 @@ PLAN_ORDER = {"free": 0, "plus": 1, "premium": 2}
 
 # Monthly amounts (cents) for display/fallback when no Stripe subscription exists
 PLAN_MONTHLY_CENTS = {"free": 0, "plus": 1499, "premium": 2999}
+
+
+def _uuid_or_none(v: str | None) -> UUID | None:
+    if not v:
+        return None
+    try:
+        return UUID(str(v))
+    except (ValueError, TypeError):
+        return None
 
 
 def _session_id(request: Request) -> str | None:
@@ -125,6 +137,23 @@ def billing_status(request: Request):
     if not sid:
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
     user = get_session_user(sid)
+    user_uuid = _uuid_or_none((user or {}).get("user_id") or (user or {}).get("id"))
+    if user_uuid and get_supabase_admin():
+        try:
+            sub = sb_store.get_latest_subscription(user_uuid) or {}
+            billing = sb_store.get_billing_customer(user_uuid) or {}
+            if user:
+                user = {
+                    **user,
+                    "plan": sub.get("plan", user.get("plan", "free")),
+                    "stripe_subscription_id": sub.get("stripe_subscription_id", user.get("stripe_subscription_id")),
+                    "has_card_on_file": bool(billing.get("has_card_on_file", user.get("has_card_on_file", False))),
+                    "stripe_customer_id": billing.get("stripe_customer_id", user.get("stripe_customer_id")),
+                    "default_payment_method_id": billing.get("default_payment_method_id", user.get("default_payment_method_id")),
+                }
+                set_session_user(sid, user)
+        except Exception:
+            pass
     plan = (user or {}).get("plan", "free")
     has_card = (user or {}).get("has_card_on_file", False)
 
@@ -787,6 +816,7 @@ async def stripe_webhook(request: Request):
         si = event["data"]["object"]
         metadata = si.get("metadata", {})
         session_id = metadata.get("session_id", "")
+        user_id_meta = _uuid_or_none(metadata.get("user_id"))
         payment_method = si.get("payment_method")
         customer_id = si.get("customer")
 
@@ -809,6 +839,16 @@ async def stripe_webhook(request: Request):
                     "has_card_on_file": True,
                     "default_payment_method_id": payment_method,
                 })
+        if user_id_meta and get_supabase_admin():
+            try:
+                sb_store.upsert_billing_customer(
+                    user_id_meta,
+                    stripe_customer_id=customer_id,
+                    default_payment_method_id=payment_method,
+                    has_card_on_file=True,
+                )
+            except Exception:
+                pass
 
     # ── Invoice paid (subscription payment succeeded) ────────────────────
     elif event_type == "invoice.paid":
@@ -833,6 +873,7 @@ async def stripe_webhook(request: Request):
         sub = event["data"]["object"]
         metadata = sub.get("metadata", {})
         session_id = metadata.get("session_id", "")
+        user_id_meta = _uuid_or_none(metadata.get("user_id"))
         status = sub.get("status")
         logger.info("Subscription %s status=%s", sub.get("id"), status)
 
@@ -849,12 +890,29 @@ async def stripe_webhook(request: Request):
                     "plan": plan,
                     "stripe_subscription_id": sub.get("id"),
                 })
+        if user_id_meta:
+            try:
+                items = sub.get("items", {}).get("data", [])
+                plan = "free"
+                if items:
+                    price_id = items[0].get("price", {}).get("id", "")
+                    plan = _price_id_to_plan(price_id)
+                sb_store.upsert_subscription(
+                    user_id=user_id_meta,
+                    plan=plan if status in ("active", "trialing") else "free",
+                    stripe_subscription_id=sub.get("id"),
+                    status=status,
+                    current_period_end=_ts_to_iso(sub.get("current_period_end")),
+                )
+            except Exception:
+                pass
 
     # ── Subscription deleted ─────────────────────────────────────────────
     elif event_type == "customer.subscription.deleted":
         sub = event["data"]["object"]
         metadata = sub.get("metadata", {})
         session_id = metadata.get("session_id", "")
+        user_id_meta = _uuid_or_none(metadata.get("user_id"))
         if session_id:
             user = get_session_user(session_id)
             if user:
@@ -864,6 +922,17 @@ async def stripe_webhook(request: Request):
                     "stripe_subscription_id": None,
                 })
                 logger.info("Subscription cancelled, reverted to free")
+        if user_id_meta:
+            try:
+                sb_store.upsert_subscription(
+                    user_id=user_id_meta,
+                    plan="free",
+                    stripe_subscription_id=None,
+                    status="canceled",
+                    current_period_end=None,
+                )
+            except Exception:
+                pass
 
     # ── Checkout session completed (gift purchases) ──────────────────────
     elif event_type == "checkout.session.completed":

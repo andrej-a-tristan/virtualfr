@@ -102,6 +102,12 @@ export interface Traits {
   cultural_personality: string
 }
 
+/** Language preference for localization. */
+export type LanguagePref = "en" | "sk"
+
+/** Relationship level (matches backend region system levels). */
+export type RelationshipLevel = "STRANGER" | "FAMILIAR" | "CLOSE" | "INTIMATE" | "EXCLUSIVE"
+
 export type ChatMessageRole = "user" | "assistant" | "system"
 
 export interface ChatMessage {

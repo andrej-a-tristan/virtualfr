@@ -1,7 +1,7 @@
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { completeOnboarding, createAdditionalGirlfriend } from "@/lib/api/endpoints"
+import { completeOnboarding, createAdditionalGirlfriend, guestSession } from "@/lib/api/endpoints"
 import { useAppStore } from "@/lib/store/useAppStore"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -11,6 +11,7 @@ export default function OnboardingGenerating() {
   const queryClient = useQueryClient()
   const [searchParams] = useSearchParams()
   const started = useRef(false)
+  const [statusText, setStatusText] = useState("This only takes a moment.")
 
   const {
     onboardingTraits,
@@ -19,6 +20,7 @@ export default function OnboardingGenerating() {
     onboardingIdentity,
     onboardingMode,
     setGirlfriend,
+    setUser,
     setGirlfriends,
     clearOnboarding,
   } = useAppStore()
@@ -34,7 +36,21 @@ export default function OnboardingGenerating() {
       navigate("/onboarding/reveal", { replace: true })
       queryClient.invalidateQueries({ queryKey: ["me"] })
     },
-    onError: () => {
+    onError: async (err: any) => {
+      const msg = err?.message || ""
+      // If session was lost (401), try to recover and retry
+      if (msg.includes("unauthorized") || msg.includes("session_expired")) {
+        setStatusText("Reconnecting session...")
+        try {
+          const res = await guestSession()
+          setUser(res.user)
+          // Retry the mutation
+          firstMutation.mutate(payload)
+          return
+        } catch {
+          // Recovery failed
+        }
+      }
       navigate("/onboarding/traits", { replace: true })
     },
   })
@@ -43,10 +59,8 @@ export default function OnboardingGenerating() {
   const additionalMutation = useMutation({
     mutationFn: createAdditionalGirlfriend,
     onSuccess: (res) => {
-      // Use the COMPLETE list from the server (includes all existing girls + new one)
       setGirlfriends(res.girlfriends, res.current_girlfriend_id)
       clearOnboarding()
-      // Refetch queries so the app picks up the new girl
       queryClient.invalidateQueries({ queryKey: ["me"] })
       queryClient.invalidateQueries({ queryKey: ["girlfriend"] })
       queryClient.invalidateQueries({ queryKey: ["girlfriendsList"] })
@@ -62,20 +76,23 @@ export default function OnboardingGenerating() {
     },
   })
 
+  // Build the payload (used in both initial attempt and retry)
+  const payload = onboardingTraits && onboardingAppearance && onboardingContentPrefs && onboardingIdentity
+    ? {
+        traits: onboardingTraits,
+        appearance_prefs: onboardingAppearance,
+        content_prefs: onboardingContentPrefs,
+        identity: onboardingIdentity,
+      }
+    : null
+
   useEffect(() => {
     if (started.current) return
-    if (!onboardingTraits || !onboardingAppearance || !onboardingContentPrefs || !onboardingIdentity) {
+    if (!payload) {
       navigate("/onboarding/traits", { replace: true })
       return
     }
     started.current = true
-
-    const payload = {
-      traits: onboardingTraits,
-      appearance_prefs: onboardingAppearance,
-      content_prefs: onboardingContentPrefs,
-      identity: onboardingIdentity,
-    }
 
     if (isAdditional) {
       additionalMutation.mutate(payload)
@@ -104,7 +121,7 @@ export default function OnboardingGenerating() {
             <Skeleton className="h-3 w-20" />
           </div>
           <p className="text-sm text-muted-foreground">
-            This only takes a moment.
+            {statusText}
           </p>
         </CardContent>
       </Card>

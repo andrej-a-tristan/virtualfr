@@ -15,6 +15,7 @@ from app.schemas.girlfriend import (
     OnboardingCompletePayload,
     IdentityResponse,
 )
+from app.api.deps import get_current_user
 from app.api.store import (
     get_session_user,
     set_session_user,
@@ -40,7 +41,7 @@ def _require_user(request: Request) -> tuple[str, dict]:
     sid = _session_id(request)
     if not sid:
         raise HTTPException(status_code=401, detail="unauthorized")
-    user = get_session_user(sid)
+    user = get_current_user(request)
     if not user:
         raise HTTPException(status_code=401, detail="unauthorized")
     return sid, user
@@ -66,7 +67,8 @@ def create_girlfriend(request: Request, body: CreateGirlfriendRequest):
         "created_at": now,
     }
     set_girlfriend(sid, gf)
-    return GirlfriendResponse(**gf)
+    saved = get_girlfriend(sid) or gf
+    return GirlfriendResponse(**saved)
 
 
 # ── GET /api/girlfriends (list all) ──────────────────────────────────────────
@@ -179,10 +181,10 @@ def create_additional_girlfriend(request: Request, body: OnboardingCompletePaylo
     }
 
     add_girlfriend(sid, gf)
-
+    current = get_girlfriend(sid) or gf
     gfs = get_all_girlfriends(sid)
     return {
-        "girlfriend": _gf_to_response(gf),
+        "girlfriend": _gf_to_response(current),
         "girlfriends": [_gf_to_response(g) for g in gfs],
-        "current_girlfriend_id": gf_id,
+        "current_girlfriend_id": current.get("id", gf_id),
     }

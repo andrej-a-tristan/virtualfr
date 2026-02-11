@@ -92,6 +92,8 @@ from app.services.habits import build_habit_profile
 from app.services.big_five import map_traits_to_big_five, big_five_to_description
 from app.services.time_utils import hours_since, now_iso
 from app.services.memory import build_memory_context, write_memories_from_message
+from app.services.prompt_builder import build_system_prompt, build_input_from_dict
+from app.services.prompt_context import get_prompt_context
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 logger = logging.getLogger(__name__)
@@ -237,22 +239,22 @@ def _emotional_disclosure_heuristic(text: str) -> bool:
     return any(x in t for x in ["feel", "felt", "worried", "sad", "happy", "excited", "nervous"])
 
 
-def _generate_mock_response(gf_display_name: str, traits: dict, relationship_state: dict, memory_context, last_user_message: str) -> str:
-    """Generate a personality-aware mock response based on traits and memory.
+def _generate_mock_response(system_prompt: str, traits: dict, relationship_state: dict, memory_context, last_user_message: str) -> str:
+    """Generate a personality-aware mock response using the system prompt context.
     
     Uses trust/intimacy descriptors to modulate tone and language.
+    When a real LLM is connected, the system_prompt is sent as the system message.
     """
     trust = relationship_state.get("trust", 20) if relationship_state else 20
     intimacy = relationship_state.get("intimacy", 1) if relationship_state else 1
-    level = relationship_state.get("level", 0) if relationship_state else 0
-    
+
     # Get descriptors for current trust/intimacy
     descs = get_descriptors(trust, intimacy)
     tone = descs.trust.tone_rules
-    
+
     # Get personality traits
     emotional_style = traits.get("emotional_style", "Caring")
-    
+
     # Base responses modulated by trust level
     if trust < 25:
         base_responses = [
@@ -284,7 +286,7 @@ def _generate_mock_response(gf_display_name: str, traits: dict, relationship_sta
             "You know me better than anyone. I'm completely yours.",
             "Every moment with you feels perfect.",
         ]
-    
+
     # Emotional style modifier
     style_modifiers = {
         "Playful": " 😊",
@@ -293,35 +295,36 @@ def _generate_mock_response(gf_display_name: str, traits: dict, relationship_sta
         "Protective": " 💪",
     }
     suffix = style_modifiers.get(emotional_style, "")
-    
+
     # Add emoji based on tone rules
     if tone.emoji_rate >= 2 and not suffix:
         suffix = " ❤️"
-    
+
     # Add memory context if available
     prefix = ""
     if memory_context and hasattr(memory_context, 'facts') and memory_context.facts:
         if any("name" in f.lower() for f in memory_context.facts):
             prefix = "I remember you telling me about yourself. "
-    
+
     # Deterministic selection
     import random
     random.seed(hash(last_user_message))
     response = random.choice(base_responses)
-    
+
     # Use descriptor openers at higher trust
     if trust >= 40 and descs.trust.openers:
         opener = random.choice(descs.trust.openers)
         if opener not in response:
             response = f"{opener} {response}"
-    
+
     return prefix + response + suffix
 
 
-def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_for_context, gf_display_name, traits, relationship_state=None, habit_profile=None, memory_context=None, girlfriend_id=None, image_decision_event=None, blurred_surprise_event=None, relationship_gain_events=None, achievement_events=None, intimacy_unlock_events=None, intimacy_photo_events=None):
-    """Stream mock response and save assistant message. Yields SSE events.
+def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_for_context, gf_display_name, traits, relationship_state=None, habit_profile=None, memory_context=None, girlfriend_id=None, image_decision_event=None, blurred_surprise_event=None, relationship_gain_events=None, achievement_events=None, intimacy_unlock_events=None, intimacy_photo_events=None, system_prompt=None):
+    """Stream response and save assistant message. Yields SSE events.
     
-    This function includes full personality and memory context for future LLM integration.
+    When system_prompt is provided, it is structured for LLM integration:
+      messages = [{"role":"system","content": system_prompt}, ...context..., user_msg]
     Currently returns personality-aware mock responses.
     """
     # Get the last user message for context
@@ -330,13 +333,22 @@ def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_f
         if m.get("role") == "user" and m.get("content"):
             last_user_msg = m["content"]
             break
-    
-    # Generate personality-aware mock response
+
+    # Build messages list for LLM (structured for when a real provider is connected)
+    llm_messages = []
+    if system_prompt:
+        llm_messages.append({"role": "system", "content": system_prompt})
+    # Add short-term context (last 20 messages)
+    for m in messages_for_context[-20:]:
+        llm_messages.append({"role": m["role"], "content": (m.get("content") or "")[:2000]})
+    logger.debug("LLM message count: %d (system prompt: %d chars)", len(llm_messages), len(system_prompt or ""))
+
+    # Generate personality-aware mock response (replace with LLM call when ready)
     response_text = _generate_mock_response(
-        gf_display_name, 
-        traits, 
-        relationship_state, 
-        memory_context, 
+        system_prompt or "",
+        traits,
+        relationship_state,
+        memory_context,
         last_user_msg
     )
     
@@ -812,6 +824,25 @@ def send_message(request: Request, body: SendMessageRequest):
         except Exception as e:
             logger.warning("Memory context build failed: %s", e)
     
+    # ── Build system prompt ─────────────────────────────────────────────────
+    system_prompt = None
+    try:
+        prompt_ctx = get_prompt_context(
+            sb_admin=get_supabase_admin() if use_sb else None,
+            user_id=user_id if use_sb else None,
+            girlfriend_id=gf_uuid if use_sb else None,
+            session_id=sid if not use_sb else None,
+            girlfriend_id_str=resolved_gf_id if not use_sb else None,
+            girlfriend=gf,
+            relationship_state=state,
+            habit_profile=habit,
+            memory_context=memory_ctx,
+        )
+        prompt_input = build_input_from_dict(**prompt_ctx)
+        system_prompt = build_system_prompt(prompt_input)
+    except Exception as e:
+        logger.warning("System prompt build failed: %s", e)
+
     # ── Image decision check (sensitive content gating) ─────────────────────
     image_decision_event = None
     if request_is_sensitive(body.message):
@@ -843,6 +874,17 @@ def send_message(request: Request, body: SendMessageRequest):
         except Exception as e:
             logger.warning("Image decision check failed: %s", e)
 
+    # ── Optional debug: include prompt hash in response headers ─────────────
+    extra_headers: dict[str, str] = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+    if request.headers.get("X-Debug-Prompt") == "1" and system_prompt:
+        import hashlib
+        prompt_hash = hashlib.sha256(system_prompt.encode()).hexdigest()[:16]
+        extra_headers["X-Prompt-Hash"] = prompt_hash
+
     return StreamingResponse(
         _stream_response_and_save(
             sid, user_id, gf_uuid, milestone_message, messages,
@@ -855,9 +897,10 @@ def send_message(request: Request, body: SendMessageRequest):
             achievement_events=achievement_events if achievement_events else None,
             intimacy_unlock_events=intimacy_unlock_events if intimacy_unlock_events else None,
             intimacy_photo_events=intimacy_photo_events if intimacy_photo_events else None,
+            system_prompt=system_prompt,
         ),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+        headers=extra_headers,
     )
 
 

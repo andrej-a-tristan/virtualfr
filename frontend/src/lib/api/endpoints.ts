@@ -59,6 +59,9 @@ export async function login(email: string, password: string) {
 export async function logout() {
   return apiPost<{ ok: boolean }>("/auth/logout")
 }
+export async function guestSession() {
+  return apiPost<{ ok: boolean; user: User }>("/auth/guest")
+}
 
 // Me
 export async function getMe() {

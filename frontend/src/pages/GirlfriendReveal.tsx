@@ -36,9 +36,12 @@ export default function GirlfriendReveal() {
     setError(null)
     try {
       const res = await signup(data.email, data.password, data.display_name)
-      setUser(res.user)
+      // Ensure has_girlfriend is preserved in user state
+      setUser({ ...res.user, has_girlfriend: true })
       await postAgeGate()
+      // Invalidate all relevant queries to pick up the transferred girlfriend
       await queryClient.invalidateQueries({ queryKey: ["me"] })
+      await queryClient.invalidateQueries({ queryKey: ["girlfriendsList"] })
       // After account creation, go to subscription page
       navigate("/onboarding/subscribe", { replace: true })
     } catch (e) {
@@ -46,9 +49,14 @@ export default function GirlfriendReveal() {
     }
   }
 
-  // Skip signup — already have a session (dev auto-login)
+  // Skip signup — go directly to subscription or chat
   const handleSkipToSubscribe = () => {
     navigate("/onboarding/subscribe", { replace: true })
+  }
+
+  // Skip everything — go directly to chat with guest session
+  const handleSkipToChat = () => {
+    navigate("/app/girl", { replace: true })
   }
 
   return (
@@ -174,7 +182,14 @@ export default function GirlfriendReveal() {
               className="w-full text-center text-sm text-muted-foreground hover:text-foreground transition-colors"
               onClick={handleSkipToSubscribe}
             >
-              Skip for now
+              Skip signup &mdash; choose plan first
+            </button>
+            <button
+              type="button"
+              className="w-full text-center text-xs text-muted-foreground/60 hover:text-foreground/80 transition-colors mt-1"
+              onClick={handleSkipToChat}
+            >
+              Skip everything &mdash; start chatting now
             </button>
           </div>
         )}

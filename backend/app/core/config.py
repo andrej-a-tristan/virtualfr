@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     # Supabase (optional; leave empty to use in-memory store)
     supabase_url: str = ""
     supabase_anon_key: str = ""
+    supabase_service_role_key: str = ""
 
     # API key for external services (e.g. OpenAI); optional
     api_key: str = ""
@@ -52,7 +53,7 @@ class Settings(BaseSettings):
         return Path(__file__).resolve().parents[3] / "frontend" / "dist"
 
     class Config:
-        env_file = ".env"
+        env_file = str(Path(__file__).resolve().parents[2] / ".env")
         extra = "ignore"
 
 

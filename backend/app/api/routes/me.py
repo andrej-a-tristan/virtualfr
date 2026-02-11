@@ -1,27 +1,27 @@
 """Current user and age-gate endpoints."""
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
 from app.schemas.auth import UserResponse
+from app.api.deps import get_current_user
 from app.api.store import get_session_user, set_session_user, get_girlfriend
+
+SESSION_COOKIE = "session"
 
 def _age_gate(user): return user.get("age_gate_passed", False)
 
 router = APIRouter(prefix="/me", tags=["me"])
 
 
-def _session_id(request: Request) -> str | None:
-    return request.cookies.get("session")
-
-
 @router.get("")
-def me(request: Request):
+def me(request: Request, response: Response):
     """Return current user + flags (age_gate_passed, has_girlfriend)."""
-    sid = _session_id(request)
-    if not sid:
-        return JSONResponse(status_code=401, content={"error": "unauthorized"})
-    user = get_session_user(sid)
+    user = get_current_user(request, response)
     if not user:
-        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+        resp = JSONResponse(status_code=401, content={"error": "session_expired"})
+        resp.delete_cookie(SESSION_COOKIE)
+        return resp
+
+    sid = request.cookies.get(SESSION_COOKIE)
     gf = get_girlfriend(sid)
     has_gf = bool(gf)
     current_gf_id = gf["id"] if gf else None
@@ -37,10 +37,23 @@ def me(request: Request):
 
 
 @router.post("/age-gate")
-def age_gate(request: Request):
+def age_gate(request: Request, response: Response):
     """Set age_gate_passed=True for current session."""
-    sid = _session_id(request)
-    if not sid:
-        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    user = get_current_user(request, response)
+    if not user:
+        resp = JSONResponse(status_code=401, content={"error": "session_expired"})
+        resp.delete_cookie(SESSION_COOKIE)
+        return resp
+    sid = request.cookies.get(SESSION_COOKIE)
     set_session_user(sid, {"age_gate_passed": True})
+
+    # Persist to Supabase
+    try:
+        from app.core.supabase_client import get_supabase_admin
+        admin = get_supabase_admin()
+        if admin and user.get("user_id") and not user.get("is_guest"):
+            admin.table("users_profile").update({"age_gate_passed": True}).eq("user_id", user["user_id"]).execute()
+    except Exception:
+        pass
+
     return {"ok": True}

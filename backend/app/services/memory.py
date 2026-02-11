@@ -350,10 +350,6 @@ def _extract_facts(text: str) -> list[tuple[str, str]]:
     """
     facts: list[tuple[str, str]] = []
     
-    # Skip factual extraction if explicit content
-    if _contains_explicit_content(text):
-        return facts
-    
     # Try specific patterns
     for key, _, pattern in FACTUAL_PATTERNS:
         match = pattern.search(text)
@@ -402,9 +398,7 @@ def _generate_event_summary(text: str, emotions: list[str]) -> str:
     # Try to add context (first 50 chars of message, cleaned)
     short_text = text[:50].strip()
     if short_text:
-        # Remove explicit content from summary
-        if not _contains_explicit_content(short_text):
-            return f"{base} about: {short_text}..."
+        return f"{base} about: {short_text}..."
     
     return base
 

@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import { getBillingStatus } from "@/lib/api/endpoints"
 import { Badge } from "@/components/ui/badge"
@@ -13,6 +13,7 @@ import { useAuth } from "@/lib/hooks/useAuth"
 import { User, LogOut } from "lucide-react"
 
 export default function TopNav() {
+  const navigate = useNavigate()
   const { user, logout } = useAuth()
   const { data: billing } = useQuery({ queryKey: ["billingStatus"], queryFn: getBillingStatus })
 
@@ -50,7 +51,7 @@ export default function TopNav() {
             <DropdownMenuItem asChild>
               <Link to="/app/settings">Settings</Link>
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => logout()}>
+            <DropdownMenuItem onClick={async () => { await logout(); navigate("/login", { replace: true }); }}>
               <LogOut className="mr-2 h-4 w-4" />
               Log out
             </DropdownMenuItem>
