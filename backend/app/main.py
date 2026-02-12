@@ -35,6 +35,7 @@ from app.api.routes import (
     moderation,
     onboarding,
     profile,
+    progression,
     prompt,
     relationship,
 )
@@ -129,6 +130,7 @@ app.include_router(moderation.router, prefix="/api")
 app.include_router(memory.router, prefix="/api")
 app.include_router(onboarding.router, prefix="/api")
 app.include_router(profile.router, prefix="/api")
+app.include_router(progression.router, prefix="/api")
 app.include_router(prompt.router, prefix="/api")
 app.include_router(relationship.router, prefix="/api")
 app.include_router(intimacy_achievements.router, prefix="/api")

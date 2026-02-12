@@ -874,6 +874,68 @@ def send_message(request: Request, body: SendMessageRequest):
         except Exception as e:
             logger.warning("Image decision check failed: %s", e)
 
+    # ── Progression evaluation (event-driven architecture) ───────────────────
+    try:
+        from app.services import progression_service as prog_svc
+        from app.services import message_composer, delivery_service, experiment_service, telemetry_service
+
+        _user_id_str = str(user_id) if user_id else (user or {}).get("user_id", (user or {}).get("id", ""))
+        _gf_id_str = str(gf_uuid) if gf_uuid else resolved_gf_id or ""
+
+        if _user_id_str and _gf_id_str:
+            # Extract quality signals from the user message
+            recent_count = len([m for m in messages[-10:] if m.get("role") == "user"])
+            signals = prog_svc.extract_quality_signals(body.message, recent_message_count=recent_count)
+            quality = prog_svc.compute_quality_score(signals)
+
+            # Log session quality
+            telemetry_service.update_session_quality(_user_id_str, _gf_id_str, quality.total, signals.model_dump())
+
+            # Detect progression events from before/after state change
+            old_level = prev_state.get("level", 0) if prev_state else 0
+            new_level = state.get("level", 0) if isinstance(state, dict) else 0
+            old_trust_vis = prev_state.get("trust_visible", 20) if prev_state else 20
+            new_trust_vis = ti_state.trust_visible if hasattr(ti_state, "trust_visible") else (ti_state.get("trust_visible", 20) if isinstance(ti_state, dict) else 20)
+            old_streak_val = 0
+            new_streak_val = prog.streak_days if hasattr(prog, "streak_days") else 0
+            ach_state = get_achievement_progress(sid, girlfriend_id=resolved_gf_id)
+            old_mc = (ach_state.get("message_counter", 0) if isinstance(ach_state, dict) else getattr(ach_state, "message_counter", 0)) - 1
+            new_mc = old_mc + 1
+            existing_milestones = state.get("milestones_reached", []) if isinstance(state, dict) else []
+
+            prog_events = prog_svc.detect_progression_events(
+                user_id=_user_id_str,
+                girlfriend_id=_gf_id_str,
+                quality_score=quality.total,
+                old_level=old_level,
+                new_level=new_level,
+                old_trust=old_trust_vis,
+                new_trust=new_trust_vis,
+                old_streak=old_streak_val,
+                new_streak=new_streak_val,
+                old_message_count=old_mc,
+                new_message_count=new_mc,
+                reached_milestones=existing_milestones,
+            )
+
+            # Compose and queue milestone messages
+            if prog_events:
+                gf_name_str = gf.get("display_name") or gf.get("name") or "her"
+                gf_traits = gf.get("traits") or {}
+                tone = experiment_service.resolve_tone_from_traits(gf_traits)
+                for evt in prog_events:
+                    msg = message_composer.compose_milestone_message(
+                        evt, girlfriend_name=gf_name_str, tone=tone,
+                    )
+                    if msg:
+                        delivery_service.queue_message(_user_id_str, _gf_id_str, msg)
+                    telemetry_service.log_progression_event(
+                        _user_id_str, _gf_id_str, evt.event_type, evt.payload, quality.total
+                    )
+                logger.info(f"Progression: {len(prog_events)} events, queued messages for user {_user_id_str[:8]}")
+    except Exception as e:
+        logger.warning("Progression evaluation failed (non-blocking): %s", e)
+
     # ── Optional debug: include prompt hash in response headers ─────────────
     extra_headers: dict[str, str] = {
         "Cache-Control": "no-cache",

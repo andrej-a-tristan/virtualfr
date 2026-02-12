@@ -37,6 +37,7 @@ import { Button } from "@/components/ui/button"
 import IntimateProgressionPanel from "@/components/chat/IntimateProgressionPanel"
 import GiftCollectionPanel from "@/components/chat/GiftCollectionPanel"
 import MysteryBoxPanel from "@/components/chat/MysteryBoxPanel"
+import MilestoneInbox from "@/components/chat/MilestoneInbox"
 
 type Tab = "chat" | "gallery"
 
@@ -1138,6 +1139,8 @@ export default function GirlPage() {
                 <span className="font-medium">Your gift is being delivered...</span>
               </div>
             )}
+            {/* Milestone messages + next milestone progress */}
+            <MilestoneInbox girlfriendId={currentGirlfriendId ?? undefined} className="px-4 pt-2" />
             {chatLoading ? (
               <div className="flex-1 space-y-3 p-4">
                 <Skeleton className="h-12 w-3/4" />
