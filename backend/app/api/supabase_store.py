@@ -195,6 +195,22 @@ def upsert_subscription(
         sb.table("subscriptions").insert(payload).execute()
 
 
+def _row_to_girlfriend(row: dict[str, Any]) -> dict[str, Any]:
+    """Convert a DB girlfriend row to a full dict with all fields."""
+    return {
+        "id": row["id"],
+        "display_name": row.get("display_name"),
+        "name": row.get("name"),
+        "avatar_url": row.get("avatar_url"),
+        "traits": row.get("traits") or {},
+        "appearance_prefs": row.get("appearance_prefs") or {},
+        "content_prefs": row.get("content_prefs") or {},
+        "identity": row.get("identity") or {},
+        "identity_canon": row.get("identity_canon") or {},
+        "created_at": row["created_at"],
+    }
+
+
 def get_girlfriend_by_id(user_id: UUID, girlfriend_id: UUID) -> dict[str, Any] | None:
     sb = _admin()
     if not sb:
@@ -202,29 +218,25 @@ def get_girlfriend_by_id(user_id: UUID, girlfriend_id: UUID) -> dict[str, Any] |
     r = sb.table("girlfriends").select("*").eq("user_id", str(user_id)).eq("id", str(girlfriend_id)).execute()
     if not r.data or len(r.data) == 0:
         return None
-    row = r.data[0]
-    return {
-        "id": row["id"],
-        "display_name": row["display_name"],
-        "traits": row.get("traits") or {},
-        "created_at": row["created_at"],
-    }
+    return _row_to_girlfriend(r.data[0])
 
 
-def get_current_girlfriend(user_id: UUID) -> dict[str, Any] | None:
+def get_current_girlfriend(user_id: UUID, current_girlfriend_id: str | None = None) -> dict[str, Any] | None:
+    """Get the current girlfriend. If current_girlfriend_id is provided, look up by ID.
+    Otherwise fall back to the first girlfriend (ordered by created_at)."""
     sb = _admin()
     if not sb:
         return None
+    # If we know which girlfriend is current, fetch that specific one
+    if current_girlfriend_id:
+        r = sb.table("girlfriends").select("*").eq("user_id", str(user_id)).eq("id", current_girlfriend_id).execute()
+        if r.data and len(r.data) > 0:
+            return _row_to_girlfriend(r.data[0])
+    # Fallback: first girlfriend
     r = sb.table("girlfriends").select("*").eq("user_id", str(user_id)).order("created_at").limit(1).execute()
     if not r.data or len(r.data) == 0:
         return None
-    row = r.data[0]
-    return {
-        "id": row["id"],
-        "display_name": row["display_name"],
-        "traits": row.get("traits") or {},
-        "created_at": row["created_at"],
-    }
+    return _row_to_girlfriend(r.data[0])
 
 
 def create_girlfriend(user_id: UUID, display_name: str, traits: dict, extra: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -259,21 +271,7 @@ def list_girlfriends(user_id: UUID) -> list[dict[str, Any]]:
     r = sb.table("girlfriends").select("*").eq("user_id", str(user_id)).order("created_at").execute()
     if not r.data:
         return []
-    out: list[dict[str, Any]] = []
-    for row in r.data:
-        out.append({
-            "id": row["id"],
-            "display_name": row.get("display_name"),
-            "name": row.get("name"),
-            "avatar_url": row.get("avatar_url"),
-            "traits": row.get("traits") or {},
-            "appearance_prefs": row.get("appearance_prefs") or {},
-            "content_prefs": row.get("content_prefs") or {},
-            "identity": row.get("identity") or {},
-            "identity_canon": row.get("identity_canon") or {},
-            "created_at": row["created_at"],
-        })
-    return out
+    return [_row_to_girlfriend(row) for row in r.data]
 
 
 def get_messages(user_id: UUID, girlfriend_id: UUID) -> list[dict[str, Any]]:

@@ -95,6 +95,16 @@ from app.services.memory import build_memory_context, write_memories_from_messag
 from app.services.prompt_builder import build_system_prompt, build_input_from_dict
 from app.services.prompt_context import get_prompt_context
 
+# ── Bond Engine: unified orchestration layer ────────────────────────────────
+from app.services.bond_engine.bond_orchestrator import (
+    TurnContext,
+    TurnOutcome,
+    process_user_turn as bond_process_turn,
+    validate_response as bond_validate_response,
+    persist_turn_outcomes as bond_persist_outcomes,
+    plan_proactive_initiation,
+)
+
 router = APIRouter(prefix="/chat", tags=["chat"])
 logger = logging.getLogger(__name__)
 
@@ -185,16 +195,18 @@ def chat_history(request: Request, girlfriend_id: str | None = None):
     sid, user, user_id, gf_id = get_current_user(request)
     if not sid or not user:
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    # Use explicit girlfriend_id from query param, fall back to session's current
+    resolved_gf_id = girlfriend_id or gf_id
     use_sb = _use_supabase(user_id)
     if use_sb and user_id:
-        gf = sb.get_current_girlfriend(user_id)
+        gf = sb.get_current_girlfriend(user_id, resolved_gf_id)
         if gf:
             messages = sb.get_messages(user_id, UUID(str(gf["id"])))
         else:
             messages = []
     else:
         # Pass explicit girlfriend_id so messages are per-girl
-        messages = get_messages(sid, girlfriend_id)
+        messages = get_messages(sid, resolved_gf_id)
     if not messages:
         messages = [
             {"id": "m1", "role": "user", "content": "Hey, how are you?", "image_url": None, "event_type": None, "event_key": None, "created_at": "2025-01-01T12:00:00Z"},
@@ -208,10 +220,12 @@ def chat_state(request: Request, girlfriend_id: str | None = None):
     sid, user, user_id, gf_id = get_current_user(request)
     if not sid or not user:
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    # Use explicit girlfriend_id from query param, fall back to session's current
+    resolved_gf_id = girlfriend_id or gf_id
     use_sb = _use_supabase(user_id)
     if use_sb and user_id:
         # Supabase path: still uses the old relationship_state dict
-        gf = sb.get_current_girlfriend(user_id)
+        gf = sb.get_current_girlfriend(user_id, resolved_gf_id)
         if gf:
             gf_uuid = UUID(str(gf["id"]))
             state = sb.get_relationship_state(user_id, gf_uuid)
@@ -223,9 +237,9 @@ def chat_state(request: Request, girlfriend_id: str | None = None):
         return _state_to_schema(state)
     else:
         # In-memory path: use the progression engine + unified trust/intimacy
-        prog = get_relationship_progress(sid, girlfriend_id)
-        ti_state = get_trust_intimacy_state(sid, girlfriend_id)
-        rs = get_relationship_state(sid, girlfriend_id=girlfriend_id) or {}
+        prog = get_relationship_progress(sid, resolved_gf_id)
+        ti_state = get_trust_intimacy_state(sid, resolved_gf_id)
+        rs = get_relationship_state(sid, girlfriend_id=resolved_gf_id) or {}
         return _progress_to_schema(prog, ti_state=ti_state, milestones=rs.get("milestones_reached", []))
 
 
@@ -320,12 +334,11 @@ def _generate_mock_response(system_prompt: str, traits: dict, relationship_state
     return prefix + response + suffix
 
 
-def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_for_context, gf_display_name, traits, relationship_state=None, habit_profile=None, memory_context=None, girlfriend_id=None, image_decision_event=None, blurred_surprise_event=None, relationship_gain_events=None, achievement_events=None, intimacy_unlock_events=None, intimacy_photo_events=None, system_prompt=None):
+def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_for_context, gf_display_name, traits, relationship_state=None, habit_profile=None, memory_context=None, girlfriend_id=None, image_decision_event=None, blurred_surprise_event=None, relationship_gain_events=None, achievement_events=None, intimacy_unlock_events=None, intimacy_photo_events=None, system_prompt=None, bond_outcome=None, bond_turn_ctx=None):
     """Stream response and save assistant message. Yields SSE events.
     
-    When system_prompt is provided, it is structured for LLM integration:
-      messages = [{"role":"system","content": system_prompt}, ...context..., user_msg]
-    Currently returns personality-aware mock responses.
+    Uses OpenAI ChatGPT API for real streaming responses when API_KEY is set.
+    Falls back to mock responses if API_KEY is unavailable.
     """
     # Get the last user message for context
     last_user_msg = ""
@@ -334,7 +347,7 @@ def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_f
             last_user_msg = m["content"]
             break
 
-    # Build messages list for LLM (structured for when a real provider is connected)
+    # Build messages list for LLM
     llm_messages = []
     if system_prompt:
         llm_messages.append({"role": "system", "content": system_prompt})
@@ -343,19 +356,47 @@ def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_f
         llm_messages.append({"role": m["role"], "content": (m.get("content") or "")[:2000]})
     logger.debug("LLM message count: %d (system prompt: %d chars)", len(llm_messages), len(system_prompt or ""))
 
-    # Generate personality-aware mock response (replace with LLM call when ready)
-    response_text = _generate_mock_response(
-        system_prompt or "",
-        traits,
-        relationship_state,
-        memory_context,
-        last_user_msg
-    )
-    
-    # Stream tokens
-    tokens = response_text.split()
-    for t in tokens:
-        yield sse_event({"type": "token", "token": t + " "})
+    # ── Real OpenAI streaming or mock fallback ───────────────────────────
+    from app.core import get_api_key
+    api_key = get_api_key()
+    response_text = ""
+
+    if api_key and llm_messages:
+        # Real OpenAI streaming
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key)
+            stream = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=llm_messages,
+                stream=True,
+                max_tokens=400,
+                temperature=0.85,
+            )
+            for chunk in stream:
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if delta and delta.content:
+                    token = delta.content
+                    response_text += token
+                    yield sse_event({"type": "token", "token": token})
+            logger.info("OpenAI response: %d chars", len(response_text))
+        except Exception as e:
+            logger.error("OpenAI streaming failed: %s", e)
+            # Fall back to mock on error
+            response_text = _generate_mock_response(
+                system_prompt or "", traits, relationship_state, memory_context, last_user_msg
+            )
+            tokens = response_text.split()
+            for t in tokens:
+                yield sse_event({"type": "token", "token": t + " "})
+    else:
+        # Mock fallback (no API key)
+        response_text = _generate_mock_response(
+            system_prompt or "", traits, relationship_state, memory_context, last_user_msg
+        )
+        tokens = response_text.split()
+        for t in tokens:
+            yield sse_event({"type": "token", "token": t + " "})
     
     # Send milestone message if any
     if milestone_message:
@@ -465,6 +506,48 @@ def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_f
             "message": blurred_surprise_event,
         })
 
+    # ── Bond Engine: persist turn outcomes (fingerprints, used memories) ──
+    if bond_outcome and bond_turn_ctx and response_text:
+        try:
+            bond_persist_outcomes(bond_turn_ctx, bond_outcome, response_text)
+        except Exception as e:
+            logger.debug("Bond outcome persistence failed: %s", e)
+
+    # ── Behavior Engine: persist self-memory + conversation mode ─────────
+    if response_text and girlfriend_id:
+        try:
+            from app.services.behavior_engine.behavior_orchestrator import (
+                BehaviorTurnInput, persist_behavior_turn, process_behavior_turn,
+            )
+            from app.core.supabase_client import get_supabase_admin as _get_sb
+            sb_persist = _get_sb()
+            if sb_persist:
+                _beh_inp = BehaviorTurnInput(
+                    session_id=sid or "",
+                    user_id=user_id,
+                    girlfriend_id=girlfriend_id,
+                    user_message="",
+                    girlfriend_data={},
+                    sb_admin=sb_persist,
+                )
+                # Build a minimal result for persistence (we just need intent and contract)
+                from app.services.behavior_engine.intent_classifier import TurnIntent
+                from app.services.behavior_engine.response_contract import BehaviorContract
+                from app.services.behavior_engine.behavior_orchestrator import BehaviorTurnResult
+                from app.services.dossier.retriever import DossierContext
+                _beh_result = BehaviorTurnResult()
+                persist_behavior_turn(_beh_inp, _beh_result, response_text, str(uuid_mod.uuid4()))
+        except Exception as e:
+            logger.debug("Behavior persistence failed: %s", e)
+
+    # ── Bond Engine: emit new capability unlock events ───────────────────
+    if bond_outcome and bond_outcome.new_capabilities:
+        for cap_key in bond_outcome.new_capabilities:
+            yield sse_event({
+                "type": "capability_unlocked",
+                "capability": cap_key,
+            })
+
     yield sse_event({"type": "done"})
 
 
@@ -494,12 +577,12 @@ def send_message(request: Request, body: SendMessageRequest):
             )
         tracker["count"] += 1
 
-    # Resolve the girlfriend_id from the request body (preferred) or session
-    explicit_gf_id = body.girlfriend_id or None
+    # Resolve the girlfriend_id from the request body (preferred) or session's current
+    explicit_gf_id = body.girlfriend_id or gf_id or None
 
     use_sb = get_supabase_admin() and user_id is not None
     if use_sb and user_id:
-        gf = sb.get_current_girlfriend(user_id)
+        gf = sb.get_current_girlfriend(user_id, explicit_gf_id)
         if gf:
             gf_uuid = UUID(str(gf["id"]))
             if not gf_id or str(gf_id) != str(gf["id"]):
@@ -809,7 +892,51 @@ def send_message(request: Request, body: SendMessageRequest):
     traits_payload = gf.get("traits") or {}
     habit = sb.get_habit_profile(user_id, gf_uuid) if (use_sb and user_id and gf_uuid) else get_habit_profile(sid, girlfriend_id=resolved_gf_id)
     
-    # Build memory context for personalized responses
+    # ── Bond Engine: unified turn processing ─────────────────────────────────
+    bond_outcome: TurnOutcome | None = None
+    bond_context_prompt: str | None = None
+    try:
+        # Gather recent assistant turns for response director
+        recent_assistant_texts = [
+            m.get("content", "") for m in (messages or [])[-10:]
+            if m.get("role") == "assistant" and m.get("content")
+        ]
+        # Gather all user timestamps and messages for pattern memory
+        all_user_ts = [m.get("created_at", "") for m in (messages or []) if m.get("role") == "user"]
+        all_user_msgs = [m.get("content", "") for m in (messages or []) if m.get("role") == "user" and m.get("content")]
+
+        bond_ctx = TurnContext(
+            session_id=sid,
+            user_id=user_id,
+            girlfriend_id=gf_uuid or resolved_gf_id,
+            turn_id=user_msg["id"],
+            user_message=body.message,
+            girlfriend=gf,
+            relationship_state=state,
+            level=state.get("level", 0) if isinstance(state, dict) else 0,
+            all_user_messages=all_user_msgs,
+            all_user_timestamps=all_user_ts,
+            recent_assistant_turns=recent_assistant_texts,
+            sb_admin=get_supabase_admin() if use_sb else None,
+        )
+        bond_outcome = bond_process_turn(bond_ctx)
+        bond_context_prompt = bond_outcome.bond_context_prompt or None
+
+        # Log bond engine results
+        if bond_outcome.ingestion_result:
+            ir = bond_outcome.ingestion_result
+            logger.info(
+                "Bond Engine: facts=%d emotions=%s episodes=%d conflicts=%d caps=%s",
+                ir.get("facts_extracted", 0),
+                ir.get("emotions_detected", []),
+                ir.get("episodes_created", 0),
+                ir.get("conflicts_found", 0),
+                bond_outcome.new_capabilities,
+            )
+    except Exception as e:
+        logger.warning("Bond engine processing failed (non-blocking): %s", e)
+
+    # Build memory context for personalized responses (legacy, used alongside bond engine)
     memory_ctx = None
     if use_sb and user_id and gf_uuid:
         try:
@@ -823,6 +950,11 @@ def send_message(request: Request, body: SendMessageRequest):
             )
         except Exception as e:
             logger.warning("Memory context build failed: %s", e)
+
+    # If bond engine produced a memory bundle, use it for prompt memories
+    bond_memories_dict = None
+    if bond_outcome and bond_outcome.memory_bundle.has_content():
+        bond_memories_dict = bond_outcome.memory_bundle.to_prompt_dict()
     
     # ── Build system prompt ─────────────────────────────────────────────────
     system_prompt = None
@@ -838,6 +970,47 @@ def send_message(request: Request, body: SendMessageRequest):
             habit_profile=habit,
             memory_context=memory_ctx,
         )
+        # Override memories with bond engine's scored bundle if available
+        if bond_memories_dict:
+            prompt_ctx["memories_dict"] = bond_memories_dict
+        # Inject bond context (consistency, capabilities, disclosure, response direction)
+        if bond_context_prompt:
+            prompt_ctx["bond_context"] = bond_context_prompt
+
+        # ── Behavior Engine: intent + dossier + turn rules ────────────────
+        behavior_context = ""
+        try:
+            from app.services.behavior_engine.behavior_orchestrator import (
+                BehaviorTurnInput, process_behavior_turn,
+            )
+            behavior_input = BehaviorTurnInput(
+                session_id=sid,
+                user_id=user_id,
+                girlfriend_id=gf_uuid or resolved_gf_id,
+                user_message=body.message,
+                girlfriend_data=gf,
+                relationship_level=state.get("level", 0) if isinstance(state, dict) else 0,
+                recent_assistant_texts=[
+                    m.get("content", "") for m in (messages or [])[-10:]
+                    if m.get("role") == "assistant" and m.get("content")
+                ],
+                sb_admin=get_supabase_admin() if use_sb else None,
+                bond_context_prompt=bond_context_prompt,
+            )
+            behavior_result = process_behavior_turn(behavior_input)
+            behavior_context = behavior_result.get_full_behavior_context()
+            if behavior_context:
+                # Append behavior context after bond context
+                existing_bond = prompt_ctx.get("bond_context", "")
+                prompt_ctx["bond_context"] = (existing_bond + "\n\n" + behavior_context).strip()
+            logger.info("Behavior Engine: intent=%s, must_answer=%s, max_q=%d, tone=%s",
+                        behavior_result.intent.primary,
+                        behavior_result.contract.must_answer_user_question,
+                        behavior_result.contract.max_questions,
+                        behavior_result.contract.tone)
+        except Exception as e:
+            logger.warning("Behavior engine failed (non-blocking): %s", e)
+
         prompt_input = build_input_from_dict(**prompt_ctx)
         system_prompt = build_system_prompt(prompt_input)
     except Exception as e:
@@ -960,6 +1133,8 @@ def send_message(request: Request, body: SendMessageRequest):
             intimacy_unlock_events=intimacy_unlock_events if intimacy_unlock_events else None,
             intimacy_photo_events=intimacy_photo_events if intimacy_photo_events else None,
             system_prompt=system_prompt,
+            bond_outcome=bond_outcome,
+            bond_turn_ctx=bond_ctx if bond_outcome else None,
         ),
         media_type="text/event-stream",
         headers=extra_headers,
@@ -971,9 +1146,11 @@ def app_open(request: Request, body: AppOpenRequest):
     sid, user, user_id, gf_id = get_current_user(request)
     if not sid or not user:
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    # Use body.girlfriend_id or session's current
+    resolved_gf_id = body.girlfriend_id or gf_id
     use_sb = get_supabase_admin() and user_id is not None
     if use_sb and user_id:
-        gf = sb.get_current_girlfriend(user_id)
+        gf = sb.get_current_girlfriend(user_id, resolved_gf_id)
         if gf:
             gf_uuid = UUID(str(gf["id"]))
             if not gf_id or str(gf_id) != str(gf["id"]):
@@ -982,7 +1159,11 @@ def app_open(request: Request, body: AppOpenRequest):
         else:
             gf_uuid = None
     else:
-        gf = get_girlfriend(sid)
+        if resolved_gf_id:
+            from app.api.store import get_girlfriend_by_id as _get_gf_by_id
+            gf = _get_gf_by_id(sid, resolved_gf_id) or get_girlfriend(sid)
+        else:
+            gf = get_girlfriend(sid)
         gf_uuid = None
     if not gf or gf.get("id") != body.girlfriend_id:
         return JSONResponse(status_code=400, content={"error": "girlfriend_mismatch"})
@@ -1051,26 +1232,28 @@ def app_open(request: Request, body: AppOpenRequest):
             set_relationship_state(sid, state)
 
     if not jealousy_text:
-        should_init = should_initiate_conversation(
-            state,
-            attachment_intensity,
-            last_from_her,
-            hours_inactive,
-            current_hour,
-            preferred_hours=preferred_hours if preferred_hours else None,
-            typical_gap_hours=typical_gap,
-            user_id=user.get("id"),
-            girlfriend_id=body.girlfriend_id,
+        # ── Bond Engine: event-conditioned initiation ────────────────────
+        init_result = plan_proactive_initiation(
+            sb_admin=get_supabase_admin() if use_sb else None,
+            user_id=user_id,
+            girlfriend_id=gf_uuid or body.girlfriend_id,
+            girlfriend=gf,
+            relationship_state=state,
+            last_message_from_her=last_from_her,
+            hours_inactive=hours_inactive,
+            current_hour=current_hour,
+            active_hours=preferred_hours if preferred_hours else None,
         )
-        if should_init:
-            init_text = get_initiation_message(region_key, attachment_intensity)
+
+        if init_result.should_initiate and init_result.message:
+            init_text = init_result.message.text
             msg = {
                 "id": str(uuid_mod.uuid4()),
                 "role": "assistant",
                 "content": init_text,
                 "image_url": None,
-                "event_type": None,
-                "event_key": None,
+                "event_type": "initiation",
+                "event_key": init_result.reason_type,
                 "created_at": now_iso(),
             }
             if use_sb and user_id and gf_uuid:
@@ -1083,6 +1266,41 @@ def app_open(request: Request, body: AppOpenRequest):
                 sb.upsert_relationship_state(user_id, gf_uuid, state)
             else:
                 set_relationship_state(sid, state)
+            logger.info("Bond initiation: type=%s reason=%s", init_result.reason_type, init_result.reason_context)
+        else:
+            # Fallback to legacy initiation if bond engine didn't trigger
+            should_init = should_initiate_conversation(
+                state,
+                attachment_intensity,
+                last_from_her,
+                hours_inactive,
+                current_hour,
+                preferred_hours=preferred_hours if preferred_hours else None,
+                typical_gap_hours=typical_gap,
+                user_id=user.get("id"),
+                girlfriend_id=body.girlfriend_id,
+            )
+            if should_init:
+                init_text = get_initiation_message(region_key, attachment_intensity)
+                msg = {
+                    "id": str(uuid_mod.uuid4()),
+                    "role": "assistant",
+                    "content": init_text,
+                    "image_url": None,
+                    "event_type": None,
+                    "event_key": None,
+                    "created_at": now_iso(),
+                }
+                if use_sb and user_id and gf_uuid:
+                    sb.append_message(user_id, gf_uuid, msg)
+                else:
+                    store_append_message(sid, msg)
+                messages_out.append(msg)
+                state["last_interaction_at"] = now_iso()
+                if use_sb and user_id and gf_uuid:
+                    sb.upsert_relationship_state(user_id, gf_uuid, state)
+                else:
+                    set_relationship_state(sid, state)
 
     return {
         "messages": [_msg_to_schema(m) for m in messages_out],

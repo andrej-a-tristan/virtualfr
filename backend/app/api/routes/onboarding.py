@@ -122,4 +122,25 @@ def complete_onboarding(request: Request, response: Response, body: OnboardingCo
 
     set_girlfriend(sid, gf)
     saved = get_girlfriend(sid) or gf
+
+    # ── Bootstrap dossier (self-knowledge for natural conversation) ────────
+    try:
+        from app.core.supabase_client import get_supabase_admin
+        from app.services.dossier.bootstrap import bootstrap_dossier_from_onboarding
+        from uuid import UUID as _UUID
+
+        sb_admin = get_supabase_admin()
+        uid_str = user.get("user_id") or user.get("id")
+        gf_id_str = saved.get("id", gf_id)
+        if sb_admin and uid_str:
+            try:
+                user_uuid = _UUID(str(uid_str))
+                gf_uuid = _UUID(str(gf_id_str))
+                bootstrap_dossier_from_onboarding(sb_admin, user_uuid, gf_uuid, saved)
+            except (ValueError, TypeError):
+                pass
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("Dossier bootstrap failed (non-fatal): %s", e)
+
     return GirlfriendResponse(**saved)

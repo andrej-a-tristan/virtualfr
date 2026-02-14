@@ -25,6 +25,8 @@ class MemoryContext:
     facts: list[str] = field(default_factory=list)
     emotions: list[str] = field(default_factory=list)
     habits: list[str] = field(default_factory=list)
+    episodes: list[str] = field(default_factory=list)
+    patterns: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -77,6 +79,8 @@ class BuildSystemPromptInput:
     habit_profile: Optional[UserHabitProfile] = None
     language_pref: LanguagePref = "en"
     content_preferences: Optional[ContentPreferences] = None
+    # Bond Engine enhanced context (injected after base prompt)
+    bond_context: Optional[str] = None
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -183,17 +187,21 @@ def _format_big_five(bf: BigFive) -> str:
 def _format_memories(memories: MemoryContext) -> str:
     parts: list[str] = []
     if memories.facts:
-        facts = memories.facts[:8]
-        parts.append("Known facts about the user:")
+        facts = memories.facts[:4]
+        parts.append("Known facts about the user (stable, high-confidence):")
         parts.extend(f"- {f}" for f in facts)
     if memories.emotions:
-        emotions = memories.emotions[:5]
-        parts.append("Recent emotional context:")
+        emotions = memories.emotions[:3]
+        parts.append("Emotional continuity (open emotional threads):")
         parts.extend(f"- {e}" for e in emotions)
-    if memories.habits:
-        habits = memories.habits[:4]
+    if memories.episodes:
+        episodes = memories.episodes[:2]
+        parts.append("Shared episodes (callbacks to relationship history):")
+        parts.extend(f"- {ep}" for ep in episodes)
+    if memories.patterns or memories.habits:
+        patterns = (memories.patterns or memories.habits)[:2]
         parts.append("Communication patterns:")
-        parts.extend(f"- {h}" for h in habits)
+        parts.extend(f"- {p}" for p in patterns)
     return "\n".join(parts)
 
 
@@ -269,6 +277,32 @@ def build_system_prompt(inp: BuildSystemPromptInput) -> str:
         "you still care — just express it more quietly."
     )
 
+    # ── 5b. Trait behavior rules (response patterns, contextual rules) ────
+    try:
+        from app.services.trait_behavior_rules import (
+            build_prompt_behavior, build_tone_profile,
+            prompt_behavior_to_instructions,
+            TraitSelection as TBRTraitSelection,
+        )
+        _tbr_traits = TBRTraitSelection(
+            emotional_style=inp.traits.emotional_style,
+            attachment_style=inp.traits.attachment_style,
+            reaction_to_absence=inp.traits.reaction_to_absence,
+            communication_style=inp.traits.communication_style,
+            relationship_pace=inp.traits.relationship_pace,
+            cultural_personality=inp.traits.cultural_personality,
+        )
+        _tone = build_tone_profile(_tbr_traits)
+        _prompt_bhv = build_prompt_behavior(_tbr_traits, _tone)
+        _bhv_instructions = prompt_behavior_to_instructions(_prompt_bhv)
+        if _bhv_instructions:
+            blocks.append(f"BEHAVIOR GUIDELINES:\n{_bhv_instructions}")
+        if _prompt_bhv.contextual_rules:
+            ctx_rules = "\n".join(f"- {r}" for r in _prompt_bhv.contextual_rules[:4])
+            blocks.append(f"SITUATIONAL RULES:\n{ctx_rules}")
+    except Exception:
+        pass
+
     # ── 6. Big Five modulation ─────────────────────────────────────────────
     if inp.big_five:
         blocks.append(
@@ -278,10 +312,13 @@ def build_system_prompt(inp: BuildSystemPromptInput) -> str:
         )
 
     # ── 7. Memory ──────────────────────────────────────────────────────────
-    if inp.memories and (inp.memories.facts or inp.memories.emotions):
+    if inp.memories and (inp.memories.facts or inp.memories.emotions or inp.memories.episodes):
         blocks.append(
             "WHAT YOU KNOW (use subtly — weave in 0–2 callbacks per message, never list facts):\n"
-            f"{_format_memories(inp.memories)}"
+            f"{_format_memories(inp.memories)}\n"
+            "Hard rules: max 1-2 callbacks per response. "
+            "No repeated callback within recent window. "
+            "Prefer unresolved emotional threads over random facts."
         )
 
     # ── 8. Content rules ───────────────────────────────────────────────────
@@ -315,6 +352,10 @@ def build_system_prompt(inp: BuildSystemPromptInput) -> str:
         "- When the user shares something emotional, prioritize empathy over advice."
     )
 
+    # ── 10. Bond Engine context (consistency, capabilities, disclosure, response direction)
+    if inp.bond_context:
+        blocks.append(inp.bond_context)
+
     return "\n\n".join(blocks)
 
 
@@ -329,6 +370,7 @@ def build_input_from_dict(
     big_five_dict: Optional[dict] = None,
     language_pref: str = "en",
     content_prefs_dict: Optional[dict] = None,
+    bond_context: Optional[str] = None,
 ) -> BuildSystemPromptInput:
     """Build a BuildSystemPromptInput from raw dicts (e.g., from DB rows)."""
     traits = TraitSelection(
@@ -364,6 +406,8 @@ def build_input_from_dict(
             facts=memories_dict.get("facts", []),
             emotions=memories_dict.get("emotions", []),
             habits=memories_dict.get("habits", []),
+            episodes=memories_dict.get("episodes", []),
+            patterns=memories_dict.get("patterns", []),
         )
 
     habit_profile = None
@@ -391,6 +435,7 @@ def build_input_from_dict(
         habit_profile=habit_profile,
         language_pref=lang,
         content_preferences=content_preferences,
+        bond_context=bond_context,
     )
 
 

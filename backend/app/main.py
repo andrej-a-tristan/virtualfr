@@ -25,6 +25,7 @@ from app.api.routes import (
     auth,
     billing,
     chat,
+    dossier,
     gifts,
     girlfriends,
     health,
@@ -132,6 +133,7 @@ app.include_router(onboarding.router, prefix="/api")
 app.include_router(profile.router, prefix="/api")
 app.include_router(progression.router, prefix="/api")
 app.include_router(prompt.router, prefix="/api")
+app.include_router(dossier.router, prefix="/api")
 app.include_router(relationship.router, prefix="/api")
 app.include_router(intimacy_achievements.router, prefix="/api")
 

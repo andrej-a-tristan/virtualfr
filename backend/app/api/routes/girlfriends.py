@@ -183,6 +183,26 @@ def create_additional_girlfriend(request: Request, body: OnboardingCompletePaylo
     add_girlfriend(sid, gf)
     current = get_girlfriend(sid) or gf
     gfs = get_all_girlfriends(sid)
+
+    # ── Bootstrap dossier for the new girlfriend ──────────────────────────
+    try:
+        from app.core.supabase_client import get_supabase_admin
+        from app.services.dossier.bootstrap import bootstrap_dossier_from_onboarding
+
+        sb_admin = get_supabase_admin()
+        uid_str = user.get("user_id") or user.get("id")
+        if sb_admin and uid_str:
+            try:
+                from uuid import UUID as _UUID
+                user_uuid = _UUID(str(uid_str))
+                gf_uuid = _UUID(str(gf_id))
+                bootstrap_dossier_from_onboarding(sb_admin, user_uuid, gf_uuid, gf)
+            except (ValueError, TypeError):
+                pass
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("Dossier bootstrap failed (non-fatal): %s", e)
+
     return {
         "girlfriend": _gf_to_response(current),
         "girlfriends": [_gf_to_response(g) for g in gfs],

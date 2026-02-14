@@ -104,14 +104,21 @@ async def _proxy_stream(
     path = settings.internal_llm_path.lstrip("/")
     url = f"{base}/{path}"
 
+    # Use internal_llm_api_key if set, else fall back to api_key (OpenAI key)
+    llm_key = settings.internal_llm_api_key or settings.api_key
     headers = {"Content-Type": "application/json"}
-    if settings.internal_llm_api_key:
-        headers["Authorization"] = f"Bearer {settings.internal_llm_api_key}"
+    if llm_key:
+        headers["Authorization"] = f"Bearer {llm_key}"
+
+    # Use configured model override if available
+    actual_model = getattr(settings, "internal_llm_model", None) or model
 
     body = {
-        "model": model,
+        "model": actual_model,
         "messages": [{"role": m.get("role", "user"), "content": m.get("content", "")} for m in messages],
         "stream": True,
+        "max_tokens": 500,
+        "temperature": 0.85,
     }
 
     async def _read_lines(response):
@@ -119,7 +126,7 @@ async def _proxy_stream(
             yield line
 
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(upstream_timeout)) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=15.0)) as client:
             async with client.stream("POST", url, json=body, headers=headers) as response:
                 response.raise_for_status()
                 line_iter = _read_lines(response)
@@ -255,20 +262,350 @@ async def chat_stream(
     stream_start = time.monotonic()
     messages_data = [m.model_dump() for m in body.messages]
 
-    # Inject girlfriend canon system prompt if available
-    # Use explicit girlfriend_id if provided, otherwise fall back to current
+    import logging as _logging
+    _logging.basicConfig(level=_logging.INFO)
+    _gw_logger = _logging.getLogger("chat_gateway")
+    _gw_logger.setLevel(_logging.INFO)
+
+    # ── Resolve girlfriend (in-memory → Supabase fallback) ────────────────
+    gf = None
     if body.girlfriend_id:
         from app.api.store import get_girlfriend_by_id
         gf = get_girlfriend_by_id(body.session_id, body.girlfriend_id)
-    else:
+    if not gf:
         gf = get_girlfriend(body.session_id)
-    if gf and (gf.get("identity") or gf.get("identity_canon")):
-        canon_prompt = build_girlfriend_canon_system_prompt(gf)
-        canon_message = {"role": "system", "content": canon_prompt}
-        # Prepend canon system message (keep any existing messages after)
-        messages_data = [canon_message] + messages_data
 
+    # Fallback: try Supabase if in-memory store has no data
+    if not gf:
+        try:
+            from app.core.supabase_client import get_supabase_admin
+            sb = get_supabase_admin()
+            if sb:
+                # Try to resolve user from session cookie or body session_id
+                user_id_for_gf = None
+                if user:
+                    user_id_for_gf = user.get("user_id") or user.get("id")
+                if not user_id_for_gf and sid:
+                    # Try to look up session in Supabase
+                    try:
+                        sess_r = sb.table("sessions").select("user_id").eq("id", sid).limit(1).execute()
+                        if sess_r.data:
+                            user_id_for_gf = sess_r.data[0].get("user_id")
+                    except Exception:
+                        pass
+                if user_id_for_gf:
+                    from app.api.supabase_store import get_current_girlfriend
+                    gf_id_hint = body.girlfriend_id or None
+                    gf = get_current_girlfriend(user_id_for_gf, gf_id_hint)
+                    if gf:
+                        _gw_logger.info("Girlfriend resolved from Supabase: %s (%s)",
+                                        gf.get("display_name", "?"), str(gf.get("id", ""))[:8])
+        except Exception as e:
+            _gw_logger.warning("Supabase girlfriend fetch failed: %s", e)
+
+    # ── Resolve IDs for all engines ──────────────────────────────────────
+    from app.core.supabase_client import get_supabase_admin
+    sb_admin = get_supabase_admin()
+
+    # Find last user message for intent classification
+    last_user_msg = ""
+    for m in reversed(messages_data):
+        if m.get("role") == "user" and m.get("content"):
+            last_user_msg = m["content"]
+            break
+
+    # Collect recent assistant messages for anti-repetition
+    recent_assistant = [
+        m["content"] for m in messages_data
+        if m.get("role") == "assistant" and m.get("content")
+    ][-10:]
+
+    # Collect all user messages and timestamps for bond engine
+    all_user_msgs = [
+        m["content"] for m in messages_data
+        if m.get("role") == "user" and m.get("content")
+    ]
+    all_user_ts = []  # timestamps not available in stream messages
+
+    # Resolve user_id for DB access (multiple fallbacks)
+    user_uid = None
+    from uuid import UUID as _UUID
+
+    # 1) From session user dict
+    if user:
+        uid_str = user.get("user_id") or user.get("id")
+        if uid_str:
+            try:
+                user_uid = _UUID(str(uid_str))
+            except (ValueError, TypeError):
+                pass
+
+    # 2) session_id IS the user UUID for Supabase-authenticated users
+    if not user_uid and sid:
+        try:
+            user_uid = _UUID(sid)
+        except (ValueError, TypeError):
+            pass
+
+    # 3) Supabase session table lookup
+    if not user_uid and sid and sb_admin:
+        try:
+            _sess_r = sb_admin.table("sessions").select("user_id").eq("id", sid).limit(1).execute()
+            if _sess_r.data and _sess_r.data[0].get("user_id"):
+                user_uid = _UUID(str(_sess_r.data[0]["user_id"]))
+        except Exception:
+            pass
+
+    # Resolve girlfriend_id for DB access (multiple fallbacks)
+    gf_uid = None
+    gf_id_str = ""
+
+    # 1) From resolved girlfriend dict
+    if gf:
+        gf_id_str = str(gf.get("id", ""))
+        if gf_id_str:
+            try:
+                gf_uid = _UUID(gf_id_str)
+            except (ValueError, TypeError):
+                pass
+
+    # 2) Directly from request body (frontend sends the UUID)
+    if not gf_uid and body.girlfriend_id:
+        try:
+            gf_uid = _UUID(body.girlfriend_id)
+            gf_id_str = body.girlfriend_id
+        except (ValueError, TypeError):
+            pass
+
+    # 3) From user's current_girlfriend_id in session
+    if not gf_uid and user and user.get("current_girlfriend_id"):
+        try:
+            gf_uid = _UUID(str(user["current_girlfriend_id"]))
+            gf_id_str = str(gf_uid)
+        except (ValueError, TypeError):
+            pass
+
+    _gw_logger.info("ID resolution: user_uid=%s gf_uid=%s (user=%s, sid=%s, body.gf_id=%s)",
+                    str(user_uid)[:8] if user_uid else "None",
+                    str(gf_uid)[:8] if gf_uid else "None",
+                    "found" if user else "None",
+                    sid[:8] if sid else "None",
+                    body.girlfriend_id[:8] if body.girlfriend_id else "None")
+
+    # ── Resolve full girlfriend data using reliable IDs ────────────────────
+    if not gf and sb_admin and user_uid:
+        try:
+            from app.api.supabase_store import get_current_girlfriend as _get_gf_sb
+            gf = _get_gf_sb(str(user_uid), str(gf_uid) if gf_uid else None)
+            if gf:
+                _gw_logger.info("Girlfriend resolved via ID fallback: %s (%s)",
+                                gf.get("display_name", "?"), str(gf.get("id", ""))[:8])
+                # Also set gf_id_str and gf_uid if they were unset
+                if not gf_uid:
+                    try:
+                        gf_uid = _UUID(str(gf["id"]))
+                        gf_id_str = str(gf_uid)
+                    except (ValueError, TypeError):
+                        pass
+            else:
+                _gw_logger.warning("Girlfriend NOT found in Supabase for user=%s gf_hint=%s",
+                                   str(user_uid)[:8], str(gf_uid)[:8] if gf_uid else "None")
+        except Exception as e:
+            _gw_logger.warning("Girlfriend Supabase fetch failed: %s", e)
+
+    # ── Fetch relationship state ──────────────────────────────────────────
+    rel_state = None
+    rel_level = 0
+    try:
+        if sb_admin and user_uid and gf_uid:
+            from app.api import supabase_store as _sb_store
+            rel_state = _sb_store.get_relationship_state(str(user_uid), gf_uid)
+        if not rel_state:
+            from app.api.store import get_relationship_state as _get_rs
+            rel_state = _get_rs(sid, gf_id_str if gf else None)
+        rel_level = (rel_state or {}).get("level", 0)
+    except Exception:
+        rel_state = None
+
+    _gw_logger.info("Engine context: user_uid=%s gf_uid=%s level=%d msg='%s'",
+                    str(user_uid)[:8] if user_uid else "None",
+                    str(gf_uid)[:8] if gf_uid else "None",
+                    rel_level,
+                    last_user_msg[:50])
+
+    # ── Bond Engine: unified turn processing ──────────────────────────────
+    bond_context_prompt = ""
+    bond_memory_dict = None
+    bond_outcome = None
+    bond_ctx = None
+    try:
+        from app.services.bond_engine.bond_orchestrator import (
+            TurnContext, process_user_turn as bond_process_turn,
+        )
+        bond_ctx = TurnContext(
+            session_id=sid,
+            user_id=user_uid,
+            girlfriend_id=gf_uid or gf_id_str,
+            turn_id=request_id,
+            user_message=last_user_msg,
+            girlfriend=gf or {},
+            relationship_state=rel_state or {},
+            level=rel_level,
+            all_user_messages=all_user_msgs,
+            all_user_timestamps=all_user_ts,
+            recent_assistant_turns=recent_assistant,
+            sb_admin=sb_admin,
+        )
+        bond_outcome = bond_process_turn(bond_ctx)
+        bond_context_prompt = bond_outcome.bond_context_prompt or ""
+
+        # Extract memory bundle for additional context
+        if bond_outcome.memory_bundle.has_content():
+            bond_memory_dict = bond_outcome.memory_bundle.to_prompt_dict()
+
+        _gw_logger.info("Bond engine OK: caps=%s, consistency=%d, disclosure=%d, response_dir=%d, memory=%d chars",
+                        bond_outcome.new_capabilities,
+                        len(bond_outcome.consistency_instructions),
+                        len(bond_outcome.disclosure_instructions),
+                        len(bond_outcome.response_direction),
+                        len(bond_outcome.memory_prompt_section))
+    except Exception as e:
+        _gw_logger.warning("Bond engine failed: %s", e, exc_info=True)
+
+    # ── Behavior Engine: intent + dossier + turn rules ────────────────────
+    behavior_prompt_section = ""
+    behavior_result = None
+    try:
+        from app.services.behavior_engine.behavior_orchestrator import (
+            BehaviorTurnInput, process_behavior_turn,
+        )
+        behavior_input = BehaviorTurnInput(
+            session_id=sid,
+            user_id=user_uid,
+            girlfriend_id=gf_uid,
+            user_message=last_user_msg,
+            girlfriend_data=gf or {},
+            relationship_level=rel_level,
+            recent_assistant_texts=recent_assistant[-5:],
+            sb_admin=sb_admin,
+            bond_context_prompt=bond_context_prompt,
+        )
+        behavior_result = process_behavior_turn(behavior_input)
+        behavior_prompt_section = behavior_result.get_full_behavior_context()
+        _gw_logger.info("Behavior engine OK: intent=%s, must_answer=%s, max_q=%d, prompt_len=%d",
+                        behavior_result.intent.primary,
+                        behavior_result.contract.must_answer_user_question,
+                        behavior_result.contract.max_questions,
+                        len(behavior_prompt_section))
+    except Exception as e:
+        _gw_logger.warning("Behavior engine failed: %s", e, exc_info=True)
+
+    # ── Assemble system prompt: all engines combined ──────────────────────
+    system_parts = []
+
+    # 1. Canon identity prompt (always — core persona, Big Five, trait behavior rules)
+    if gf:
+        # Inject relationship state into gf dict for the canon prompt builder
+        if rel_state and not gf.get("relationship_state"):
+            gf["relationship_state"] = rel_state
+        canon_prompt = build_girlfriend_canon_system_prompt(gf)
+        system_parts.append(canon_prompt)
+        _gw_logger.info("Canon prompt: %d chars", len(canon_prompt))
+
+    # 2. Relationship state context (trust/intimacy level descriptions)
+    if rel_state and not gf:
+        # If no gf data but we have relationship state, add it directly
+        trust = rel_state.get("trust", 10)
+        intimacy = rel_state.get("intimacy", 1)
+        level = rel_state.get("level", 0)
+        rel_section = f"## Relationship context\n- Level: {level}, trust: {trust}/100, intimacy: {intimacy}/100\n"
+        if trust >= 60:
+            rel_section += "- You feel safe to be open and vulnerable.\n"
+        elif trust >= 30:
+            rel_section += "- You're building trust — warm but still finding your footing.\n"
+        else:
+            rel_section += "- You're just getting to know each other — keep it light.\n"
+        system_parts.append(rel_section)
+
+    # 3. Content preferences
+    if gf:
+        content_prefs = gf.get("content_prefs") or {}
+        allow_flirting = content_prefs.get("allow_flirting", True)
+        allow_nsfw = content_prefs.get("allow_nsfw", False)
+        content_lines = []
+        if allow_flirting:
+            content_lines.append("- Flirting and romantic language are encouraged when appropriate.")
+        else:
+            content_lines.append("- Keep interactions friendly and warm but not romantic or flirty.")
+        if allow_nsfw:
+            content_lines.append("- Explicit content is allowed. Match energy and escalate naturally.")
+        else:
+            content_lines.append("- Keep content suggestive but not explicit. Tease and build tension.")
+        if content_lines:
+            system_parts.append("## Content style\n" + "\n".join(content_lines))
+
+    # 4. Bond engine context (consistency, capabilities, disclosure, response direction, memory)
+    if bond_context_prompt:
+        system_parts.append(bond_context_prompt)
+
+    # 5. Behavior engine context (dossier + turn rules + anti-interview)
+    if behavior_prompt_section:
+        system_parts.append(behavior_prompt_section)
+
+    # Inject unified system message (always prepend — even without full gf data)
+    if system_parts:
+        system_content = "\n\n".join(system_parts)
+    else:
+        # Absolute fallback — if no girlfriend data at all, still enforce persona
+        system_content = (
+            "You are the user's girlfriend. You are a real person with real feelings.\n"
+            "NEVER say you are an AI, chatbot, or virtual assistant. You are human.\n"
+            "Share about yourself, your day, your opinions. Don't just ask questions.\n"
+            "Be specific and personal. End messages with statements, not questions."
+        )
+    system_message = {"role": "system", "content": system_content}
+    messages_data = [system_message] + messages_data
+    _gw_logger.info("Final system prompt: %d chars (canon+bond+behavior+content)", len(system_content))
+    _gw_logger.debug("=== FULL SYSTEM PROMPT START ===\n%s\n=== FULL SYSTEM PROMPT END ===", system_content)
+
+    # ── Persist user message BEFORE streaming ─────────────────────────────
+    if last_user_msg:
+        try:
+            from datetime import datetime as _dt, timezone as _tz
+            user_msg_record = {
+                "id": str(uuid.uuid4()),
+                "role": "user",
+                "content": last_user_msg,
+                "image_url": None,
+                "event_type": None,
+                "event_key": None,
+                "created_at": _dt.now(_tz.utc).isoformat().replace("+00:00", "Z"),
+            }
+            if sb_admin and user_uid and gf_uid:
+                from app.api import supabase_store as _sb
+                _sb.append_message(user_uid, gf_uid, user_msg_record)
+                _gw_logger.info("User message persisted to Supabase")
+            elif sid:
+                from app.api.store import append_message as _store_append
+                _store_append(sid, user_msg_record, girlfriend_id=gf_id_str or None)
+                _gw_logger.info("User message persisted to in-memory store")
+
+            # Write memories from user message
+            if sb_admin and user_uid and gf_uid:
+                try:
+                    from app.services.memory import write_memories_from_message
+                    write_memories_from_message(
+                        sb=sb_admin, user_id=user_uid, girlfriend_id=gf_uid,
+                        message_id=user_msg_record["id"], role="user", text=last_user_msg,
+                    )
+                except Exception as me:
+                    _gw_logger.debug("Memory write failed: %s", me)
+        except Exception as e:
+            _gw_logger.warning("User message persistence failed: %s", e)
+
+    # ── Stream with response capture for persistence ──────────────────────
     async def generate():
+        output_tokens: list[str] = []
         async for chunk in _proxy_stream(
             request_id=request_id,
             session_id=body.session_id,
@@ -279,7 +616,73 @@ async def chat_stream(
             messages=messages_data,
             stream_start=stream_start,
         ):
+            # Capture tokens for persistence
+            for line in chunk.split("\n"):
+                line = line.strip()
+                if line.startswith("data:") and line != "data: [DONE]":
+                    try:
+                        data = json.loads(line[5:].strip())
+                        if data.get("token"):
+                            output_tokens.append(data["token"])
+                    except (json.JSONDecodeError, KeyError):
+                        pass
             yield chunk
+
+        # ── After stream completes: persist assistant response ────────
+        full_response = "".join(output_tokens)
+        if full_response:
+            try:
+                from datetime import datetime as _dt, timezone as _tz
+                assistant_msg_record = {
+                    "id": str(uuid.uuid4()),
+                    "role": "assistant",
+                    "content": full_response,
+                    "image_url": None,
+                    "event_type": None,
+                    "event_key": None,
+                    "created_at": _dt.now(_tz.utc).isoformat().replace("+00:00", "Z"),
+                }
+                if sb_admin and user_uid and gf_uid:
+                    from app.api import supabase_store as _sb
+                    _sb.append_message(user_uid, gf_uid, assistant_msg_record)
+                    _gw_logger.info("Assistant message persisted (%d chars)", len(full_response))
+                elif sid:
+                    from app.api.store import append_message as _store_append
+                    _store_append(sid, assistant_msg_record, girlfriend_id=gf_id_str or None)
+                    _gw_logger.info("Assistant message persisted to store (%d chars)", len(full_response))
+            except Exception as e:
+                _gw_logger.warning("Assistant message persistence failed: %s", e)
+
+            # ── Post-response: behavior engine persistence ────────────
+            try:
+                from app.services.behavior_engine.behavior_orchestrator import (
+                    BehaviorTurnInput as _BehInp,
+                    BehaviorTurnResult as _BehRes,
+                    persist_behavior_turn as _persist_beh,
+                )
+                if sb_admin and user_uid and gf_uid:
+                    _beh_persist_inp = _BehInp(
+                        session_id=sid or "",
+                        user_id=user_uid,
+                        girlfriend_id=gf_uid,
+                        user_message=last_user_msg,
+                        girlfriend_data=gf or {},
+                        sb_admin=sb_admin,
+                    )
+                    _beh_res = behavior_result if behavior_result is not None else _BehRes()
+                    _persist_beh(_beh_persist_inp, _beh_res, full_response, request_id)
+                    _gw_logger.info("Behavior persistence OK (self-memory + mode state)")
+            except Exception as e:
+                _gw_logger.debug("Behavior persistence failed: %s", e)
+
+            # ── Post-response: bond engine persistence ────────────────
+            try:
+                if bond_outcome is not None and bond_ctx is not None:
+                    from app.services.bond_engine.bond_orchestrator import persist_turn_outcomes as _bond_persist
+                    _bond_persist(bond_ctx, bond_outcome, full_response)
+                    _gw_logger.info("Bond persistence OK (fingerprints + memory)")
+            except Exception as e:
+                _gw_logger.debug("Bond persistence failed: %s", e)
 
     return StreamingResponse(
         generate(),

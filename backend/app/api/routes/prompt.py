@@ -63,7 +63,7 @@ def prompt_preview(
             except (ValueError, TypeError):
                 pass
         if not gf_uuid:
-            gf = sb.get_current_girlfriend(user_id)
+            gf = sb.get_current_girlfriend(user_id, gf_id)
             if gf:
                 gf_uuid = UUID(str(gf["id"]))
                 resolved_gf_id = str(gf["id"])
