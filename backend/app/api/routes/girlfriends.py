@@ -1,9 +1,10 @@
 """Girlfriend CRUD: create, list, get current, switch.
-Supports multiple girlfriends per user (Free: 1, Plus: 3, Premium: 3)."""
+Supports multiple girlfriends per user (Free: 1, Plus: 3, Premium: 3).
+Uses Supabase when configured, else in-memory store."""
 import hashlib
 import json
 from datetime import datetime, timezone
-from uuid import uuid4
+from uuid import uuid4, UUID
 
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import JSONResponse
@@ -25,6 +26,14 @@ from app.api.store import (
     get_girlfriend_count,
     set_current_girlfriend_id,
 )
+from app.api.request_context import get_current_user
+from app.core.supabase_client import get_supabase_admin
+from app.api.supabase_store import (
+    create_girlfriend as sb_create_girlfriend,
+    get_current_girlfriend as sb_get_current_girlfriend,
+    upsert_habit_profile,
+)
+from app.services.big_five import map_traits_to_big_five
 from app.utils.identity_canon import generate_identity_canon
 
 router = APIRouter(prefix="/girlfriends", tags=["girlfriends"])
@@ -50,13 +59,40 @@ def _gf_to_response(gf: dict) -> GirlfriendResponse:
     return GirlfriendResponse(**gf)
 
 
+def _use_supabase(user_id) -> bool:
+    if not get_supabase_admin() or not user_id:
+        return False
+    try:
+        UUID(str(user_id))
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
 # ── POST /api/girlfriends (create first girl — backward compat) ──────────────
 
 @router.post("")
 def create_girlfriend(request: Request, body: CreateGirlfriendRequest):
     """Create current girlfriend from displayName + traits (first onboarding)."""
-    sid, user = _require_user(request)
+    sid, user, user_id, _ = get_current_user(request)
+    if not sid or not user:
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
     traits = body.traits.model_dump()
+
+    # Supabase path
+    if _use_supabase(user_id) and user_id:
+        try:
+            gf = sb_create_girlfriend(user_id, body.display_name, traits)
+            gf_uuid = UUID(str(gf["id"]))
+            big_five_scores = map_traits_to_big_five(traits)
+            upsert_habit_profile(user_id, gf_uuid, {"big_five": big_five_scores})
+            from app.api.store import set_session_girlfriend_id
+            set_session_girlfriend_id(sid, str(gf["id"]))
+            return GirlfriendResponse(**gf)
+        except Exception as e:
+            return JSONResponse(status_code=500, content={"error": str(e)})
+
+    # In-memory path
     gf_id = f"gf-{uuid4().hex[:8]}"
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     gf = {
@@ -90,10 +126,15 @@ def list_girlfriends(request: Request):
 # ── GET /api/girlfriends/current ─────────────────────────────────────────────
 
 @router.get("/current")
-def get_current_girlfriend(request: Request):
+def get_current_girlfriend_route(request: Request):
     """Return current girlfriend or 404."""
-    sid, user = _require_user(request)
-    gf = get_girlfriend(sid)
+    sid, user, user_id, _ = get_current_user(request)
+    if not sid or not user:
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    if _use_supabase(user_id) and user_id:
+        gf = sb_get_current_girlfriend(user_id)
+    else:
+        gf = get_girlfriend(sid)
     if not gf:
         return JSONResponse(status_code=404, content={"error": "no_girlfriend"})
     return GirlfriendResponse(**gf)

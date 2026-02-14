@@ -1,8 +1,8 @@
 import { useState, useRef } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useSSEChat } from "@/lib/hooks/useSSEChat"
 import { useChatStore } from "@/lib/store/useChatStore"
 import { useAppStore } from "@/lib/store/useAppStore"
-import { useQuery } from "@tanstack/react-query"
 import { getBillingStatus } from "@/lib/api/endpoints"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -14,6 +14,7 @@ export default function Composer() {
   const [text, setText] = useState("")
   const [showGifts, setShowGifts] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const queryClient = useQueryClient()
   const { sendMessage } = useSSEChat()
   const { isStreaming, appendMessage } = useChatStore()
   const girlfriend = useAppStore((s) => s.girlfriend)
@@ -35,6 +36,7 @@ export default function Composer() {
     })
     try {
       await sendMessage(msg)
+      await queryClient.invalidateQueries({ queryKey: ["chatHistory"] })
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : String(e)
       appendMessage({

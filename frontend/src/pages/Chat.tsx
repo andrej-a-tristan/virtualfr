@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useSearchParams } from "react-router-dom"
-import { getChatHistory } from "@/lib/api/endpoints"
+import { getChatHistory, postChatAppOpen, getCurrentGirlfriend } from "@/lib/api/endpoints"
 import { useChatStore } from "@/lib/store/useChatStore"
 import { useAppStore } from "@/lib/store/useAppStore"
 import ChatHeader from "@/components/chat/ChatHeader"
@@ -12,12 +12,21 @@ import { Gift } from "lucide-react"
 
 export default function Chat() {
   const setMessages = useChatStore((s) => s.setMessages)
+  const isStreaming = useChatStore((s) => s.isStreaming)
   const currentGirlfriendId = useAppStore((s) => s.currentGirlfriendId)
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const [giftBanner, setGiftBanner] = useState(false)
+  const hasMergedRef = useRef(false)
 
-  const { data, isLoading } = useQuery({
+  const { data: gf } = useQuery({ queryKey: ["girlfriend"], queryFn: getCurrentGirlfriend })
+  const { data: appOpenData } = useQuery({
+    queryKey: ["chatAppOpen", gf?.id],
+    queryFn: () => postChatAppOpen(gf!.id),
+    enabled: !!gf?.id,
+    staleTime: 60_000,
+  })
+  const { data: historyData, isLoading } = useQuery({
     queryKey: ["chatHistory", currentGirlfriendId],
     queryFn: () => getChatHistory(currentGirlfriendId ?? undefined),
   })
@@ -49,8 +58,24 @@ export default function Chat() {
   }, [searchParams, setSearchParams, queryClient])
 
   useEffect(() => {
-    if (data?.messages) setMessages(data.messages)
-  }, [data?.messages, setMessages])
+    hasMergedRef.current = false
+  }, [gf?.id])
+
+  // Merge app_open messages (top) with history when data is ready. Don't overwrite if we're
+  // streaming or have more messages locally (e.g. just received a streamed reply).
+  useEffect(() => {
+    if (historyData == null) return
+    const history = historyData.messages ?? []
+    const initiated = appOpenData?.messages ?? []
+    const next = initiated.length > 0 ? [...initiated, ...history] : history
+
+    setMessages((prev) => {
+      if (isStreaming) return prev
+      if (hasMergedRef.current && next.length <= prev.length) return prev
+      hasMergedRef.current = true
+      return next
+    })
+  }, [historyData, appOpenData?.messages, isStreaming, setMessages])
 
   if (isLoading) {
     return (
