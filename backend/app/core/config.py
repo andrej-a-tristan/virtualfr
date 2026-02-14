@@ -24,13 +24,13 @@ class Settings(BaseSettings):
     # Chat gateway
     chat_api_key: str = "dev-key"
     stream_timeout_seconds: int = 60
-    upstream_token_timeout_seconds: int = 30
-    use_mock_model: bool = False
+    upstream_token_timeout_seconds: int = 15
+    use_mock_model: bool = True
     mock_model_base_url: str = "http://127.0.0.1:8000"
 
-    # Internal LLM (OpenAI-compatible); gateway calls this
-    internal_llm_base_url: str = "https://api.openai.com"
-    internal_llm_api_key: str = ""  # will use api_key if empty
+    # Internal LLM (OpenAI-compatible); gateway calls this (default: same host = mock on main app)
+    internal_llm_base_url: str = "http://127.0.0.1:8000"
+    internal_llm_api_key: str = ""
     internal_llm_path: str = "/v1/chat/completions"
     internal_llm_model: str = "gpt-4o-mini"
 
