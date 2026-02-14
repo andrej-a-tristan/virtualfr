@@ -40,96 +40,16 @@ const router = createBrowserRouter([
       </RequireAuth>
     ),
   },
-  {
-    path: "/onboarding/traits",
-    element: (
-      <RequireAuth>
-        <RequireAgeGate>
-          <OnboardingTraits />
-        </RequireAgeGate>
-      </RequireAuth>
-    ),
-  },
-  {
-    path: "/onboarding/appearance",
-    element: (
-      <RequireAuth>
-        <RequireAgeGate>
-          <OnboardingAppearance />
-        </RequireAgeGate>
-      </RequireAuth>
-    ),
-  },
-  {
-    path: "/onboarding/appearance/age",
-    element: (
-      <RequireAuth>
-        <RequireAgeGate>
-          <AppearanceAge />
-        </RequireAgeGate>
-      </RequireAuth>
-    ),
-  },
-  {
-    path: "/onboarding/appearance/ethnicity",
-    element: (
-      <RequireAuth>
-        <RequireAgeGate>
-          <AppearanceEthnicity />
-        </RequireAgeGate>
-      </RequireAuth>
-    ),
-  },
-  {
-    path: "/onboarding/appearance/body",
-    element: (
-      <RequireAuth>
-        <RequireAgeGate>
-          <AppearanceBodyDetails />
-        </RequireAgeGate>
-      </RequireAuth>
-    ),
-  },
-  {
-    path: "/onboarding/appearance/hair-eyes",
-    element: (
-      <RequireAuth>
-        <RequireAgeGate>
-          <AppearanceHairEyes />
-        </RequireAgeGate>
-      </RequireAuth>
-    ),
-  },
-  {
-    path: "/onboarding/preferences",
-    element: (
-      <RequireAuth>
-        <RequireAgeGate>
-          <OnboardingPreferences />
-        </RequireAgeGate>
-      </RequireAuth>
-    ),
-  },
-  {
-    path: "/onboarding/identity",
-    element: (
-      <RequireAuth>
-        <RequireAgeGate>
-          <OnboardingIdentity />
-        </RequireAgeGate>
-      </RequireAuth>
-    ),
-  },
-  {
-    path: "/onboarding/generating",
-    element: (
-      <RequireAuth>
-        <RequireAgeGate>
-          <OnboardingGenerating />
-        </RequireAgeGate>
-      </RequireAuth>
-    ),
-  },
+  /* Onboarding pages — no auth guards needed; Landing creates a guest session */
+  { path: "/onboarding/traits", element: <OnboardingTraits /> },
+  { path: "/onboarding/appearance", element: <OnboardingAppearance /> },
+  { path: "/onboarding/appearance/age", element: <AppearanceAge /> },
+  { path: "/onboarding/appearance/ethnicity", element: <AppearanceEthnicity /> },
+  { path: "/onboarding/appearance/body", element: <AppearanceBodyDetails /> },
+  { path: "/onboarding/appearance/hair-eyes", element: <AppearanceHairEyes /> },
+  { path: "/onboarding/preferences", element: <OnboardingPreferences /> },
+  { path: "/onboarding/identity", element: <OnboardingIdentity /> },
+  { path: "/onboarding/generating", element: <OnboardingGenerating /> },
   {
     path: "/onboarding/reveal",
     element: <GirlfriendReveal />,
@@ -142,18 +62,7 @@ const router = createBrowserRouter([
     path: "/onboarding/reveal-success",
     element: <RevealSuccess />,
   },
-  {
-    path: "/onboarding/preview",
-    element: (
-      <RequireAuth>
-        <RequireAgeGate>
-          <RequireGirlfriend>
-            <PersonaPreview />
-          </RequireGirlfriend>
-        </RequireAgeGate>
-      </RequireAuth>
-    ),
-  },
+  { path: "/onboarding/preview", element: <PersonaPreview /> },
   {
     path: "/app",
     element: (

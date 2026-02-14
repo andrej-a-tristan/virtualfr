@@ -1,7 +1,7 @@
 """Gift routes: catalog, checkout, webhook, history."""
 import logging
 from datetime import datetime, timezone
-from uuid import uuid4
+from uuid import uuid4, UUID
 
 import stripe
 from fastapi import APIRouter, Request, HTTPException
@@ -15,6 +15,8 @@ from app.api.store import (
     append_message,
     get_girlfriend,
 )
+from app.api import supabase_store as sb_store
+from app.core.supabase_client import get_supabase_admin
 from app.services.gifting import (
     get_gift_catalog,
     get_gift_by_id,
@@ -73,6 +75,25 @@ def _load_gifts() -> None:
 _load_gifts()
 
 
+def _uuid_or_none(v: str | None) -> UUID | None:
+    if not v:
+        return None
+    try:
+        return UUID(str(v))
+    except (ValueError, TypeError):
+        return None
+
+
+def _db_ctx(user: dict | None) -> tuple[UUID, UUID] | None:
+    if not get_supabase_admin() or not user:
+        return None
+    user_uuid = _uuid_or_none((user or {}).get("user_id") or (user or {}).get("id"))
+    gf_uuid = _uuid_or_none((user or {}).get("current_girlfriend_id"))
+    if user_uuid and gf_uuid:
+        return user_uuid, gf_uuid
+    return None
+
+
 def _session_id(request: Request) -> str | None:
     return (
         request.cookies.get(SESSION_COOKIE)
@@ -106,11 +127,24 @@ def _purchase_key(sid: str, user: dict | None = None) -> tuple[str, str]:
 
 
 def _get_purchases(sid: str, user: dict | None = None) -> list[dict]:
+    ctx = _db_ctx(user)
+    if ctx:
+        try:
+            return sb_store.list_gift_purchases(ctx[0], ctx[1])
+        except Exception:
+            pass
     key = _purchase_key(sid, user)
     return _gift_purchases.get(key, [])
 
 
 def _add_purchase(sid: str, purchase: dict, user: dict | None = None) -> None:
+    ctx = _db_ctx(user)
+    if ctx:
+        try:
+            sb_store.create_gift_purchase(ctx[0], ctx[1], purchase)
+            return
+        except Exception:
+            pass
     key = _purchase_key(sid, user)
     if key not in _gift_purchases:
         _gift_purchases[key] = []
@@ -120,6 +154,15 @@ def _add_purchase(sid: str, purchase: dict, user: dict | None = None) -> None:
 
 def _update_purchase_status(stripe_session_id: str, status: str) -> dict | None:
     """Find and update purchase by stripe session id. Returns purchase dict or None."""
+    if get_supabase_admin():
+        try:
+            row = sb_store.update_gift_purchase_status_by_payment_intent(stripe_session_id, status)
+            if not row:
+                row = sb_store.update_gift_purchase_status_by_session(stripe_session_id, status)
+            if row:
+                return row
+        except Exception:
+            pass
     for key, purchases in _gift_purchases.items():
         for p in purchases:
             if p.get("stripe_session_id") == stripe_session_id:

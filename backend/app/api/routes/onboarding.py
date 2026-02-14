@@ -2,10 +2,11 @@
 import hashlib
 import json
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
 
-from app.api.store import get_session_user, set_girlfriend, add_girlfriend
+from app.api.deps import get_current_user
+from app.api.store import set_girlfriend, get_girlfriend
 from app.schemas.girlfriend import (
     GirlfriendResponse,
     IdentityResponse,
@@ -15,10 +16,6 @@ from app.utils.identity_canon import generate_identity_canon
 
 
 router = APIRouter(prefix="/onboarding", tags=["onboarding"])
-
-
-def _session_id(request: Request) -> str | None:
-    return request.cookies.get("session")
 
 
 # Per-question keys (one image per question)
@@ -66,16 +63,13 @@ def get_prompt_images():
 
 
 @router.post("/complete")
-def complete_onboarding(request: Request, body: OnboardingCompletePayload):
+def complete_onboarding(request: Request, response: Response, body: OnboardingCompletePayload):
     """Finalize onboarding by creating a single girlfriend avatar."""
-    sid = _session_id(request)
-    if not sid:
-        return JSONResponse(status_code=401, content={"error": "unauthorized"})
-
-    user = get_session_user(sid)
+    user = get_current_user(request, response)
     if not user:
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
 
+    sid = request.cookies.get("session")
     girlfriend_name = body.identity.girlfriend_name.strip()
 
     traits = body.traits.model_dump()
@@ -127,5 +121,26 @@ def complete_onboarding(request: Request, body: OnboardingCompletePayload):
     }
 
     set_girlfriend(sid, gf)
-    return GirlfriendResponse(**gf)
+    saved = get_girlfriend(sid) or gf
 
+    # ── Bootstrap dossier (self-knowledge for natural conversation) ────────
+    try:
+        from app.core.supabase_client import get_supabase_admin
+        from app.services.dossier.bootstrap import bootstrap_dossier_from_onboarding
+        from uuid import UUID as _UUID
+
+        sb_admin = get_supabase_admin()
+        uid_str = user.get("user_id") or user.get("id")
+        gf_id_str = saved.get("id", gf_id)
+        if sb_admin and uid_str:
+            try:
+                user_uuid = _UUID(str(uid_str))
+                gf_uuid = _UUID(str(gf_id_str))
+                bootstrap_dossier_from_onboarding(sb_admin, user_uuid, gf_uuid, saved)
+            except (ValueError, TypeError):
+                pass
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("Dossier bootstrap failed (non-fatal): %s", e)
+
+    return GirlfriendResponse(**saved)

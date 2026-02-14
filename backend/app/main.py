@@ -25,6 +25,7 @@ from app.api.routes import (
     auth,
     billing,
     chat,
+    dossier,
     gifts,
     girlfriends,
     health,
@@ -35,7 +36,10 @@ from app.api.routes import (
     moderation,
     onboarding,
     profile,
+    progression,
+    prompt,
     relationship,
+    spicy_leaks,
 )
 from app.routers import chat as chat_gateway
 from app.routers import mock_model
@@ -128,8 +132,12 @@ app.include_router(moderation.router, prefix="/api")
 app.include_router(memory.router, prefix="/api")
 app.include_router(onboarding.router, prefix="/api")
 app.include_router(profile.router, prefix="/api")
+app.include_router(progression.router, prefix="/api")
+app.include_router(prompt.router, prefix="/api")
+app.include_router(dossier.router, prefix="/api")
 app.include_router(relationship.router, prefix="/api")
 app.include_router(intimacy_achievements.router, prefix="/api")
+app.include_router(spicy_leaks.router, prefix="/api")
 
 # Chat gateway: /v1/chat/stream and /api/chat/stream (same handler; /api works with proxy)
 app.include_router(chat_gateway.router, prefix="/v1")

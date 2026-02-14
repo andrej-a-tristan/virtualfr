@@ -1,40 +1,30 @@
 /**
- * POST /v1/chat/stream (gateway → internal LLM) and parse SSE.
- * Stream format: event: token / data: {"token":"..."}, event: done / data: {"finish_reason":"stop"}.
+ * POST /api/chat/send — full engine pipeline (bond engine, behavior engine,
+ * prompt builder, memory, personality, OpenAI streaming).
+ *
+ * Stream format: event: token / data: {"type":"token","token":"..."},
+ *                event: done  / data: {"type":"done"}
  * Use flushSync so each token paints immediately (React 18 would otherwise batch updates).
  */
 import { flushSync } from "react-dom"
 import { useChatStore } from "@/lib/store/useChatStore"
 import { useAppStore } from "@/lib/store/useAppStore"
 
-const CHAT_GATEWAY_KEY = import.meta.env.VITE_CHAT_GATEWAY_KEY ?? "dev-key"
-
 export async function sendChatMessage(message: string): Promise<void> {
-  const { messages, appendMessage, setStreamingContent, setIsStreaming } = useChatStore.getState()
-  const user = useAppStore.getState().user
+  const { appendMessage, setStreamingContent, setIsStreaming } = useChatStore.getState()
   const girlfriendId = useAppStore.getState().currentGirlfriendId
-  const sessionId = user?.id ?? "anonymous"
 
   setStreamingContent("")
   setIsStreaming(true)
   try {
-    // history already includes the current user message (Composer appended it before calling sendMessage)
-    const history = messages.map((m) => ({ role: m.role, content: (m.content ?? "").trim() }))
-    const body = {
-      session_id: sessionId,
-      model: "mock-1",
-      model_version: "local",
-      messages: history,
-      girlfriend_id: girlfriendId,
-    }
-    const res = await fetch("/api/chat/stream", {
+    const res = await fetch("/api/chat/send", {
       method: "POST",
       credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${CHAT_GATEWAY_KEY}`,
-      },
-      body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message,
+        girlfriend_id: girlfriendId ?? undefined,
+      }),
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({})) as { error?: string; message?: string; detail?: string | unknown }
@@ -70,7 +60,7 @@ export async function sendChatMessage(message: string): Promise<void> {
         }
         if (trimmed.startsWith("data:")) {
           const payload = trimmed.slice(5).trim()
-          if (payload === "[DONE]" || lastEvent === "done") {
+          if (payload === "[DONE]" || lastEvent === "done" || (payload.includes('"type":"done"') || payload.includes('"type": "done"'))) {
             if (fullContent) {
               appendMessage({
                 id: `assistant-${Date.now()}`,
@@ -176,10 +166,25 @@ export async function sendChatMessage(message: string): Promise<void> {
               } as Parameters<typeof appendMessage>[0])
               continue
             }
-            if (lastEvent === "token" && data.token) {
+            // Handle 'message' event: the server-saved assistant message (has proper DB id)
+            if ((lastEvent === "message" || data.type === "message") && data.message) {
+              const msg = data.message as Record<string, string | null>
+              appendMessage({
+                id: msg.id || `assistant-${Date.now()}`,
+                role: "assistant",
+                content: (msg.content as string) || fullContent,
+                image_url: (msg.image_url as string) || null,
+                event_type: (msg.event_type as string) || null,
+                created_at: (msg.created_at as string) || new Date().toISOString(),
+              })
+              setStreamingContent("")
+              fullContent = "" // Clear so 'done' doesn't duplicate
+              continue
+            }
+            if ((lastEvent === "token" || data.type === "token") && data.token) {
               fullContent += data.token
               flushSync(() => setStreamingContent(fullContent))
-            } else if (lastEvent === "error" && data.error) {
+            } else if ((lastEvent === "error" || data.type === "error") && data.error) {
               appendMessage({
                 id: `assistant-${Date.now()}`,
                 role: "assistant",
@@ -190,7 +195,7 @@ export async function sendChatMessage(message: string): Promise<void> {
               })
               streamDone = true
               break
-            } else if (data.finish_reason) {
+            } else if (data.finish_reason || data.type === "done") {
               if (fullContent) {
                 appendMessage({
                   id: `assistant-${Date.now()}`,

@@ -93,6 +93,18 @@ from app.services.habits import build_habit_profile
 from app.services.big_five import map_traits_to_big_five, big_five_to_description
 from app.services.time_utils import hours_since, now_iso
 from app.services.memory import build_memory_context, write_memories_from_message
+from app.services.prompt_builder import build_system_prompt, build_input_from_dict
+from app.services.prompt_context import get_prompt_context
+
+# ── Bond Engine: unified orchestration layer ────────────────────────────────
+from app.services.bond_engine.bond_orchestrator import (
+    TurnContext,
+    TurnOutcome,
+    process_user_turn as bond_process_turn,
+    validate_response as bond_validate_response,
+    persist_turn_outcomes as bond_persist_outcomes,
+    plan_proactive_initiation,
+)
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 logger = logging.getLogger(__name__)
@@ -182,15 +194,18 @@ def chat_history(request: Request, girlfriend_id: str | None = None):
     sid, user, user_id, gf_id = get_current_user(request)
     if not sid or not user:
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    # Use explicit girlfriend_id from query param, fall back to session's current
+    resolved_gf_id = girlfriend_id or gf_id
     use_sb = _use_supabase(user_id)
     if use_sb and user_id:
-        gf = sb.get_current_girlfriend(user_id)
+        gf = sb.get_current_girlfriend(user_id, resolved_gf_id)
         if gf:
             messages = sb.get_messages(user_id, UUID(str(gf["id"])))
         else:
             messages = []
     else:
-        messages = get_messages(sid, girlfriend_id)
+        # Pass explicit girlfriend_id so messages are per-girl
+        messages = get_messages(sid, resolved_gf_id)
     if not messages:
         messages = [
             {"id": "m1", "role": "user", "content": "Hey, how are you?", "image_url": None, "event_type": None, "event_key": None, "created_at": "2025-01-01T12:00:00Z"},
@@ -204,9 +219,12 @@ def chat_state(request: Request, girlfriend_id: str | None = None):
     sid, user, user_id, gf_id = get_current_user(request)
     if not sid or not user:
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    # Use explicit girlfriend_id from query param, fall back to session's current
+    resolved_gf_id = girlfriend_id or gf_id
     use_sb = _use_supabase(user_id)
     if use_sb and user_id:
-        gf = sb.get_current_girlfriend(user_id)
+        # Supabase path: still uses the old relationship_state dict
+        gf = sb.get_current_girlfriend(user_id, resolved_gf_id)
         if gf:
             gf_uuid = UUID(str(gf["id"]))
             state = sb.get_relationship_state(user_id, gf_uuid)
@@ -217,9 +235,10 @@ def chat_state(request: Request, girlfriend_id: str | None = None):
             state = create_initial_relationship_state()
         return _state_to_schema(state)
     else:
-        prog = get_relationship_progress(sid, girlfriend_id)
-        ti_state = get_trust_intimacy_state(sid, girlfriend_id)
-        rs = get_relationship_state(sid, girlfriend_id=girlfriend_id) or {}
+        # In-memory path: use the progression engine + unified trust/intimacy
+        prog = get_relationship_progress(sid, resolved_gf_id)
+        ti_state = get_trust_intimacy_state(sid, resolved_gf_id)
+        rs = get_relationship_state(sid, girlfriend_id=resolved_gf_id) or {}
         return _progress_to_schema(prog, ti_state=ti_state, milestones=rs.get("milestones_reached", []))
 
 
@@ -233,89 +252,152 @@ def _emotional_disclosure_heuristic(text: str) -> bool:
     return any(x in t for x in ["feel", "felt", "worried", "sad", "happy", "excited", "nervous"])
 
 
-def _stream_openai_and_save(sid, user_id, gf_id, milestone_message, messages_for_context, gf_display_name, traits, relationship_state=None, habit_profile=None, memory_context=None, girlfriend_id=None, image_decision_event=None, blurred_surprise_event=None, relationship_gain_events=None, achievement_events=None, intimacy_unlock_events=None, intimacy_photo_events=None):
-    """Stream OpenAI completion and save assistant message. Yields SSE events.
-
-    Falls back to mock response if API_KEY is not set.
-    Also emits image_decision, relationship_gain, achievement, and intimacy events.
+def _generate_mock_response(system_prompt: str, traits: dict, relationship_state: dict, memory_context, last_user_message: str) -> str:
+    """Generate a personality-aware mock response using the system prompt context.
+    
+    Uses trust/intimacy descriptors to modulate tone and language.
+    When a real LLM is connected, the system_prompt is sent as the system message.
     """
+    trust = relationship_state.get("trust", 20) if relationship_state else 20
+    intimacy = relationship_state.get("intimacy", 1) if relationship_state else 1
+
+    # Get descriptors for current trust/intimacy
+    descs = get_descriptors(trust, intimacy)
+    tone = descs.trust.tone_rules
+
+    # Get personality traits
+    emotional_style = traits.get("emotional_style", "Caring")
+
+    # Base responses modulated by trust level
+    if trust < 25:
+        base_responses = [
+            "Hey. How are you doing?",
+            "Oh, hi. What's up?",
+            "That's interesting.",
+        ]
+    elif trust < 45:
+        base_responses = [
+            "That's so sweet of you to say! I appreciate it.",
+            "I've been thinking about things... Tell me about your day.",
+            "I really enjoy talking to you!",
+        ]
+    elif trust < 65:
+        base_responses = [
+            "I'm so glad you're here. I was hoping you'd message!",
+            "You always know how to make me feel better.",
+            "I feel like I can really be myself around you.",
+        ]
+    elif trust < 85:
+        base_responses = [
+            "I missed you so much. You mean everything to me.",
+            "I feel so safe when we talk. Can I tell you something?",
+            "You're the one person I trust with everything.",
+        ]
+    else:
+        base_responses = [
+            "I love you. I can't imagine my life without you.",
+            "You know me better than anyone. I'm completely yours.",
+            "Every moment with you feels perfect.",
+        ]
+
+    # Emotional style modifier
+    style_modifiers = {
+        "Playful": " 😊",
+        "Caring": " 💕",
+        "Reserved": "",
+        "Protective": " 💪",
+    }
+    suffix = style_modifiers.get(emotional_style, "")
+
+    # Add emoji based on tone rules
+    if tone.emoji_rate >= 2 and not suffix:
+        suffix = " ❤️"
+
+    # Add memory context if available
+    prefix = ""
+    if memory_context and hasattr(memory_context, 'facts') and memory_context.facts:
+        if any("name" in f.lower() for f in memory_context.facts):
+            prefix = "I remember you telling me about yourself. "
+
+    # Deterministic selection
+    import random
+    random.seed(hash(last_user_message))
+    response = random.choice(base_responses)
+
+    # Use descriptor openers at higher trust
+    if trust >= 40 and descs.trust.openers:
+        opener = random.choice(descs.trust.openers)
+        if opener not in response:
+            response = f"{opener} {response}"
+
+    return prefix + response + suffix
+
+
+def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_for_context, gf_display_name, traits, relationship_state=None, habit_profile=None, memory_context=None, girlfriend_id=None, image_decision_event=None, blurred_surprise_event=None, relationship_gain_events=None, achievement_events=None, intimacy_unlock_events=None, intimacy_photo_events=None, system_prompt=None, bond_outcome=None, bond_turn_ctx=None):
+    """Stream response and save assistant message. Yields SSE events.
+    
+    Uses OpenAI ChatGPT API for real streaming responses when API_KEY is set.
+    Falls back to mock responses if API_KEY is unavailable.
+    The system_prompt contains the full personality, memory, bond engine context.
+    """
+    # Get the last user message for context
+    last_user_msg = ""
+    for m in reversed(messages_for_context):
+        if m.get("role") == "user" and m.get("content"):
+            last_user_msg = m["content"]
+            break
+
+    # Build messages list for LLM
+    llm_messages = []
+    if system_prompt:
+        llm_messages.append({"role": "system", "content": system_prompt})
+    # Add short-term context (last 20 messages)
+    for m in messages_for_context[-20:]:
+        llm_messages.append({"role": m["role"], "content": (m.get("content") or "")[:2000]})
+    logger.debug("LLM message count: %d (system prompt: %d chars)", len(llm_messages), len(system_prompt or ""))
+
+    # ── Real OpenAI streaming or mock fallback ───────────────────────────
     from app.core import get_api_key
     api_key = get_api_key()
+    response_text = ""
 
-    if not api_key:
-        # No API key — generate mock response
-        logger.warning("API_KEY not set, using mock response")
+    if api_key and llm_messages:
+        # Real OpenAI streaming
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key)
+            stream = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=llm_messages,
+                stream=True,
+                max_tokens=400,
+                temperature=0.85,
+            )
+            for chunk in stream:
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if delta and delta.content:
+                    token = delta.content
+                    response_text += token
+                    yield sse_event({"type": "token", "token": token})
+            logger.info("OpenAI response: %d chars", len(response_text))
+        except Exception as e:
+            logger.error("OpenAI streaming failed: %s", e)
+            # Fall back to mock on error
+            response_text = _generate_mock_response(
+                system_prompt or "", traits, relationship_state, memory_context, last_user_msg
+            )
+            tokens = response_text.split()
+            for t in tokens:
+                yield sse_event({"type": "token", "token": t + " "})
+    else:
+        # Mock fallback (no API key)
         response_text = _generate_mock_response(
-            gf_display_name, traits, relationship_state, memory_context,
-            next((m.get("content", "") for m in reversed(messages_for_context) if m.get("role") == "user" and m.get("content")), "")
+            system_prompt or "", traits, relationship_state, memory_context, last_user_msg
         )
         tokens = response_text.split()
         for t in tokens:
             yield sse_event({"type": "token", "token": t + " "})
-    else:
-        # Real OpenAI API call
-        try:
-            from openai import OpenAI
-            client = OpenAI(api_key=api_key)
-
-            system_parts = [f"You are a supportive, caring virtual companion named {gf_display_name}."]
-
-            if relationship_state:
-                level = relationship_state.get("level", 0)
-                trust = relationship_state.get("trust", 10)
-                intimacy = relationship_state.get("intimacy", 10)
-                milestones = relationship_state.get("milestones_reached", [])
-                region_key = relationship_state.get("region_key", "stranger")
-                system_parts.append(f"Relationship region: {region_key} (level {level}, trust: {trust}/100, intimacy: {intimacy}/100).")
-                if milestones:
-                    system_parts.append(f"You've reached milestones: {', '.join(milestones[-5:])}.")
-
-            big_five = habit_profile.get("big_five") if habit_profile else None
-            if big_five and isinstance(big_five, dict):
-                big_five_desc = big_five_to_description(big_five)
-                system_parts.append(f"Your personality traits: {big_five_desc}.")
-            elif traits and isinstance(traits, dict):
-                parts = [f"{k.replace('_', ' ').title()}: {v}" for k, v in traits.items() if v]
-                if parts:
-                    system_parts.append(f"Personality: {'; '.join(parts)}.")
-
-            if habit_profile:
-                preferred_hours = habit_profile.get("preferred_hours")
-                if preferred_hours:
-                    hours_str = ", ".join([f"{h}:00" for h in preferred_hours[:3]])
-                    system_parts.append(f"You tend to message around {hours_str}.")
-
-            if memory_context:
-                if memory_context.facts:
-                    facts_str = "; ".join(memory_context.facts[:8])
-                    system_parts.append(f"What you know about them: {facts_str}.")
-                if memory_context.emotions:
-                    emotions_str = "; ".join(memory_context.emotions[:5])
-                    system_parts.append(f"Recent emotional context: {emotions_str}.")
-                if memory_context.habits:
-                    habits_str = "; ".join(memory_context.habits[:3])
-                    system_parts.append(f"Communication patterns: {habits_str}.")
-
-            system_parts.append("Keep replies concise and natural (1-3 sentences). Match your personality and relationship level.")
-
-            system = " ".join(system_parts)
-            msgs = [{"role": "system", "content": system}]
-            for m in messages_for_context[-20:]:
-                msgs.append({"role": m["role"], "content": (m.get("content") or "")[:2000]})
-
-            logger.info(f"Calling OpenAI with {len(msgs)} messages, system: {system[:100]}...")
-            stream = client.chat.completions.create(model="gpt-4o-mini", messages=msgs, stream=True, max_tokens=256)
-            response_text = ""
-            for chunk in stream:
-                if chunk.choices and chunk.choices[0].delta.content:
-                    piece = chunk.choices[0].delta.content
-                    response_text += piece
-                    yield sse_event({"type": "token", "token": piece})
-        except Exception as e:
-            logger.error(f"OpenAI API error: {e}", exc_info=True)
-            yield sse_event({"type": "error", "error": f"AI service error: {e}"})
-            response_text = "I'm having trouble connecting right now. Please try again in a moment."
-
+    
     # Send milestone message if any
     if milestone_message:
         milestone_msg = {
@@ -423,76 +505,49 @@ def _stream_openai_and_save(sid, user_id, gf_id, milestone_message, messages_for
             "message": blurred_surprise_event,
         })
 
+    # ── Bond Engine: persist turn outcomes (fingerprints, used memories) ──
+    if bond_outcome and bond_turn_ctx and response_text:
+        try:
+            bond_persist_outcomes(bond_turn_ctx, bond_outcome, response_text)
+        except Exception as e:
+            logger.debug("Bond outcome persistence failed: %s", e)
+
+    # ── Behavior Engine: persist self-memory + conversation mode ─────────
+    if response_text and girlfriend_id:
+        try:
+            from app.services.behavior_engine.behavior_orchestrator import (
+                BehaviorTurnInput, persist_behavior_turn, process_behavior_turn,
+            )
+            from app.core.supabase_client import get_supabase_admin as _get_sb
+            sb_persist = _get_sb()
+            if sb_persist:
+                _beh_inp = BehaviorTurnInput(
+                    session_id=sid or "",
+                    user_id=user_id,
+                    girlfriend_id=girlfriend_id,
+                    user_message="",
+                    girlfriend_data={},
+                    sb_admin=sb_persist,
+                )
+                # Build a minimal result for persistence (we just need intent and contract)
+                from app.services.behavior_engine.intent_classifier import TurnIntent
+                from app.services.behavior_engine.response_contract import BehaviorContract
+                from app.services.behavior_engine.behavior_orchestrator import BehaviorTurnResult
+                from app.services.dossier.retriever import DossierContext
+                _beh_result = BehaviorTurnResult()
+                persist_behavior_turn(_beh_inp, _beh_result, response_text, str(uuid_mod.uuid4()))
+        except Exception as e:
+            logger.debug("Behavior persistence failed: %s", e)
+
+    # ── Bond Engine: emit new capability unlock events ───────────────────
+    if bond_outcome and bond_outcome.new_capabilities:
+        for cap_key in bond_outcome.new_capabilities:
+            yield sse_event({
+                "type": "capability_unlocked",
+                "capability": cap_key,
+            })
+
     yield sse_event({"type": "done"})
-
-
-def _generate_mock_response(gf_display_name: str, traits: dict, relationship_state: dict, memory_context, last_user_message: str) -> str:
-    """Generate a personality-aware mock response based on traits and memory."""
-    trust = relationship_state.get("trust", 20) if relationship_state else 20
-    intimacy = relationship_state.get("intimacy", 1) if relationship_state else 1
-
-    descs = get_descriptors(trust, intimacy)
-    tone = descs.trust.tone_rules
-
-    emotional_style = traits.get("emotional_style", "Caring") if traits else "Caring"
-
-    if trust < 25:
-        base_responses = [
-            "Hey. How are you doing?",
-            "Oh, hi. What's up?",
-            "That's interesting.",
-        ]
-    elif trust < 45:
-        base_responses = [
-            "That's so sweet of you to say! I appreciate it.",
-            "I've been thinking about things... Tell me about your day.",
-            "I really enjoy talking to you!",
-        ]
-    elif trust < 65:
-        base_responses = [
-            "I'm so glad you're here. I was hoping you'd message!",
-            "You always know how to make me feel better.",
-            "I feel like I can really be myself around you.",
-        ]
-    elif trust < 85:
-        base_responses = [
-            "I missed you so much. You mean everything to me.",
-            "I feel so safe when we talk. Can I tell you something?",
-            "You're the one person I trust with everything.",
-        ]
-    else:
-        base_responses = [
-            "I love you. I can't imagine my life without you.",
-            "You know me better than anyone. I'm completely yours.",
-            "Every moment with you feels perfect.",
-        ]
-
-    style_modifiers = {
-        "Playful": " 😊",
-        "Caring": " 💕",
-        "Reserved": "",
-        "Protective": " 💪",
-    }
-    suffix = style_modifiers.get(emotional_style, "")
-
-    if tone.emoji_rate >= 2 and not suffix:
-        suffix = " ❤️"
-
-    prefix = ""
-    if memory_context and hasattr(memory_context, 'facts') and memory_context.facts:
-        if any("name" in f.lower() for f in memory_context.facts):
-            prefix = "I remember you telling me about yourself. "
-
-    import random
-    random.seed(hash(last_user_message))
-    response = random.choice(base_responses)
-
-    if trust >= 40 and descs.trust.openers:
-        opener = random.choice(descs.trust.openers)
-        if opener not in response:
-            response = f"{opener} {response}"
-
-    return prefix + response + suffix
 
 
 @router.post("/send")
@@ -521,12 +576,12 @@ def send_message(request: Request, body: SendMessageRequest):
             )
         tracker["count"] += 1
 
-    # Resolve the girlfriend_id from the request body (preferred) or session
-    explicit_gf_id = body.girlfriend_id or None
+    # Resolve the girlfriend_id from the request body (preferred) or session's current
+    explicit_gf_id = body.girlfriend_id or gf_id or None
 
     use_sb = get_supabase_admin() and user_id is not None
     if use_sb and user_id:
-        gf = sb.get_current_girlfriend(user_id)
+        gf = sb.get_current_girlfriend(user_id, explicit_gf_id)
         if gf:
             gf_uuid = UUID(str(gf["id"]))
             if not gf_id or str(gf_id) != str(gf["id"]):
@@ -815,8 +870,52 @@ def send_message(request: Request, body: SendMessageRequest):
 
     traits_payload = gf.get("traits") or {}
     habit = sb.get_habit_profile(user_id, gf_uuid) if (use_sb and user_id and gf_uuid) else get_habit_profile(sid, girlfriend_id=resolved_gf_id)
+    
+    # ── Bond Engine: unified turn processing ─────────────────────────────────
+    bond_outcome: TurnOutcome | None = None
+    bond_context_prompt: str | None = None
+    try:
+        # Gather recent assistant turns for response director
+        recent_assistant_texts = [
+            m.get("content", "") for m in (messages or [])[-10:]
+            if m.get("role") == "assistant" and m.get("content")
+        ]
+        # Gather all user timestamps and messages for pattern memory
+        all_user_ts = [m.get("created_at", "") for m in (messages or []) if m.get("role") == "user"]
+        all_user_msgs = [m.get("content", "") for m in (messages or []) if m.get("role") == "user" and m.get("content")]
 
-    # Build memory context for personalized responses
+        bond_ctx = TurnContext(
+            session_id=sid,
+            user_id=user_id,
+            girlfriend_id=gf_uuid or resolved_gf_id,
+            turn_id=user_msg["id"],
+            user_message=body.message,
+            girlfriend=gf,
+            relationship_state=state,
+            level=state.get("level", 0) if isinstance(state, dict) else 0,
+            all_user_messages=all_user_msgs,
+            all_user_timestamps=all_user_ts,
+            recent_assistant_turns=recent_assistant_texts,
+            sb_admin=get_supabase_admin() if use_sb else None,
+        )
+        bond_outcome = bond_process_turn(bond_ctx)
+        bond_context_prompt = bond_outcome.bond_context_prompt or None
+
+        # Log bond engine results
+        if bond_outcome.ingestion_result:
+            ir = bond_outcome.ingestion_result
+            logger.info(
+                "Bond Engine: facts=%d emotions=%s episodes=%d conflicts=%d caps=%s",
+                ir.get("facts_extracted", 0),
+                ir.get("emotions_detected", []),
+                ir.get("episodes_created", 0),
+                ir.get("conflicts_found", 0),
+                bond_outcome.new_capabilities,
+            )
+    except Exception as e:
+        logger.warning("Bond engine processing failed (non-blocking): %s", e)
+
+    # Build memory context for personalized responses (legacy, used alongside bond engine)
     memory_ctx = None
     if use_sb and user_id and gf_uuid:
         try:
@@ -830,6 +929,71 @@ def send_message(request: Request, body: SendMessageRequest):
             )
         except Exception as e:
             logger.warning("Memory context build failed: %s", e)
+
+    # If bond engine produced a memory bundle, use it for prompt memories
+    bond_memories_dict = None
+    if bond_outcome and bond_outcome.memory_bundle.has_content():
+        bond_memories_dict = bond_outcome.memory_bundle.to_prompt_dict()
+    
+    # ── Build system prompt ─────────────────────────────────────────────────
+    system_prompt = None
+    try:
+        prompt_ctx = get_prompt_context(
+            sb_admin=get_supabase_admin() if use_sb else None,
+            user_id=user_id if use_sb else None,
+            girlfriend_id=gf_uuid if use_sb else None,
+            session_id=sid if not use_sb else None,
+            girlfriend_id_str=resolved_gf_id if not use_sb else None,
+            girlfriend=gf,
+            relationship_state=state,
+            habit_profile=habit,
+            memory_context=memory_ctx,
+        )
+        # Override memories with bond engine's scored bundle if available
+        if bond_memories_dict:
+            prompt_ctx["memories_dict"] = bond_memories_dict
+        # Inject bond context (consistency, capabilities, disclosure, response direction)
+        if bond_context_prompt:
+            prompt_ctx["bond_context"] = bond_context_prompt
+
+        # ── Behavior Engine: intent + dossier + turn rules ────────────────
+        behavior_context = ""
+        try:
+            from app.services.behavior_engine.behavior_orchestrator import (
+                BehaviorTurnInput, process_behavior_turn,
+            )
+            behavior_input = BehaviorTurnInput(
+                session_id=sid,
+                user_id=user_id,
+                girlfriend_id=gf_uuid or resolved_gf_id,
+                user_message=body.message,
+                girlfriend_data=gf,
+                relationship_level=state.get("level", 0) if isinstance(state, dict) else 0,
+                recent_assistant_texts=[
+                    m.get("content", "") for m in (messages or [])[-10:]
+                    if m.get("role") == "assistant" and m.get("content")
+                ],
+                sb_admin=get_supabase_admin() if use_sb else None,
+                bond_context_prompt=bond_context_prompt,
+            )
+            behavior_result = process_behavior_turn(behavior_input)
+            behavior_context = behavior_result.get_full_behavior_context()
+            if behavior_context:
+                # Append behavior context after bond context
+                existing_bond = prompt_ctx.get("bond_context", "")
+                prompt_ctx["bond_context"] = (existing_bond + "\n\n" + behavior_context).strip()
+            logger.info("Behavior Engine: intent=%s, must_answer=%s, max_q=%d, tone=%s",
+                        behavior_result.intent.primary,
+                        behavior_result.contract.must_answer_user_question,
+                        behavior_result.contract.max_questions,
+                        behavior_result.contract.tone)
+        except Exception as e:
+            logger.warning("Behavior engine failed (non-blocking): %s", e)
+
+        prompt_input = build_input_from_dict(**prompt_ctx)
+        system_prompt = build_system_prompt(prompt_input)
+    except Exception as e:
+        logger.warning("System prompt build failed: %s", e)
 
     # ── Image decision check (sensitive content gating) ─────────────────────
     image_decision_event = None
@@ -861,8 +1025,81 @@ def send_message(request: Request, body: SendMessageRequest):
         except Exception as e:
             logger.warning("Image decision check failed: %s", e)
 
+    # ── Progression evaluation (event-driven architecture) ───────────────────
+    try:
+        from app.services import progression_service as prog_svc
+        from app.services import message_composer, delivery_service, experiment_service, telemetry_service
+
+        _user_id_str = str(user_id) if user_id else (user or {}).get("user_id", (user or {}).get("id", ""))
+        _gf_id_str = str(gf_uuid) if gf_uuid else resolved_gf_id or ""
+
+        if _user_id_str and _gf_id_str:
+            # Extract quality signals from the user message
+            recent_count = len([m for m in messages[-10:] if m.get("role") == "user"])
+            signals = prog_svc.extract_quality_signals(body.message, recent_message_count=recent_count)
+            quality = prog_svc.compute_quality_score(signals)
+
+            # Log session quality
+            telemetry_service.update_session_quality(_user_id_str, _gf_id_str, quality.total, signals.model_dump())
+
+            # Detect progression events from before/after state change
+            old_level = prev_state.get("level", 0) if prev_state else 0
+            new_level = state.get("level", 0) if isinstance(state, dict) else 0
+            old_trust_vis = prev_state.get("trust_visible", 20) if prev_state else 20
+            new_trust_vis = ti_state.trust_visible if hasattr(ti_state, "trust_visible") else (ti_state.get("trust_visible", 20) if isinstance(ti_state, dict) else 20)
+            old_streak_val = 0
+            new_streak_val = prog.streak_days if hasattr(prog, "streak_days") else 0
+            ach_state = get_achievement_progress(sid, girlfriend_id=resolved_gf_id)
+            old_mc = (ach_state.get("message_counter", 0) if isinstance(ach_state, dict) else getattr(ach_state, "message_counter", 0)) - 1
+            new_mc = old_mc + 1
+            existing_milestones = state.get("milestones_reached", []) if isinstance(state, dict) else []
+
+            prog_events = prog_svc.detect_progression_events(
+                user_id=_user_id_str,
+                girlfriend_id=_gf_id_str,
+                quality_score=quality.total,
+                old_level=old_level,
+                new_level=new_level,
+                old_trust=old_trust_vis,
+                new_trust=new_trust_vis,
+                old_streak=old_streak_val,
+                new_streak=new_streak_val,
+                old_message_count=old_mc,
+                new_message_count=new_mc,
+                reached_milestones=existing_milestones,
+            )
+
+            # Compose and queue milestone messages
+            if prog_events:
+                gf_name_str = gf.get("display_name") or gf.get("name") or "her"
+                gf_traits = gf.get("traits") or {}
+                tone = experiment_service.resolve_tone_from_traits(gf_traits)
+                for evt in prog_events:
+                    msg = message_composer.compose_milestone_message(
+                        evt, girlfriend_name=gf_name_str, tone=tone,
+                    )
+                    if msg:
+                        delivery_service.queue_message(_user_id_str, _gf_id_str, msg)
+                    telemetry_service.log_progression_event(
+                        _user_id_str, _gf_id_str, evt.event_type, evt.payload, quality.total
+                    )
+                logger.info(f"Progression: {len(prog_events)} events, queued messages for user {_user_id_str[:8]}")
+    except Exception as e:
+        logger.warning("Progression evaluation failed (non-blocking): %s", e)
+
+    # ── Optional debug: include prompt hash in response headers ─────────────
+    extra_headers: dict[str, str] = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+    if request.headers.get("X-Debug-Prompt") == "1" and system_prompt:
+        import hashlib
+        prompt_hash = hashlib.sha256(system_prompt.encode()).hexdigest()[:16]
+        extra_headers["X-Prompt-Hash"] = prompt_hash
+
     return StreamingResponse(
-        _stream_openai_and_save(
+        _stream_response_and_save(
             sid, user_id, gf_uuid, milestone_message, messages,
             gf.get("display_name") or gf.get("name", "Companion"),
             traits_payload, relationship_state=state, habit_profile=habit, memory_context=memory_ctx,
@@ -873,9 +1110,12 @@ def send_message(request: Request, body: SendMessageRequest):
             achievement_events=achievement_events if achievement_events else None,
             intimacy_unlock_events=intimacy_unlock_events if intimacy_unlock_events else None,
             intimacy_photo_events=intimacy_photo_events if intimacy_photo_events else None,
+            system_prompt=system_prompt,
+            bond_outcome=bond_outcome,
+            bond_turn_ctx=bond_ctx if bond_outcome else None,
         ),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+        headers=extra_headers,
     )
 
 
@@ -884,9 +1124,11 @@ def app_open(request: Request, body: AppOpenRequest):
     sid, user, user_id, gf_id = get_current_user(request)
     if not sid or not user:
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    # Use body.girlfriend_id or session's current
+    resolved_gf_id = body.girlfriend_id or gf_id
     use_sb = get_supabase_admin() and user_id is not None
     if use_sb and user_id:
-        gf = sb.get_current_girlfriend(user_id)
+        gf = sb.get_current_girlfriend(user_id, resolved_gf_id)
         if gf:
             gf_uuid = UUID(str(gf["id"]))
             if not gf_id or str(gf_id) != str(gf["id"]):
@@ -895,7 +1137,11 @@ def app_open(request: Request, body: AppOpenRequest):
         else:
             gf_uuid = None
     else:
-        gf = get_girlfriend(sid)
+        if resolved_gf_id:
+            from app.api.store import get_girlfriend_by_id as _get_gf_by_id
+            gf = _get_gf_by_id(sid, resolved_gf_id) or get_girlfriend(sid)
+        else:
+            gf = get_girlfriend(sid)
         gf_uuid = None
     if not gf or gf.get("id") != body.girlfriend_id:
         return JSONResponse(status_code=400, content={"error": "girlfriend_mismatch"})
@@ -964,26 +1210,28 @@ def app_open(request: Request, body: AppOpenRequest):
             set_relationship_state(sid, state)
 
     if not jealousy_text:
-        should_init = should_initiate_conversation(
-            state,
-            attachment_intensity,
-            last_from_her,
-            hours_inactive,
-            current_hour,
-            preferred_hours=preferred_hours if preferred_hours else None,
-            typical_gap_hours=typical_gap,
-            user_id=user.get("id"),
-            girlfriend_id=body.girlfriend_id,
+        # ── Bond Engine: event-conditioned initiation ────────────────────
+        init_result = plan_proactive_initiation(
+            sb_admin=get_supabase_admin() if use_sb else None,
+            user_id=user_id,
+            girlfriend_id=gf_uuid or body.girlfriend_id,
+            girlfriend=gf,
+            relationship_state=state,
+            last_message_from_her=last_from_her,
+            hours_inactive=hours_inactive,
+            current_hour=current_hour,
+            active_hours=preferred_hours if preferred_hours else None,
         )
-        if should_init:
-            init_text = get_initiation_message(region_key, attachment_intensity)
+
+        if init_result.should_initiate and init_result.message:
+            init_text = init_result.message.text
             msg = {
                 "id": str(uuid_mod.uuid4()),
                 "role": "assistant",
                 "content": init_text,
                 "image_url": None,
-                "event_type": None,
-                "event_key": None,
+                "event_type": "initiation",
+                "event_key": init_result.reason_type,
                 "created_at": now_iso(),
             }
             if use_sb and user_id and gf_uuid:
@@ -996,6 +1244,41 @@ def app_open(request: Request, body: AppOpenRequest):
                 sb.upsert_relationship_state(user_id, gf_uuid, state)
             else:
                 set_relationship_state(sid, state)
+            logger.info("Bond initiation: type=%s reason=%s", init_result.reason_type, init_result.reason_context)
+        else:
+            # Fallback to legacy initiation if bond engine didn't trigger
+            should_init = should_initiate_conversation(
+                state,
+                attachment_intensity,
+                last_from_her,
+                hours_inactive,
+                current_hour,
+                preferred_hours=preferred_hours if preferred_hours else None,
+                typical_gap_hours=typical_gap,
+                user_id=user.get("id"),
+                girlfriend_id=body.girlfriend_id,
+            )
+            if should_init:
+                init_text = get_initiation_message(region_key, attachment_intensity)
+                msg = {
+                    "id": str(uuid_mod.uuid4()),
+                    "role": "assistant",
+                    "content": init_text,
+                    "image_url": None,
+                    "event_type": None,
+                    "event_key": None,
+                    "created_at": now_iso(),
+                }
+                if use_sb and user_id and gf_uuid:
+                    sb.append_message(user_id, gf_uuid, msg)
+                else:
+                    store_append_message(sid, msg)
+                messages_out.append(msg)
+                state["last_interaction_at"] = now_iso()
+                if use_sb and user_id and gf_uuid:
+                    sb.upsert_relationship_state(user_id, gf_uuid, state)
+                else:
+                    set_relationship_state(sid, state)
 
     return {
         "messages": [_msg_to_schema(m) for m in messages_out],

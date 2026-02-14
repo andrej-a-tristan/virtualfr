@@ -1,3 +1,4 @@
+import { useEffect } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { getMe, logout as apiLogout } from "@/lib/api/endpoints"
 import { useAppStore } from "@/lib/store/useAppStore"
@@ -10,6 +11,7 @@ export function useAuth() {
     queryFn: getMe,
     retry: false,
     staleTime: 60_000,
+    refetchOnWindowFocus: false,
   })
   const logoutMutation = useMutation({
     mutationFn: apiLogout,
@@ -18,10 +20,19 @@ export function useAuth() {
       queryClient.clear()
     },
   })
-  if (data && !user) setUser(data)
+
+  // Sync server data to local store (as an effect, not during render)
+  useEffect(() => {
+    if (data && !user) setUser(data)
+  }, [data, user, setUser])
+
   // Merge: prefer store user for fields that may be updated locally before API refetch
   const mergedUser = data
-    ? { ...data, age_gate_passed: data.age_gate_passed || (user?.age_gate_passed ?? false) }
+    ? {
+        ...data,
+        age_gate_passed: data.age_gate_passed || (user?.age_gate_passed ?? false),
+        has_girlfriend: data.has_girlfriend || (user?.has_girlfriend ?? false),
+      }
     : user
   return {
     user: mergedUser,

@@ -32,7 +32,7 @@ export default function Settings() {
 
   const handleLogout = async () => {
     await logout()
-    navigate("/", { replace: true })
+    navigate("/login", { replace: true })
   }
 
   const handlePasswordChange = async () => {

@@ -59,6 +59,9 @@ export async function login(email: string, password: string) {
 export async function logout() {
   return apiPost<{ ok: boolean }>("/auth/logout")
 }
+export async function guestSession() {
+  return apiPost<{ ok: boolean; user: User }>("/auth/guest")
+}
 
 // Me
 export async function getMe() {
@@ -325,4 +328,37 @@ export async function mysteryUnlockIntimacyAchievement(achievementId: string, gi
     achievement_id: achievementId,
     girlfriend_id: girlfriendId,
   })
+}
+
+// ── Progression System ─────────────────────────────────────────────────────
+
+import type { MilestoneMessageList, ProgressionSummary } from "./types"
+
+export async function getProgressionMessages(girlfriendId?: string, unreadOnly = true) {
+  const params = new URLSearchParams()
+  if (girlfriendId) params.set("girlfriend_id", girlfriendId)
+  if (!unreadOnly) params.set("unread_only", "false")
+  return apiGet<MilestoneMessageList>(`/progression/messages?${params}`)
+}
+
+export async function markProgressionMessagesRead(messageIds: string[]) {
+  return apiPost<{ ok: boolean; count: number }>("/progression/messages/read", {
+    message_ids: messageIds,
+  })
+}
+
+export async function recordProgressionAction(messageId: string, action: string) {
+  return apiPost<{ ok: boolean; action: string }>(`/progression/messages/${messageId}/action`, {
+    message_id: messageId,
+    action,
+  })
+}
+
+export async function dismissProgressionMessage(messageId: string) {
+  return apiPost<{ ok: boolean }>(`/progression/messages/${messageId}/dismiss`, {})
+}
+
+export async function getProgressionSummary(girlfriendId?: string) {
+  const params = girlfriendId ? `?girlfriend_id=${girlfriendId}` : ""
+  return apiGet<ProgressionSummary>(`/progression/summary${params}`)
 }

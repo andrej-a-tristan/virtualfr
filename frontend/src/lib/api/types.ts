@@ -102,6 +102,12 @@ export interface Traits {
   cultural_personality: string
 }
 
+/** Language preference for localization. */
+export type LanguagePref = "en" | "sk"
+
+/** Relationship level (matches backend region system levels). */
+export type RelationshipLevel = "STRANGER" | "FAMILIAR" | "CLOSE" | "INTIMATE" | "EXCLUSIVE"
+
 export type ChatMessageRole = "user" | "assistant" | "system"
 
 export interface ChatMessage {
@@ -526,4 +532,42 @@ export interface ProfileTotals {
 export interface ProfileGirlsResponse {
   girls: GirlProfileStats[]
   totals: ProfileTotals
+}
+
+// ── Progression System ─────────────────────────────────────────────────────
+
+export interface ContentBlock {
+  celebration: string
+  meaning: string
+  choices: { label: string; action: string; icon?: string }[]
+  reward: Record<string, unknown>
+}
+
+export interface MilestoneMessage {
+  id: string
+  event_type: string
+  milestone_key?: string | null
+  content: ContentBlock
+  sent_at: string
+  read_at?: string | null
+  dismissed: boolean
+  experiment_variant?: string | null
+}
+
+export interface MilestoneMessageList {
+  messages: MilestoneMessage[]
+  unread_count: number
+}
+
+export interface ProgressionSummary {
+  level: number
+  region_key: string
+  trust_visible: number
+  intimacy_visible: number
+  streak_days: number
+  message_count: number
+  quality_score_avg_7d: number
+  milestones_reached: string[]
+  unread_messages: number
+  next_milestone: { key: string; title: string; progress_pct: number } | null
 }

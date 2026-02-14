@@ -1,5 +1,6 @@
 """Girlfriend / persona Pydantic schemas."""
-from pydantic import BaseModel, field_validator
+from typing import Any
+from pydantic import BaseModel, field_validator, model_validator
 
 
 class TraitsPayload(BaseModel):
@@ -49,7 +50,7 @@ class IdentityPayload(BaseModel):
 
 
 class IdentityResponse(BaseModel):
-    name: str
+    name: str | None = None
     job_vibe: str | None = None
     hobbies: list[str] = []
     origin_vibe: str | None = None
@@ -57,10 +58,10 @@ class IdentityResponse(BaseModel):
 
 class IdentityCanon(BaseModel):
     """Generated identity canon fields (server-side, template-based)."""
-    backstory: str
-    daily_routine: str
-    favorites: dict[str, str]
-    memory_seeds: list[str]
+    backstory: str | None = None
+    daily_routine: str | None = None
+    favorites: dict[str, str] = {}
+    memory_seeds: list[str] = []
 
 
 class OnboardingCompletePayload(BaseModel):
@@ -75,10 +76,28 @@ class GirlfriendResponse(BaseModel):
     display_name: str | None = None
     name: str | None = None
     avatar_url: str | None = None
-    traits: dict
+    traits: dict = {}
     appearance_prefs: dict | None = None
     content_prefs: dict | None = None
     identity: IdentityResponse | None = None
     identity_canon: IdentityCanon | None = None
-    created_at: str
+    created_at: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_empty_dicts(cls, values: Any) -> Any:
+        """Convert empty dicts to None for optional nested models.
+        
+        DB rows may store {} for identity/identity_canon when not yet populated.
+        Pydantic would try to validate {} against the model and fail on required fields.
+        """
+        if isinstance(values, dict):
+            for key in ("identity", "identity_canon"):
+                val = values.get(key)
+                if isinstance(val, dict) and not val:
+                    values[key] = None
+            # Ensure traits is always a dict
+            if not values.get("traits"):
+                values["traits"] = {}
+        return values
 

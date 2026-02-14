@@ -32,7 +32,14 @@ Thumbs.db
 
 # Logs
 *.log
+*.jsonl
 npm-debug.log*
+backend/logs/
+
+# Cache / pickle
+*.pkl
+_store_cache.pkl
+_gifts_cache.pkl
 
 # Test / coverage
 .coverage

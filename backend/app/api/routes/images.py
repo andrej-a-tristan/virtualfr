@@ -1,6 +1,7 @@
 """Image request, job status, gallery — all per-girlfriend."""
 import logging
 import uuid
+from uuid import UUID
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -13,12 +14,23 @@ from app.api.store import (
     get_intimacy_state,
 )
 from app.services.image_decision_engine import decide_image_action
+from app.api import supabase_store as sb_store
+from app.core.supabase_client import get_supabase_admin
 
 router = APIRouter(prefix="/images", tags=["images"])
 logger = logging.getLogger(__name__)
 
 # In-memory job store: job_id -> {status, image_url, session_id, girlfriend_id}
 _jobs: dict[str, dict] = {}
+
+
+def _uuid_or_none(v: str | None) -> UUID | None:
+    if not v:
+        return None
+    try:
+        return UUID(str(v))
+    except (ValueError, TypeError):
+        return None
 
 
 def _session_id(request: Request) -> str | None:
@@ -67,6 +79,8 @@ def request_image(request: Request, body: ImageRequestBody | None = None):
     gf = get_girlfriend(sid)
     if not gf_id:
         gf_id = gf["id"] if gf else None
+    user_uuid = _uuid_or_none((user or {}).get("user_id") or (user or {}).get("id"))
+    gf_uuid = _uuid_or_none(gf_id)
 
     # ── Image decision engine gate ────────────────────────────────────────
     prompt_text = (body.prompt if body else "") or ""
@@ -102,12 +116,23 @@ def request_image(request: Request, body: ImageRequestBody | None = None):
 
     job_id = str(uuid.uuid4())
     image_url = f"https://picsum.photos/seed/{job_id[:8]}/400/400"
-    _jobs[job_id] = {
-        "status": "done",
-        "image_url": image_url,
-        "session_id": sid,
-        "girlfriend_id": gf_id,
-    }
+    if get_supabase_admin() and user_uuid and gf_uuid:
+        row = sb_store.create_image_job(
+            user_uuid,
+            gf_uuid,
+            status="done",
+            image_url=image_url,
+            request_prompt=prompt_text or None,
+        )
+        if row:
+            job_id = str(row["id"])
+    else:
+        _jobs[job_id] = {
+            "status": "done",
+            "image_url": image_url,
+            "session_id": sid,
+            "girlfriend_id": gf_id,
+        }
 
     # Also add to the girlfriend's gallery
     if gf_id:
@@ -125,8 +150,16 @@ def request_image(request: Request, body: ImageRequestBody | None = None):
 @router.get("/jobs/{job_id}")
 def get_job(job_id: str, request: Request):
     sid = _session_id(request)
-    if not sid or not get_session_user(sid):
+    user = get_session_user(sid) if sid else None
+    if not sid or not user:
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    user_uuid = _uuid_or_none((user or {}).get("user_id") or (user or {}).get("id"))
+    gf_uuid = _uuid_or_none((user or {}).get("current_girlfriend_id"))
+    if get_supabase_admin() and user_uuid and gf_uuid:
+        row = sb_store.get_image_job(user_uuid, gf_uuid, job_id)
+        if not row:
+            return JSONResponse(status_code=404, content={"error": "job_not_found"})
+        return ImageJobResponse(status=row["status"], image_url=row.get("image_url"))
     job = _jobs.get(job_id)
     if not job:
         return JSONResponse(status_code=404, content={"error": "job_not_found"})

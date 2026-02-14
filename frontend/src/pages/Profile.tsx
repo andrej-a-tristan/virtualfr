@@ -1,8 +1,10 @@
 import { useState, useMemo } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "react-router-dom"
-import { getProfileGirls, switchGirlfriend, getBillingStatus } from "@/lib/api/endpoints"
+import { getProfileGirls, switchGirlfriend, listGirlfriends, getBillingStatus } from "@/lib/api/endpoints"
 import { useAuth } from "@/lib/hooks/useAuth"
+import { useAppStore } from "@/lib/store/useAppStore"
+import { useChatStore } from "@/lib/store/useChatStore"
 import type { GirlProfileStats, ProfileGirlsResponse } from "@/lib/api/types"
 import { cn, formatRelativeTime } from "@/lib/utils"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
@@ -413,7 +415,13 @@ export default function Profile() {
     queryFn: getBillingStatus,
   })
 
-  const currentGfId = user?.current_girlfriend_id ?? null
+  const setGirlfriends = useAppStore((s) => s.setGirlfriends)
+  const setCurrentGirlfriend = useAppStore((s) => s.setCurrentGirlfriend)
+  const setGirlfriend = useAppStore((s) => s.setGirlfriend)
+  const currentGirlfriendId = useAppStore((s) => s.currentGirlfriendId)
+  const resetChat = useChatStore((s) => s.reset)
+
+  const currentGfId = currentGirlfriendId ?? user?.current_girlfriend_id ?? null
   const plan = billing?.plan ?? "free"
 
   const sortedGirls = useMemo(
@@ -421,38 +429,65 @@ export default function Profile() {
     [data, sortKey]
   )
 
+  const _doSwitch = async (gfId: string) => {
+    const res = await switchGirlfriend(gfId)
+    // Update Zustand store so the whole app reflects the switch immediately
+    setGirlfriends(res.girlfriends, res.current_girlfriend_id)
+    setCurrentGirlfriend(gfId)
+    const selected = res.girlfriends.find((g) => g.id === gfId)
+    if (selected) setGirlfriend(selected)
+    resetChat()
+    // Invalidate all relevant queries
+    queryClient.invalidateQueries({ queryKey: ["profile-girls"] })
+    queryClient.invalidateQueries({ queryKey: ["girlfriend"] })
+    queryClient.invalidateQueries({ queryKey: ["chatHistory"] })
+    queryClient.invalidateQueries({ queryKey: ["chatState"] })
+    queryClient.invalidateQueries({ queryKey: ["girlfriendsList"] })
+    queryClient.invalidateQueries({ queryKey: ["gallery"] })
+  }
+
   const handleSwitch = async (gfId: string) => {
+    if (gfId === currentGfId) {
+      navigate("/app/girl")
+      return
+    }
     setSwitching(gfId)
     try {
-      await switchGirlfriend(gfId)
-      queryClient.invalidateQueries({ queryKey: ["profile-girls"] })
-      queryClient.invalidateQueries({ queryKey: ["girlfriend"] })
+      await _doSwitch(gfId)
       navigate("/app/girl")
+    } catch (err) {
+      console.error("Switch failed:", err)
     } finally {
       setSwitching(null)
     }
   }
 
-  const handleOpenChat = (gfId: string) => {
+  const handleOpenChat = async (gfId: string) => {
     if (gfId !== currentGfId) {
-      switchGirlfriend(gfId).then(() => {
-        queryClient.invalidateQueries({ queryKey: ["girlfriend"] })
-        navigate("/app/girl")
-      })
-    } else {
-      navigate("/app/girl")
+      setSwitching(gfId)
+      try {
+        await _doSwitch(gfId)
+      } catch (err) {
+        console.error("Switch failed:", err)
+      } finally {
+        setSwitching(null)
+      }
     }
+    navigate("/app/girl")
   }
 
-  const handleOpenGallery = (gfId: string) => {
+  const handleOpenGallery = async (gfId: string) => {
     if (gfId !== currentGfId) {
-      switchGirlfriend(gfId).then(() => {
-        queryClient.invalidateQueries({ queryKey: ["girlfriend"] })
-        navigate("/app/girl?tab=gallery")
-      })
-    } else {
-      navigate("/app/girl?tab=gallery")
+      setSwitching(gfId)
+      try {
+        await _doSwitch(gfId)
+      } catch (err) {
+        console.error("Switch failed:", err)
+      } finally {
+        setSwitching(null)
+      }
     }
+    navigate("/app/girl?tab=gallery")
   }
 
   return (

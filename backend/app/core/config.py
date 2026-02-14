@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     internal_llm_base_url: str = "http://127.0.0.1:8000"
     internal_llm_api_key: str = ""
     internal_llm_path: str = "/v1/chat/completions"
+    internal_llm_model: str = "gpt-4o-mini"
 
     # Stripe
     stripe_secret_key: str = ""
@@ -58,7 +59,6 @@ class Settings(BaseSettings):
         return Path(__file__).resolve().parents[3] / "frontend" / "dist"
 
     class Config:
-        # Load .env from backend directory so API_KEY is found when run from any cwd
         env_file = str(Path(__file__).resolve().parents[2] / ".env")
         extra = "ignore"
 

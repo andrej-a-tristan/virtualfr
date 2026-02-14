@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { useQueryClient } from "@tanstack/react-query"
-import { login, postAgeGate, getMe } from "@/lib/api/endpoints"
+import { guestSession, getMe, getCurrentGirlfriend, logout as apiLogout } from "@/lib/api/endpoints"
 import { useAppStore } from "@/lib/store/useAppStore"
 
 export default function Landing() {
@@ -10,38 +10,54 @@ export default function Landing() {
   const setUser = useAppStore((s) => s.setUser)
   const setGirlfriend = useAppStore((s) => s.setGirlfriend)
   const clearOnboarding = useAppStore((s) => s.clearOnboarding)
+  const reset = useAppStore((s) => s.reset)
   const [status, setStatus] = useState("Starting up...")
 
   useEffect(() => {
     let cancelled = false
     async function autoSetup() {
       try {
-        // Clear ALL stale state: onboarding, girlfriend, and React Query cache
-        clearOnboarding()
-        setGirlfriend(null)
-        queryClient.clear()
-
-        if (!cancelled) setStatus("Signing in...")
-        const randomId = `dev-${Date.now()}`
-        const { user } = await login(randomId + "@devtest.com", "dev123")
-        if (!cancelled) setUser(user)
-
-        if (!user.age_gate_passed) {
-          if (!cancelled) setStatus("Passing age gate...")
-          await postAgeGate()
-          // Update local store + invalidate cache so RequireAgeGate guard sees it
-          if (!cancelled) setUser({ ...user, age_gate_passed: true })
-          await queryClient.invalidateQueries({ queryKey: ["me"] })
+        // Check if the user already has a valid session with a working girlfriend
+        try {
+          const existingUser = await getMe()
+          if (!cancelled && existingUser?.has_girlfriend && existingUser?.age_gate_passed) {
+            // Verify the girlfriend actually exists before redirecting to app
+            const gf = await getCurrentGirlfriend()
+            if (!cancelled && gf) {
+              setUser(existingUser)
+              setGirlfriend(gf)
+              navigate("/app/girl", { replace: true })
+              return
+            }
+            // Girlfriend doesn't exist — fall through to fresh onboarding
+          }
+        } catch {
+          // No valid session — proceed with guest setup
         }
 
-        if (!cancelled) navigate("/onboarding/appearance", { replace: true })
+        // Clear ALL stale state for a fresh onboarding
+        reset()
+        queryClient.clear()
+
+        // Also clear the backend session cookie
+        try { await apiLogout() } catch { /* ignore */ }
+
+        if (!cancelled) setStatus("Setting up...")
+
+        // Create a fresh guest session so onboarding pages work
+        const { user } = await guestSession()
+        if (!cancelled) {
+          setUser(user)
+          // Go straight to appearance (first onboarding step)
+          navigate("/onboarding/appearance", { replace: true })
+        }
       } catch (e) {
         if (!cancelled) setStatus(`Error: ${e instanceof Error ? e.message : String(e)}`)
       }
     }
     autoSetup()
     return () => { cancelled = true }
-  }, [navigate, setUser, setGirlfriend, clearOnboarding])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-background to-background/95">
