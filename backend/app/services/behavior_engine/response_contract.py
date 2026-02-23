@@ -29,6 +29,8 @@ class BehaviorContract:
     tone: str = "warm"                           # warm | playful | reflective | supportive | teasing | intimate
     cadence: str = "balanced"                    # short | balanced | expansive
     answer_style: str = "natural"                # answer_first | empathy_first | bridge | natural
+    sentence_target: int = 2                     # preferred sentence count
+    max_words: int = 60                          # soft cap for normal turns
 
     # ── Anti-interview guards ─────────────────────────────────────────────
     suppress_question_ending: bool = False        # Force no question at end
@@ -81,6 +83,7 @@ class BehaviorContract:
 
         # Tone
         lines.append(f"- Tone: {self.tone}. Cadence: {self.cadence}.")
+        lines.append(f"- Keep response near {self.sentence_target} sentence(s), soft cap ~{self.max_words} words unless user asks for depth.")
 
         # Blacklists
         if self.blacklisted_openings:
@@ -113,7 +116,7 @@ _INTENT_CADENCE_MAP = {
     "ask_about_her": "balanced",
     "ask_about_user": "balanced",
     "mixed": "balanced",
-    "support": "expansive",
+    "support": "balanced",
     "banter": "short",
     "greeting": "short",
     "intimate": "balanced",
@@ -125,6 +128,7 @@ def build_behavior_contract(
     conversation_mode: dict[str, Any] | None = None,
     relationship_level: int = 0,
     recent_fingerprints: list[dict] | None = None,
+    persona_vector: dict[str, Any] | None = None,
 ) -> BehaviorContract:
     """
     Build a BehaviorContract from the detected intent, conversation metrics, and context.
@@ -144,6 +148,20 @@ def build_behavior_contract(
 
     contract = BehaviorContract()
 
+    # Persona vector baseline (compact shared controls).
+    pacing = (persona_vector or {}).get("pacing", {})
+    default_cadence = pacing.get("default_cadence")
+    if default_cadence in ("short", "balanced", "deep"):
+        contract.cadence = "expansive" if default_cadence == "deep" else default_cadence
+    q_tendency = float(pacing.get("question_tendency", 0.35))
+    if q_tendency < 0.3:
+        contract.max_questions = 0
+    elif q_tendency > 0.7:
+        contract.max_questions = 1
+    max_sent = int(pacing.get("max_default_sentences", 3) or 3)
+    contract.sentence_target = max(1, min(4, max_sent))
+    contract.max_words = 40 if contract.cadence == "short" else 60 if contract.cadence == "balanced" else 90
+
     # ── Intent-driven base policy ─────────────────────────────────────────
 
     if intent.primary == "ask_about_her":
@@ -153,6 +171,8 @@ def build_behavior_contract(
         contract.callback_target = "self_memory"
         contract.answer_style = "answer_first"
         contract.require_self_share = True
+        contract.sentence_target = max(contract.sentence_target, 2)
+        contract.max_words = min(contract.max_words, 45)
         # Suggest a story topic based on detected conversation topics
         if intent.detected_topics:
             contract.story_bank_hint = intent.detected_topics[0]
@@ -179,6 +199,8 @@ def build_behavior_contract(
         contract.callback_target = "shared_memory"
         contract.answer_style = "empathy_first"
         contract.require_self_share = False
+        contract.sentence_target = 3
+        contract.max_words = 90
 
     elif intent.primary == "banter":
         contract.must_answer_user_question = False
@@ -186,6 +208,8 @@ def build_behavior_contract(
         contract.min_self_disclosure_depth = 1
         contract.callback_target = "none"
         contract.answer_style = "natural"
+        contract.sentence_target = 1
+        contract.max_words = 20
 
     elif intent.primary == "greeting":
         contract.must_answer_user_question = False
@@ -194,6 +218,8 @@ def build_behavior_contract(
         contract.callback_target = "self_memory"
         contract.answer_style = "natural"
         contract.require_self_share = True  # Share what she's doing / feeling
+        contract.sentence_target = 1
+        contract.max_words = 20
 
     elif intent.primary == "intimate":
         contract.must_answer_user_question = False

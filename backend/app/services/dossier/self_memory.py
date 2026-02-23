@@ -327,6 +327,26 @@ def update_conversation_mode_state(
             recent_stories.extend(story_ids_used)
             recent_stories = recent_stories[-20:]
 
+        # Generic phrase tracking (rolling).
+        generic_phrases = (
+            "that's a great question",
+            "tell me more",
+            "i'd love to hear more",
+            "how can i help",
+            "i'm here to help",
+        )
+        text_lower = assistant_text.lower()
+        was_generic = any(p in text_lower for p in generic_phrases)
+        old_generic = int(row.get("generic_response_count", 0) or 0)
+        new_generic = max(0, old_generic - 1)
+        if was_generic:
+            new_generic = min(50, old_generic + 1)
+
+        # Callback hit-rate proxy: did we use a story/memory callback this turn.
+        old_callback = float(row.get("callback_hit_rate", 0.0) or 0.0)
+        callback_hit = 1.0 if story_ids_used else 0.0
+        new_callback = old_callback * 0.85 + callback_hit * 0.15
+
         sb.table("conversation_mode_state").upsert({
             "user_id": uid,
             "girlfriend_id": gid,
@@ -336,6 +356,8 @@ def update_conversation_mode_state(
             "last_cadences": last_cadences,
             "consecutive_questions": consec_q,
             "story_ids_used_recently": recent_stories,
+            "generic_response_count": new_generic,
+            "callback_hit_rate": round(new_callback, 3),
         }, on_conflict="user_id,girlfriend_id").execute()
 
     except Exception as e:
