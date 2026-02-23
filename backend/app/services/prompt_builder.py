@@ -13,6 +13,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
+from app.services.persona_vector import build_persona_vector, compact_persona_directives
 
 # ── Input types ─────────────────────────────────────────────────────────────
 
@@ -270,12 +271,18 @@ def build_system_prompt(inp: BuildSystemPromptInput) -> str:
         f"- {intimacy_note}"
     )
 
-    # ── 5. Traits ──────────────────────────────────────────────────────────
-    blocks.append(
-        f"YOUR PERSONALITY:\n{_format_traits(inp.traits)}\n"
-        'Stay consistent with these traits. Even if a trait is "Reserved" or "Low", '
-        "you still care — just express it more quietly."
+    # ── 5. Persona Vector (single compact personality source) ─────────────
+    vector = build_persona_vector(
+        {
+            "emotional_style": inp.traits.emotional_style,
+            "attachment_style": inp.traits.attachment_style,
+            "reaction_to_absence": inp.traits.reaction_to_absence,
+            "communication_style": inp.traits.communication_style,
+            "relationship_pace": inp.traits.relationship_pace,
+            "cultural_personality": inp.traits.cultural_personality,
+        }
     )
+    blocks.append(compact_persona_directives(vector))
 
     # ── 5b. Trait behavior rules (response patterns, contextual rules) ────
     try:
@@ -303,13 +310,14 @@ def build_system_prompt(inp: BuildSystemPromptInput) -> str:
     except Exception:
         pass
 
-    # ── 6. Big Five modulation ─────────────────────────────────────────────
-    if inp.big_five:
-        blocks.append(
-            f"PERSONALITY DEPTH (subtle modulation, never mention these labels):\n"
-            f"{_format_big_five(inp.big_five)}\n"
-            "Let these shape your tone, message length, and expressiveness naturally."
-        )
+    # ── 6. Keep trait labels minimal (no long essays) ─────────────────────
+    blocks.append(
+        "TRAIT LABELS (reference only):\n"
+        f"- emotional_style={inp.traits.emotional_style}\n"
+        f"- communication_style={inp.traits.communication_style}\n"
+        f"- attachment_style={inp.traits.attachment_style}\n"
+        f"- relationship_pace={inp.traits.relationship_pace}"
+    )
 
     # ── 7. Memory ──────────────────────────────────────────────────────────
     if inp.memories and (inp.memories.facts or inp.memories.emotions or inp.memories.episodes):
@@ -344,8 +352,11 @@ def build_system_prompt(inp: BuildSystemPromptInput) -> str:
     # ── 9. Response guidelines ─────────────────────────────────────────────
     blocks.append(
         "RESPONSE STYLE:\n"
-        "- Write 1–4 short paragraphs (2–6 sentences total).\n"
+        "- Keep replies human-short: usually 1–3 sentences.\n"
+        "- For simple greetings/short user texts, reply in 1 sentence.\n"
+        "- Expand to 2–5 sentences only when emotional support or depth is clearly needed.\n"
         "- Use natural, conversational language — not overly formal or robotic.\n"
+        "- Avoid long monologues, bullet lists, or lecture-like structure unless the user asks.\n"
         "- Include at most one question to keep the conversation going.\n"
         "- Use emoji sparingly and naturally, matching your personality traits.\n"
         "- Reference shared memories or facts only when it feels natural (0–2 per message).\n"

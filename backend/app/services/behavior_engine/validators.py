@@ -68,6 +68,14 @@ _SELF_ANSWER_INDICATORS = [
     r"\b(i'm (a|the|into|really|so|kind of))\b",
 ]
 
+_GENERIC_PHRASES = [
+    "that's a great question",
+    "tell me more",
+    "i'd love to hear more",
+    "how can i help",
+    "i'm here to help",
+]
+
 
 def validate_self_answer(
     response_text: str,
@@ -307,6 +315,37 @@ def validate_repetition(
     return issues
 
 
+def validate_length_and_generic(
+    response_text: str,
+    max_words: int = 90,
+) -> list[ValidationIssue]:
+    """Length/pacing + generic-phrase validator."""
+    issues: list[ValidationIssue] = []
+    text = (response_text or "").strip()
+    if not text:
+        return issues
+
+    wc = len(text.split())
+    if wc > max_words:
+        issues.append(ValidationIssue(
+            validator="length_policy",
+            severity="minor" if wc <= int(max_words * 1.3) else "major",
+            message=f"Response too long ({wc} words > {max_words} target).",
+            repair_instruction=f"Shorten to <= {max_words} words. Keep only the strongest emotional point and one concrete detail.",
+        ))
+
+    lower = text.lower()
+    hits = [p for p in _GENERIC_PHRASES if p in lower]
+    if hits:
+        issues.append(ValidationIssue(
+            validator="generic_phrase",
+            severity="minor",
+            message="Response contains generic assistant-like phrasing.",
+            repair_instruction="Replace generic helper phrases with a personal, specific, human line from your own perspective.",
+        ))
+    return issues
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # COMBINED VALIDATOR
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -321,6 +360,7 @@ def run_all_validators(
     recent_responses: list[str] | None = None,
     blacklisted_openings: list[str] | None = None,
     blacklisted_phrases: list[str] | None = None,
+    max_words: int = 90,
 ) -> ValidationResult:
     """
     Run all validators on a generated response.
@@ -343,6 +383,10 @@ def run_all_validators(
 
     # 4. Repetition
     for issue in validate_repetition(response_text, recent_responses or [], blacklisted_openings, blacklisted_phrases):
+        result.add_issue(issue.validator, issue.severity, issue.message, issue.repair_instruction)
+
+    # 5. Length + generic phrasing
+    for issue in validate_length_and_generic(response_text, max_words=max_words):
         result.add_issue(issue.validator, issue.severity, issue.message, issue.repair_instruction)
 
     return result
