@@ -31,10 +31,12 @@ from app.api.routes import (
     health,
     images,
     intimacy_achievements,
+    leaks,
     me,
     memory,
     moderation,
     onboarding,
+    payments,
     profile,
     progression,
     prompt,
@@ -136,6 +138,8 @@ app.include_router(prompt.router, prefix="/api")
 app.include_router(dossier.router, prefix="/api")
 app.include_router(relationship.router, prefix="/api")
 app.include_router(intimacy_achievements.router, prefix="/api")
+app.include_router(leaks.router, prefix="/api")
+app.include_router(payments.router, prefix="/api")
 
 # Chat gateway: /v1/chat/stream and /api/chat/stream (same handler; /api works with proxy)
 app.include_router(chat_gateway.router, prefix="/v1")

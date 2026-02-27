@@ -2,12 +2,12 @@ import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useAppStore } from "@/lib/store/useAppStore"
-import { getBillingStatus, changePlan, previewPlanChange } from "@/lib/api/endpoints"
-import type { Plan, PreviewPlanChangeResponse } from "@/lib/api/types"
+import { getBillingStatus } from "@/lib/api/endpoints"
+import type { Plan } from "@/lib/api/types"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { Check, Crown, Heart, Sparkles, CreditCard, Info, ArrowUpCircle } from "lucide-react"
-import AddCardModal from "@/components/billing/AddCardModal"
+import { Check, Crown, Heart, Sparkles, CreditCard, Info } from "lucide-react"
+import UnifiedPaymentPanel from "@/components/billing/UnifiedPaymentPanel"
 
 const PLANS = [
   {
@@ -60,26 +60,6 @@ const PLANS = [
   },
 ] as const
 
-function formatCents(cents: number, currency = "eur"): string {
-  const abs = Math.abs(cents)
-  const symbol = currency === "eur" ? "€" : currency === "usd" ? "$" : currency.toUpperCase() + " "
-  const str = `${symbol}${(abs / 100).toFixed(2)}`
-  return cents < 0 ? `-${str}` : str
-}
-
-function formatDate(iso: string): string {
-  if (!iso) return "your next billing date"
-  try {
-    return new Date(iso).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    })
-  } catch {
-    return iso
-  }
-}
-
 export default function SubscriptionPlan() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -87,10 +67,7 @@ export default function SubscriptionPlan() {
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [showCardModal, setShowCardModal] = useState(false)
-  const [showConfirm, setShowConfirm] = useState(false)
-  const [preview, setPreview] = useState<PreviewPlanChangeResponse | null>(null)
-  const [previewLoading, setPreviewLoading] = useState(false)
+  const [showPayment, setShowPayment] = useState(false)
 
   const { data: billing } = useQuery({
     queryKey: ["billingStatus"],
@@ -107,64 +84,14 @@ export default function SubscriptionPlan() {
 
   const handleSubscribe = async () => {
     if (!selectedPlan) return
-
-    // Every plan requires a card on file
-    if (!hasCard) {
-      setShowCardModal(true)
-      return
-    }
-
-    // Free plan — no payment needed
-    if (selectedPlan === "free") {
-      await finishSubscription()
-      return
-    }
-
-    // Paid plan — load proration preview and show confirmation
-    setPreviewLoading(true)
-    try {
-      const data = await previewPlanChange(selectedPlan)
-      setPreview(data)
-    } catch {
-      setPreview(null)
-    } finally {
-      setPreviewLoading(false)
-    }
-    setShowConfirm(true)
+    // Unified path for all plans (free/plus/premium).
+    setShowPayment(true)
   }
 
-  const handleConfirmPurchase = async () => {
-    setShowConfirm(false)
-    await finishSubscription()
-  }
-
-  const finishSubscription = async () => {
-    if (!selectedPlan) return
-    setLoading(true)
-    setError(null)
-    try {
-      if (selectedPlan !== "free") {
-        await changePlan(selectedPlan)
-      }
-      await queryClient.invalidateQueries({ queryKey: ["billingStatus"] })
-      navigate("/onboarding/reveal-success", { replace: true })
-    } catch (e: any) {
-      const msg = e?.response?.data?.detail || e?.message || ""
-      if (msg === "NO_PAYMENT_METHOD" || msg.includes("card") || msg.includes("payment method")) {
-        setShowCardModal(true)
-        setError(null)
-      } else {
-        setError(msg || "Subscription failed")
-      }
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleCardSaved = async () => {
-    setShowCardModal(false)
+  const handlePaymentSuccess = async () => {
+    setShowPayment(false)
     await queryClient.invalidateQueries({ queryKey: ["billingStatus"] })
-    await finishSubscription()
+    navigate("/onboarding/reveal-success", { replace: true })
   }
 
   return (
@@ -319,10 +246,10 @@ export default function SubscriptionPlan() {
                 ? "bg-gradient-to-r from-pink-500 via-amber-400 to-pink-500 bg-[length:200%_100%] animate-[shimmer_2s_linear_infinite] text-white shadow-[0_0_25px_rgba(236,72,153,0.5)] hover:shadow-[0_0_40px_rgba(236,72,153,0.7)] ring-2 ring-pink-400/30"
                 : ""
             )}
-            disabled={!selectedPlan || loading || previewLoading}
+            disabled={!selectedPlan || loading}
             onClick={handleSubscribe}
           >
-            {loading || previewLoading ? (
+            {loading ? (
               "Processing…"
             ) : hasCard ? (
               selectedPlan === "free" ? "Start 7-day free trial" : (
@@ -356,87 +283,24 @@ export default function SubscriptionPlan() {
         </div>
       </div>
 
-      {/* Stripe card modal */}
-      <AddCardModal
-        open={showCardModal}
-        onClose={() => setShowCardModal(false)}
-        onSaved={handleCardSaved}
-        plan={selectedPlan ?? undefined}
+      {/* Unified payment panel — handles card saving + subscription in-app */}
+      <UnifiedPaymentPanel
+        open={showPayment}
+        payload={{
+          type: selectedPlan === "free" && !hasCard ? "setup" : "subscription",
+          plan: selectedPlan ?? undefined,
+        }}
+        title={selectedPlan === "free" ? "Start Free Trial" : `Subscribe to ${PLANS.find(p => p.id === selectedPlan)?.name}`}
+        description={
+          selectedPlan === "free"
+            ? "Start your 7-day free trial. A card is required."
+            : `${PLANS.find(p => p.id === selectedPlan)?.price}/month — charged to your saved card.`
+        }
+        amountLabel={selectedPlan === "free" ? undefined : PLANS.find(p => p.id === selectedPlan)?.price}
+        onSuccess={handlePaymentSuccess}
+        onClose={() => setShowPayment(false)}
+        autoCharge
       />
-
-      {/* Confirm purchase modal (when card already on file) */}
-      {showConfirm && selectedPlan && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
-          <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-card p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200 space-y-5">
-            <div className="text-center space-y-2">
-              <h2 className="text-xl font-semibold">Confirm subscription</h2>
-
-              {preview ? (
-                <div className="space-y-3 text-left">
-                  <div className="rounded-lg bg-white/5 p-3 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-muted-foreground">Due today</span>
-                      <span className="font-bold">{formatCents(preview.amount_due_now, preview.currency)}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-muted-foreground">Then monthly</span>
-                      <span className="text-sm font-semibold">{formatCents(preview.next_recurring_amount, preview.currency)}/mo</span>
-                    </div>
-                    {preview.next_renewal_date && (
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-muted-foreground">Next renewal</span>
-                        <span className="text-sm">{formatDate(preview.next_renewal_date)}</span>
-                      </div>
-                    )}
-                  </div>
-                  <p className="text-xs text-muted-foreground text-center">
-                    Using your card on file for the{" "}
-                    <span className="font-semibold text-foreground">
-                      {PLANS.find((p) => p.id === selectedPlan)?.name}
-                    </span>{" "}
-                    plan.
-                  </p>
-                </div>
-              ) : (
-                <p className="text-muted-foreground text-sm">
-                  You&apos;ll be charged{" "}
-                  <span className="font-semibold text-foreground">
-                    {PLANS.find((p) => p.id === selectedPlan)?.price}
-                    /month
-                  </span>{" "}
-                  for the{" "}
-                  <span className="font-semibold text-foreground">
-                    {PLANS.find((p) => p.id === selectedPlan)?.name}
-                  </span>{" "}
-                  plan using your card on file.
-                </p>
-              )}
-            </div>
-            <div className="flex gap-3">
-              <Button
-                variant="outline"
-                className="flex-1 rounded-xl"
-                onClick={() => { setShowConfirm(false); setPreview(null) }}
-                disabled={loading}
-              >
-                Cancel
-              </Button>
-              <Button
-                className="flex-1 rounded-xl gap-2"
-                onClick={handleConfirmPurchase}
-                disabled={loading}
-              >
-                {loading ? "Processing…" : preview ? (
-                  <>
-                    <ArrowUpCircle className="h-4 w-4" />
-                    Confirm & pay {formatCents(preview.amount_due_now, preview.currency)}
-                  </>
-                ) : "Confirm & pay"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

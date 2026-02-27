@@ -499,6 +499,13 @@ def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_f
                 "message": photo_msg,
             })
 
+    # Emit leak unlock event
+    if leak_unlock_event:
+        yield sse_event({
+            "type": "leak_unlocked",
+            "leak": leak_unlock_event,
+        })
+
     # Emit blurred surprise (proactive, when free user crosses intimacy threshold)
     if blurred_surprise_event:
         yield sse_event({
@@ -885,6 +892,8 @@ def send_message(request: Request, body: SendMessageRequest):
         intimacy_photo_events.extend(ia_photos)
     except Exception as e:
         logger.warning("Intimacy achievement check failed: %s", e)
+
+    leak_unlock_event = None
 
     # Collect blurred surprise (set above if threshold was crossed)
     blurred_surprise = locals().get("blurred_surprise_msg")

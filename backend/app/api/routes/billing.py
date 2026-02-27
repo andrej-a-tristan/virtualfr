@@ -850,6 +850,25 @@ async def stripe_webhook(request: Request):
             except Exception:
                 pass
 
+    # ── PaymentIntent succeeded (unified: gift, leak, mystery_box) ──────
+    elif event_type == "payment_intent.succeeded":
+        pi = event["data"]["object"]
+        pi_id = pi.get("id", "")
+        metadata = pi.get("metadata", {})
+        payment_type = metadata.get("type", "")
+        if payment_type:
+            try:
+                from app.api.routes.payments import finalize_payment_intent_for_webhook
+                result = finalize_payment_intent_for_webhook(pi_id)
+                logger.info(
+                    "Webhook PI.succeeded: type=%s pi=%s result=%s",
+                    payment_type, pi_id, result.get("status"),
+                )
+            except Exception as e:
+                logger.warning("Webhook PI.succeeded fulfilment error: %s", e)
+        else:
+            logger.info("PaymentIntent succeeded (non-unified): pi=%s", pi_id)
+
     # ── Invoice paid (subscription payment succeeded) ────────────────────
     elif event_type == "invoice.paid":
         invoice = event["data"]["object"]

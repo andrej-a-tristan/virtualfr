@@ -1,6 +1,5 @@
-import { useEffect, useState } from "react"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { useSearchParams } from "react-router-dom"
+import { useEffect } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { getChatHistory } from "@/lib/api/endpoints"
 import { useChatStore } from "@/lib/store/useChatStore"
 import { useAppStore } from "@/lib/store/useAppStore"
@@ -8,45 +7,15 @@ import ChatHeader from "@/components/chat/ChatHeader"
 import MessageList from "@/components/chat/MessageList"
 import Composer from "@/components/chat/Composer"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Gift } from "lucide-react"
 
 export default function Chat() {
   const setMessages = useChatStore((s) => s.setMessages)
   const currentGirlfriendId = useAppStore((s) => s.currentGirlfriendId)
-  const queryClient = useQueryClient()
-  const [searchParams, setSearchParams] = useSearchParams()
-  const [giftBanner, setGiftBanner] = useState(false)
 
   const { data, isLoading } = useQuery({
     queryKey: ["chatHistory", currentGirlfriendId],
     queryFn: () => getChatHistory(currentGirlfriendId ?? undefined),
   })
-
-  // Handle gift_success return from Stripe
-  useEffect(() => {
-    if (searchParams.get("gift_success") === "1") {
-      setGiftBanner(true)
-      searchParams.delete("gift_success")
-      setSearchParams(searchParams, { replace: true })
-      const timer = setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ["chatHistory"] })
-        queryClient.invalidateQueries({ queryKey: ["chatState"] })
-      }, 3000)
-      const hide = setTimeout(() => setGiftBanner(false), 8000)
-      return () => { clearTimeout(timer); clearTimeout(hide) }
-    }
-  }, [searchParams, setSearchParams, queryClient])
-
-  // Handle upgraded=1 return from Stripe checkout (Premium upgrade)
-  useEffect(() => {
-    if (searchParams.get("upgraded") === "1") {
-      searchParams.delete("upgraded")
-      setSearchParams(searchParams, { replace: true })
-      // Refetch billing status so the UI picks up the new plan
-      queryClient.invalidateQueries({ queryKey: ["billingStatus"] })
-      queryClient.invalidateQueries({ queryKey: ["girlfriendsList"] })
-    }
-  }, [searchParams, setSearchParams, queryClient])
 
   useEffect(() => {
     if (data?.messages) setMessages(data.messages)
@@ -69,12 +38,6 @@ export default function Chat() {
   return (
     <div className="flex h-[calc(100vh-8rem)] flex-col rounded-2xl border border-white/10 bg-card/50 shadow-xl">
       <ChatHeader />
-      {giftBanner && (
-        <div className="flex items-center justify-center gap-2 bg-primary/10 border-b border-primary/20 px-4 py-2.5 text-sm text-primary animate-in fade-in slide-in-from-top duration-300">
-          <Gift className="h-4 w-4" />
-          <span className="font-medium">Your gift is being delivered... </span>
-        </div>
-      )}
       <MessageList className="flex-1" />
       <Composer />
     </div>

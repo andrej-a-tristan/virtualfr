@@ -284,50 +284,73 @@ export async function getIntimacyAchievements(girlfriendId?: string) {
   return apiGet<import("./types").IntimacyAchievementsByTier>(`/intimacy/achievements${qs}`)
 }
 
-// Profile stats
-export async function getProfileGirls() {
-  return apiGet<import("./types").ProfileGirlsResponse>("/profile/girls")
+// Leaks collection
+export async function getLeaksCollection(girlfriendId?: string) {
+  const params = new URLSearchParams()
+  if (girlfriendId) params.set("girlfriend_id", girlfriendId)
+  const qs = params.toString() ? `?${params.toString()}` : ""
+  return apiGet<{ unlocked: Record<string, string>; total: number }>(`/leaks/collection${qs}`)
 }
 
-export async function purchaseIntimateBox(boxId: string, achievementId: string, girlfriendId?: string) {
+export async function spinLeakSlot(boxId: string, girlfriendId?: string) {
   return apiPost<{
-    status: "succeeded" | "requires_action" | "no_card" | "free"
-    ok?: boolean
-    already_unlocked?: boolean
-    achievement_id?: string
-    title?: string
-    subtitle?: string
+    status: "succeeded" | "requires_action" | "no_card" | "sold_out" | "failed"
+    leak_id?: string
     rarity?: string
-    tier?: number
-    icon?: string
-    image_url?: string | null
-    unlocked_at?: string
+    image_url?: string
     client_secret?: string
     payment_intent_id?: string
     error?: string
-  }>("/intimacy/purchase-box", {
+  }>("/leaks/spin", {
     box_id: boxId,
-    achievement_id: achievementId,
     girlfriend_id: girlfriendId,
   })
 }
 
-export async function mysteryUnlockIntimacyAchievement(achievementId: string, girlfriendId?: string) {
-  return apiPost<{
-    ok: boolean
-    already_unlocked: boolean
-    achievement_id: string
-    title: string
-    subtitle: string
-    rarity: string
-    tier: number
-    icon: string
-    image_url: string | null
-    unlocked_at?: string
-  }>("/intimacy/mystery-unlock", {
-    achievement_id: achievementId,
-    girlfriend_id: girlfriendId,
-  })
+// ── Unified payments ──────────────────────────────────────────────────────
+
+export interface PaymentIntentRequest {
+  type: "subscription" | "gift" | "leaks_spin" | "mystery_box" | "upgrade" | "setup"
+  plan?: string
+  product_id?: string
+  tier?: string
+  girlfriend_id?: string
+  metadata?: Record<string, string>
+}
+
+export interface PaymentIntentResponse {
+  status: "succeeded" | "requires_action" | "requires_payment_method" | "no_card" | "failed"
+  payment_intent_client_secret?: string
+  setup_intent_client_secret?: string
+  payment_intent_id?: string
+  requires_setup?: boolean
+  display_amount?: { currency: string; amount: number }
+  saved_card_available?: boolean
+  saved_card_last4?: string
+  saved_card_brand?: string
+  error?: string
+  result_data?: Record<string, any>
+}
+
+export async function createPaymentIntent(body: PaymentIntentRequest) {
+  return apiPost<PaymentIntentResponse>("/payments/intent", body)
+}
+
+export interface PaymentConfirmRequest {
+  payment_intent_id: string
+  type: string
+  product_id?: string
+  tier?: string
+  girlfriend_id?: string
+}
+
+export async function confirmPayment(body: PaymentConfirmRequest) {
+  return apiPost<{ status: string; error?: string; [key: string]: any }>("/payments/confirm", body)
+}
+
+// Profile stats
+export async function getProfileGirls() {
+  return apiGet<import("./types").ProfileGirlsResponse>("/profile/girls")
 }
 
 // ── Progression System ─────────────────────────────────────────────────────

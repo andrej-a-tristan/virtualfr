@@ -49,15 +49,6 @@ export default function GirlfriendReveal() {
     }
   }
 
-  // Skip signup — go directly to subscription or chat
-  const handleSkipToSubscribe = () => {
-    navigate("/onboarding/subscribe", { replace: true })
-  }
-
-  // Skip everything — go directly to chat with guest session
-  const handleSkipToChat = () => {
-    navigate("/app/girl", { replace: true })
-  }
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-background to-background/95 px-4 py-12">
@@ -177,20 +168,6 @@ export default function GirlfriendReveal() {
               </Button>
             </form>
 
-            <button
-              type="button"
-              className="w-full text-center text-sm text-muted-foreground hover:text-foreground transition-colors"
-              onClick={handleSkipToSubscribe}
-            >
-              Skip signup &mdash; choose plan first
-            </button>
-            <button
-              type="button"
-              className="w-full text-center text-xs text-muted-foreground/60 hover:text-foreground/80 transition-colors mt-1"
-              onClick={handleSkipToChat}
-            >
-              Skip everything &mdash; start chatting now
-            </button>
           </div>
         )}
       </div>

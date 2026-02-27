@@ -1,5 +1,5 @@
 import { createBrowserRouter, Navigate } from "react-router-dom"
-import { RequireAuth, RequireAgeGate, RequireGirlfriend } from "./guards"
+import { RequireAuth, RequireAgeGate, RequireGirlfriend, RequireSubscription } from "./guards"
 import AppShell from "@/components/layout/AppShell"
 import Landing from "@/pages/Landing"
 import Login from "@/pages/Login"
@@ -69,7 +69,9 @@ const router = createBrowserRouter([
       <RequireAuth>
         <RequireAgeGate>
           <RequireGirlfriend>
-            <AppShell />
+            <RequireSubscription>
+              <AppShell />
+            </RequireSubscription>
           </RequireGirlfriend>
         </RequireAgeGate>
       </RequireAuth>

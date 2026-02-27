@@ -21,11 +21,11 @@ from app.services.gifting import (
     get_gift_catalog,
     get_gift_by_id,
     validate_cooldown,
-    charge_saved_card,
     apply_relationship_boost,
     produce_gift_reaction_message,
     build_memory_summary,
 )
+from app.services.stripe_payments import create_one_time_payment
 
 router = APIRouter(prefix="/gifts", tags=["gifts"])
 logger = logging.getLogger(__name__)
@@ -248,49 +248,24 @@ async def gift_checkout(request: Request):
 
     user_id = user.get("id", "")
     girlfriend_id = user.get("current_girlfriend_id", "")
+    amount_cents = int(round(gift.price_eur * 100))
 
-    # Ensure Stripe customer exists
-    stripe_customer_id = user.get("stripe_customer_id")
-    if not stripe_customer_id:
-        try:
-            customer = stripe.Customer.create(
-                email=user.get("email", ""),
-                metadata={"user_id": user_id},
-            )
-            stripe_customer_id = customer.id
-            set_session_user(sid, {**user, "stripe_customer_id": stripe_customer_id})
-            user = get_session_user(sid) or user
-            logger.info("Created Stripe customer %s for gift checkout", stripe_customer_id)
-        except Exception as e:
-            logger.warning("Failed to create Stripe customer for gifts: %s", e)
-            raise HTTPException(status_code=400, detail="Failed to create payment customer")
-
-    # Get default payment method
-    default_pm = user.get("default_payment_method_id")
-    if not default_pm:
-        try:
-            pms = stripe.Customer.list_payment_methods(stripe_customer_id, type="card", limit=1)
-            if pms.data:
-                default_pm = pms.data[0].id
-                set_session_user(sid, {**user, "default_payment_method_id": default_pm})
-        except Exception:
-            pass
-
-    if not default_pm:
-        return {"status": "no_card", "error": "No card on file. Please add a card first."}
-
-    # Charge the saved card
-    result = charge_saved_card(
-        gift=gift,
-        stripe_customer_id=stripe_customer_id,
-        default_payment_method_id=default_pm,
+    # Legacy endpoint now delegates to the unified payment helper.
+    result = create_one_time_payment(
+        sid=sid,
+        user=user,
+        amount_cents=amount_cents,
+        currency="eur",
+        description=f"Gift: {gift.name}",
         metadata={
+            "type": "gift",
             "gift_id": gift.id,
             "user_id": user_id,
             "girlfriend_id": girlfriend_id,
             "session_id": sid,
         },
-    )
+        idempotency_extra=f"legacy_gifts_checkout:{gift.id}:{girlfriend_id}",
+    ).__dict__
 
     pi_id = result.get("payment_intent_id", "")
 
@@ -387,6 +362,21 @@ async def gift_webhook(request: Request):
 
     event_type = event["type"]
     logger.info("Gift webhook event: %s", event_type)
+
+    if event_type == "payment_intent.succeeded":
+        pi = event["data"]["object"]
+        pi_id = pi.get("id", "")
+        metadata = pi.get("metadata", {})
+        payment_type = metadata.get("type", "")
+        if payment_type in ("gift", "mystery_box", "leaks_spin", "leak_slot"):
+            try:
+                from app.api.routes.payments import finalize_payment_intent_for_webhook
+                result = finalize_payment_intent_for_webhook(pi_id)
+                logger.info("Gift webhook PI.succeeded finalized: type=%s pi=%s status=%s",
+                            payment_type, pi_id, result.get("status"))
+            except Exception as e:
+                logger.warning("Gift webhook PI finalization failed: %s", e)
+        return {"ok": True}
 
     if event_type == "checkout.session.completed":
         session_obj = event["data"]["object"]
