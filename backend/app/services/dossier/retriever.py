@@ -258,7 +258,7 @@ def build_dossier_context(
 
     nodes = _fetch_life_graph_nodes(sb, user_id, girlfriend_id, relevant_types=list(set(node_types)))
     ctx.life_facts = []
-    for node in nodes[:5]:
+    for node in nodes[:2]:
         attrs = node.get("attributes", {})
         detail = attrs.get("description") or attrs.get("relationship") or attrs.get("vibe") or ""
         label = node.get("label", "")
@@ -267,9 +267,9 @@ def build_dossier_context(
         else:
             ctx.life_facts.append(label)
 
-    # 3. Self memory (always — for consistency)
+    # 3. Self memory (tiny relevance-first slice: 1-2 stable facts)
     self_mems = _fetch_self_memory(sb, user_id, girlfriend_id)
-    ctx.self_facts = [f"{m['memory_key']}: {m['memory_value']}" for m in self_mems]
+    ctx.self_facts = [f"{m['memory_key']}: {m['memory_value']}" for m in self_mems[:2]]
 
     # 4. Stories (when asking about her, or when self-share is needed)
     if requires_self_answer or (intent_topics and any(t in ["hobbies", "work", "food", "family", "past", "future"] for t in intent_topics)):
@@ -281,7 +281,7 @@ def build_dossier_context(
             intimacy_level=relationship_level,
             exclude_ids=exclude,
         )
-        ctx.available_stories = stories
+        ctx.available_stories = stories[:2]
 
     # 5. Current state (always)
     state = _fetch_current_state(sb, user_id, girlfriend_id)
@@ -289,7 +289,12 @@ def build_dossier_context(
         ctx.mood = state.get("mood", "content")
         ctx.energy = state.get("energy", "medium")
         ctx.today_context = state.get("today_context", "")
-        ctx.open_loops = state.get("open_loops", [])
+        loops = state.get("open_loops", []) or []
+        # Memory slice rule: at most one unresolved emotional thread.
+        emotional_keywords = ("feel", "worry", "miss", "anxious", "excited", "sad", "nervous")
+        emotional = [l for l in loops if any(k in str(l).lower() for k in emotional_keywords)]
+        chosen = emotional[:1] if emotional else loops[:1]
+        ctx.open_loops = chosen
 
     return ctx
 

@@ -114,6 +114,69 @@ ATTACHMENT_INTENSITY = {"Very attached": "high", "Emotionally present": "medium"
 JEALOUSY_LEVEL = {"High": "high", "Medium": "medium", "Low": "low"}
 
 
+def _compute_generation_controls(
+    user_text: str,
+    intent: str | None,
+    persona_vector: dict | None = None,
+) -> tuple[int, float]:
+    """Compute max_tokens/temperature for concise, natural replies."""
+    text = (user_text or "").strip()
+    wc = len(text.split())
+    intent_key = (intent or "").strip().lower()
+
+    max_tokens = 170
+    temperature = 0.74
+
+    if intent_key in ("greeting", "banter"):
+        max_tokens = 90 if wc <= 8 else 120
+        temperature = 0.78
+    elif intent_key in ("ask_about_her", "mixed"):
+        max_tokens = 160
+        temperature = 0.72
+    elif intent_key == "support":
+        max_tokens = 220
+        temperature = 0.7
+    elif intent_key == "intimate":
+        max_tokens = 190
+        temperature = 0.76
+
+    if wc <= 4:
+        max_tokens = min(max_tokens, 80)
+    elif wc <= 8:
+        max_tokens = min(max_tokens, 110)
+
+    pacing = (persona_vector or {}).get("pacing", {})
+    brevity_bias = float(pacing.get("brevity_bias", 0.55))
+    if brevity_bias >= 0.7:
+        max_tokens = int(max_tokens * 0.82)
+    elif brevity_bias <= 0.3:
+        max_tokens = int(max_tokens * 1.08)
+
+    return max_tokens, temperature
+
+
+def _build_concise_style_guardrail(user_text: str, intent: str | None) -> str:
+    wc = len((user_text or "").split())
+    intent_key = (intent or "").strip().lower()
+    if wc <= 8 or intent_key in ("greeting", "banter"):
+        return (
+            "RESPONSE LENGTH POLICY:\n"
+            "- Keep this reply to one sentence, max 20 words.\n"
+            "- No long paragraph and no list formatting."
+        )
+    if intent_key == "support":
+        return (
+            "RESPONSE LENGTH POLICY:\n"
+            "- Keep this supportive reply concise: 2-4 sentences.\n"
+            "- Avoid rambling; cap around 90 words unless user asks for depth."
+        )
+    return (
+        "RESPONSE LENGTH POLICY:\n"
+        "- Keep this reply concise: 1-3 sentences, usually under 60 words.\n"
+        "- Avoid monologues unless user explicitly asks for a long answer."
+    )
+
+
 def _state_to_schema(state: dict) -> RelationshipStateSchema:
     level = clamp_level(state.get("level", 0) if isinstance(state.get("level"), int) else 0)
     region = get_region_for_level(level)
@@ -334,7 +397,7 @@ def _generate_mock_response(system_prompt: str, traits: dict, relationship_state
     return prefix + response + suffix
 
 
-def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_for_context, gf_display_name, traits, relationship_state=None, habit_profile=None, memory_context=None, girlfriend_id=None, image_decision_event=None, blurred_surprise_event=None, relationship_gain_events=None, achievement_events=None, intimacy_unlock_events=None, intimacy_photo_events=None, system_prompt=None, bond_outcome=None, bond_turn_ctx=None):
+def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_for_context, gf_display_name, traits, relationship_state=None, habit_profile=None, memory_context=None, girlfriend_id=None, image_decision_event=None, blurred_surprise_event=None, relationship_gain_events=None, achievement_events=None, intimacy_unlock_events=None, intimacy_photo_events=None, system_prompt=None, bond_outcome=None, bond_turn_ctx=None, behavior_result=None, max_tokens: int = 170, temperature: float = 0.74):
     """Stream response and save assistant message. Yields SSE events.
     
     Uses OpenAI ChatGPT API for real streaming responses when API_KEY is set.
@@ -370,15 +433,13 @@ def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_f
                 model="gpt-4o-mini",
                 messages=llm_messages,
                 stream=True,
-                max_tokens=400,
-                temperature=0.85,
+                max_tokens=max_tokens,
+                temperature=temperature,
             )
             for chunk in stream:
                 delta = chunk.choices[0].delta if chunk.choices else None
                 if delta and delta.content:
-                    token = delta.content
-                    response_text += token
-                    yield sse_event({"type": "token", "token": token})
+                    response_text += delta.content
             logger.info("OpenAI response: %d chars", len(response_text))
         except Exception as e:
             logger.error("OpenAI streaming failed: %s", e)
@@ -386,17 +447,53 @@ def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_f
             response_text = _generate_mock_response(
                 system_prompt or "", traits, relationship_state, memory_context, last_user_msg
             )
-            tokens = response_text.split()
-            for t in tokens:
-                yield sse_event({"type": "token", "token": t + " "})
     else:
         # Mock fallback (no API key)
         response_text = _generate_mock_response(
             system_prompt or "", traits, relationship_state, memory_context, last_user_msg
         )
-        tokens = response_text.split()
-        for t in tokens:
-            yield sse_event({"type": "token", "token": t + " "})
+
+    # ── Hard quality enforcement before token emission ────────────────────
+    validation = None
+    _beh_res = behavior_result
+    try:
+        from app.services.behavior_engine.behavior_orchestrator import (
+            BehaviorTurnResult,
+            validate_behavior_response,
+        )
+        if _beh_res is None:
+            _beh_res = BehaviorTurnResult()
+        validation = validate_behavior_response(
+            response_text,
+            _beh_res,
+            recent_responses=[
+                m.get("content", "") for m in (messages_for_context or [])[-6:]
+                if m.get("role") == "assistant" and m.get("content")
+            ],
+        )
+    except Exception as e:
+        logger.debug("Behavior validation unavailable: %s", e)
+
+    try:
+        from app.services.behavior_engine.repair import apply_contract_hard_limits
+        fallback_fact = None
+        if _beh_res is not None and getattr(_beh_res, "dossier", None) and getattr(_beh_res.dossier, "self_facts", None):
+            fallback_fact = str(_beh_res.dossier.self_facts[0]).split(":", 1)[-1].strip()
+        user_asked_about_her = False
+        if _beh_res is not None and getattr(_beh_res, "intent", None):
+            user_asked_about_her = bool(_beh_res.intent.requires_self_answer())
+        contract = _beh_res.contract if _beh_res is not None else None
+        response_text = apply_contract_hard_limits(
+            response_text,
+            contract,
+            user_asked_about_her=user_asked_about_her,
+            fallback_self_fact=fallback_fact,
+        )
+    except Exception as e:
+        logger.warning("Hard response repair failed: %s", e)
+
+    for t in response_text.split():
+        yield sse_event({"type": "token", "token": t + " "})
     
     # Send milestone message if any
     if milestone_message:
@@ -524,7 +621,7 @@ def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_f
     if response_text and girlfriend_id:
         try:
             from app.services.behavior_engine.behavior_orchestrator import (
-                BehaviorTurnInput, persist_behavior_turn, process_behavior_turn,
+                BehaviorTurnInput, BehaviorTurnResult, persist_behavior_turn, validate_behavior_response,
             )
             from app.core.supabase_client import get_supabase_admin as _get_sb
             sb_persist = _get_sb()
@@ -537,13 +634,21 @@ def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_f
                     girlfriend_data={},
                     sb_admin=sb_persist,
                 )
-                # Build a minimal result for persistence (we just need intent and contract)
-                from app.services.behavior_engine.intent_classifier import TurnIntent
-                from app.services.behavior_engine.response_contract import BehaviorContract
-                from app.services.behavior_engine.behavior_orchestrator import BehaviorTurnResult
-                from app.services.dossier.retriever import DossierContext
-                _beh_result = BehaviorTurnResult()
+                _beh_result = behavior_result if behavior_result is not None else BehaviorTurnResult()
+                validation = validate_behavior_response(
+                    response_text,
+                    _beh_result,
+                    recent_responses=[
+                        m.get("content", "") for m in (messages_for_context or [])[-6:]
+                        if m.get("role") == "assistant" and m.get("content")
+                    ],
+                )
                 persist_behavior_turn(_beh_inp, _beh_result, response_text, str(uuid_mod.uuid4()))
+                if validation and validation.issues:
+                    issue_keys = [f"{i.validator}:{i.severity}" for i in validation.issues[:5]]
+                    sb_persist.table("conversation_mode_state").update({
+                        "last_quality_issues": issue_keys,
+                    }).eq("user_id", str(user_id)).eq("girlfriend_id", str(gf_id)).execute()
         except Exception as e:
             logger.debug("Behavior persistence failed: %s", e)
 
@@ -607,6 +712,26 @@ def send_message(request: Request, body: SendMessageRequest):
         gf_uuid = None
     if not gf:
         return JSONResponse(status_code=400, content={"error": "no_girlfriend"})
+
+    # Persona vector (stored active vector → deterministic fallback).
+    persona_vector = None
+    try:
+        if use_sb and user_id and gf_uuid:
+            from app.services.persona_vector_store import get_active_persona_vector
+            pv_row = get_active_persona_vector(
+                get_supabase_admin(),
+                user_id,
+                gf_uuid,
+                version_hint=gf.get("persona_vector_version"),
+            )
+            if pv_row and pv_row.get("vector_json"):
+                persona_vector = pv_row["vector_json"]
+        if not persona_vector:
+            from app.services.persona_vector import build_persona_vector
+            persona_vector = build_persona_vector(gf.get("traits") or {})
+        gf["persona_vector"] = persona_vector
+    except Exception:
+        persona_vector = None
 
     # Use the resolved girlfriend's id for all per-girl storage
     resolved_gf_id = explicit_gf_id or gf.get("id")
@@ -967,6 +1092,8 @@ def send_message(request: Request, body: SendMessageRequest):
     
     # ── Build system prompt ─────────────────────────────────────────────────
     system_prompt = None
+    behavior_intent: str | None = None
+    behavior_result = None
     try:
         prompt_ctx = get_prompt_context(
             sb_admin=get_supabase_admin() if use_sb else None,
@@ -1008,6 +1135,7 @@ def send_message(request: Request, body: SendMessageRequest):
             )
             behavior_result = process_behavior_turn(behavior_input)
             behavior_context = behavior_result.get_full_behavior_context()
+            behavior_intent = behavior_result.intent.primary
             if behavior_context:
                 # Append behavior context after bond context
                 existing_bond = prompt_ctx.get("bond_context", "")
@@ -1019,6 +1147,11 @@ def send_message(request: Request, body: SendMessageRequest):
                         behavior_result.contract.tone)
         except Exception as e:
             logger.warning("Behavior engine failed (non-blocking): %s", e)
+
+        # Always add concise reply guardrail to reduce unnatural long outputs.
+        length_guardrail = _build_concise_style_guardrail(body.message, behavior_intent)
+        existing_bond = prompt_ctx.get("bond_context", "")
+        prompt_ctx["bond_context"] = (existing_bond + "\n\n" + length_guardrail).strip()
 
         prompt_input = build_input_from_dict(**prompt_ctx)
         system_prompt = build_system_prompt(prompt_input)
@@ -1128,6 +1261,11 @@ def send_message(request: Request, body: SendMessageRequest):
         import hashlib
         prompt_hash = hashlib.sha256(system_prompt.encode()).hexdigest()[:16]
         extra_headers["X-Prompt-Hash"] = prompt_hash
+    gen_max_tokens, gen_temperature = _compute_generation_controls(
+        body.message,
+        behavior_intent,
+        persona_vector=persona_vector,
+    )
 
     return StreamingResponse(
         _stream_response_and_save(
@@ -1144,6 +1282,9 @@ def send_message(request: Request, body: SendMessageRequest):
             system_prompt=system_prompt,
             bond_outcome=bond_outcome,
             bond_turn_ctx=bond_ctx if bond_outcome else None,
+            behavior_result=behavior_result,
+            max_tokens=gen_max_tokens,
+            temperature=gen_temperature,
         ),
         media_type="text/event-stream",
         headers=extra_headers,

@@ -123,10 +123,11 @@ def complete_onboarding(request: Request, response: Response, body: OnboardingCo
     set_girlfriend(sid, gf)
     saved = get_girlfriend(sid) or gf
 
-    # ── Bootstrap dossier (self-knowledge for natural conversation) ────────
+    # ── Bootstrap dossier + persona vector (compact runtime controls) ───────
     try:
         from app.core.supabase_client import get_supabase_admin
         from app.services.dossier.bootstrap import bootstrap_dossier_from_onboarding
+        from app.services.persona_vector_store import upsert_active_persona_vector
         from uuid import UUID as _UUID
 
         sb_admin = get_supabase_admin()
@@ -137,6 +138,13 @@ def complete_onboarding(request: Request, response: Response, body: OnboardingCo
                 user_uuid = _UUID(str(uid_str))
                 gf_uuid = _UUID(str(gf_id_str))
                 bootstrap_dossier_from_onboarding(sb_admin, user_uuid, gf_uuid, saved)
+                upsert_active_persona_vector(
+                    sb_admin,
+                    user_uuid,
+                    gf_uuid,
+                    saved.get("traits") or {},
+                    version_tag="pv1",
+                )
             except (ValueError, TypeError):
                 pass
     except Exception as e:
