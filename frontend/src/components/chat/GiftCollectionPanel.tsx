@@ -122,15 +122,6 @@ function GiftCollectionCard({ gift }: { gift: GiftCollectionItem }) {
   const totalPhotos = normalPhotos + spicyPhotos
   const hasPhotos = totalPhotos > 0
 
-  const tierColor = (() => {
-    switch (gift.tier) {
-      case "legendary": return "amber"
-      case "luxury": return "amber"
-      case "dates": return "purple"
-      default: return "pink"
-    }
-  })()
-
   return (
     <div className={cn(
       "relative rounded-xl overflow-hidden transition-all duration-300",

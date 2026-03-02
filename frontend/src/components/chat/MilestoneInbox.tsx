@@ -32,7 +32,7 @@ export default function MilestoneInbox({ girlfriendId, className = "" }: Props) 
   })
 
   const messages = messagesData?.messages ?? []
-  const unreadCount = messagesData?.unread_count ?? 0
+  const _unreadCount = messagesData?.unread_count ?? 0
 
   if (messages.length === 0 && !summary?.next_milestone) {
     return null

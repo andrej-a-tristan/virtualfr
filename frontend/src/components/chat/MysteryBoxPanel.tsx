@@ -7,7 +7,6 @@ import {
   Gift,
   Sparkles,
   Star,
-  Crown,
   Flame,
   Heart,
   ImageIcon,

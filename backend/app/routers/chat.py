@@ -311,7 +311,9 @@ async def chat_stream(
         )
 
     # ── Free-plan daily message cap ──────────────────────────────────────
-    sid = body.session_id
+    # Prefer cookie-based session (app users), fall back to body.session_id (external clients).
+    cookie_sid = request.cookies.get("session") if request else None
+    sid = cookie_sid or body.session_id
     user = get_session_user(sid) if sid else None
     user_plan = (user or {}).get("plan", "free")
     if user_plan == "free":
@@ -725,7 +727,8 @@ async def chat_stream(
             max_tokens=gen_max_tokens,
             temperature=gen_temperature,
         ):
-            # Capture upstream tokens (buffer-first for quality enforcement).
+            # Pass-through streaming for external clients, while capturing tokens for logging/persistence.
+            yield chunk
             for line in chunk.split("\n"):
                 line = line.strip()
                 if line.startswith("data:") and line != "data: [DONE]":
@@ -736,54 +739,17 @@ async def chat_stream(
                     except (json.JSONDecodeError, KeyError):
                         pass
 
-        # ── After upstream completes: validate + hard-repair, then stream ─────
+        # ── After upstream completes: aggregate response for persistence/metrics ─────
         full_response = "".join(output_tokens).strip()
-        final_response = full_response
-        validation = None
-        if full_response:
-            _beh_res = behavior_result
-            try:
-                from app.services.behavior_engine.behavior_orchestrator import (
-                    validate_behavior_response as _validate_beh,
-                    BehaviorTurnResult as _BehRes,
-                )
-                if _beh_res is None:
-                    _beh_res = _BehRes()
-                validation = _validate_beh(full_response, _beh_res, recent_responses=recent_assistant[-5:])
-            except Exception as e:
-                _gw_logger.debug("Behavior validation unavailable: %s", e)
-            try:
-                from app.services.behavior_engine.repair import apply_contract_hard_limits
-                fallback_fact = None
-                if _beh_res is not None and getattr(_beh_res, "dossier", None) and getattr(_beh_res.dossier, "self_facts", None):
-                    fallback_fact = str(_beh_res.dossier.self_facts[0]).split(":", 1)[-1].strip()
-                user_asked_about_her = False
-                if _beh_res is not None and getattr(_beh_res, "intent", None):
-                    user_asked_about_her = bool(_beh_res.intent.requires_self_answer())
-                contract = _beh_res.contract if _beh_res is not None else None
-                final_response = apply_contract_hard_limits(
-                    full_response,
-                    contract,
-                    user_asked_about_her=user_asked_about_her,
-                    fallback_self_fact=fallback_fact,
-                )
-            except Exception as e:
-                _gw_logger.warning("Hard response repair failed: %s", e)
-
-        if final_response:
-            # Emit repaired output as gateway SSE tokens.
-            for tok in final_response.split():
-                yield f"event: token\ndata: {json.dumps({'token': tok + ' '})}\n\n"
-        yield "event: done\ndata: {\"finish_reason\":\"stop\"}\n\n"
 
         # ── Persist assistant response ───────────────────────────────────
-        if final_response:
+        if full_response:
             try:
                 from datetime import datetime as _dt, timezone as _tz
                 assistant_msg_record = {
                     "id": str(uuid.uuid4()),
                     "role": "assistant",
-                    "content": final_response,
+                    "content": full_response,
                     "image_url": None,
                     "event_type": None,
                     "event_key": None,
@@ -792,11 +758,11 @@ async def chat_stream(
                 if sb_admin and user_uid and gf_uid:
                     from app.api import supabase_store as _sb
                     _sb.append_message(user_uid, gf_uid, assistant_msg_record)
-                    _gw_logger.info("Assistant message persisted (%d chars)", len(final_response))
+                    _gw_logger.info("Assistant message persisted (%d chars)", len(full_response))
                 elif sid:
                     from app.api.store import append_message as _store_append
                     _store_append(sid, assistant_msg_record, girlfriend_id=gf_id_str or None)
-                    _gw_logger.info("Assistant message persisted to store (%d chars)", len(final_response))
+                    _gw_logger.info("Assistant message persisted to store (%d chars)", len(full_response))
             except Exception as e:
                 _gw_logger.warning("Assistant message persistence failed: %s", e)
 
@@ -818,24 +784,17 @@ async def chat_stream(
                         sb_admin=sb_admin,
                     )
                     _beh_res = behavior_result if behavior_result is not None else _BehRes()
-                    final_validation = _validate_beh(final_response, _beh_res, recent_responses=recent_assistant[-5:])
-                    _persist_beh(_beh_persist_inp, _beh_res, final_response, request_id)
-                    if (validation and validation.issues) or (final_validation and final_validation.issues):
+                    final_validation = _validate_beh(full_response, _beh_res, recent_responses=recent_assistant[-5:])
+                    _persist_beh(_beh_persist_inp, _beh_res, full_response, request_id)
+                    if final_validation and final_validation.issues:
                         try:
-                            merged_issues = []
-                            if validation:
-                                merged_issues.extend(validation.issues)
-                            if final_validation:
-                                merged_issues.extend(final_validation.issues)
-                            issue_keys = [f"{i.validator}:{i.severity}" for i in merged_issues[:5]]
+                            issue_keys = [f"{i.validator}:{i.severity}" for i in final_validation.issues[:5]]
                             sb_admin.table("conversation_mode_state").update({
                                 "last_quality_issues": issue_keys,
-                                "generic_response_count": (behavior_result.conversation_mode or {}).get("generic_response_count", 0) + 1
-                                if behavior_result else 1,
                             }).eq("user_id", str(user_uid)).eq("girlfriend_id", str(gf_uid)).execute()
                         except Exception:
                             pass
-                        _gw_logger.info("Behavior validation issues: %s", ", ".join(issue_keys) if validation.issues else "none")
+                        _gw_logger.info("Behavior validation issues: %s", ", ".join(issue_keys))
                     _gw_logger.info("Behavior persistence OK (self-memory + mode state)")
             except Exception as e:
                 _gw_logger.debug("Behavior persistence failed: %s", e)

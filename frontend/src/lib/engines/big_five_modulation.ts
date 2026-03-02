@@ -21,10 +21,7 @@ import type {
 
 import type {
   BehaviorProfile,
-  ToneProfile,
-  ResponseStyle,
   EmojiStyle,
-  InitiationBehavior,
   AbsenceReaction,
 } from "./trait_behavior_rules"
 

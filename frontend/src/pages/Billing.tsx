@@ -17,7 +17,6 @@ import {
   Crown,
   Heart,
   Sparkles,
-  ArrowUpCircle,
   XCircle,
   Info,
   CalendarDays,

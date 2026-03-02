@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "react-router-dom"
-import { getProfileGirls, switchGirlfriend, listGirlfriends, getBillingStatus } from "@/lib/api/endpoints"
+import { getProfileGirls, switchGirlfriend, getBillingStatus } from "@/lib/api/endpoints"
 import { useAuth } from "@/lib/hooks/useAuth"
 import { useAppStore } from "@/lib/store/useAppStore"
 import { useChatStore } from "@/lib/store/useChatStore"

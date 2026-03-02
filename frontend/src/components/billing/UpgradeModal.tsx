@@ -8,7 +8,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { Crown, Sparkles, Users, Check, CreditCard, Info, ArrowUpCircle } from "lucide-react"
+import { Crown, Sparkles, Check, Info } from "lucide-react"
 import { previewPlanChange, changePlan } from "@/lib/api/endpoints"
 import type { Plan, PreviewPlanChangeResponse } from "@/lib/api/types"
 import AddCardModal from "./AddCardModal"
@@ -79,7 +79,6 @@ export default function UpgradeModal({
   onSuccess,
 }: UpgradeModalProps) {
   const queryClient = useQueryClient()
-  const [loading, setLoading] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)

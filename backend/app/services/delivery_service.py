@@ -1,7 +1,10 @@
 """DeliveryService — queues, stores, and retrieves milestone messages.
 
-In-memory store with Supabase persistence (message_history table).
-Supports: queue, list unread, mark read, dismiss.
+In-memory store with Supabase persistence.
+
+We persist milestone inbox messages into the existing `messages` table as
+`role="system"` so they are hidden from the main chat transcript UI while still
+surviving refresh/restart.
 """
 from __future__ import annotations
 
@@ -126,7 +129,7 @@ def get_unread_count(user_id: str, girlfriend_id: str) -> int:
 # ── Supabase persistence ─────────────────────────────────────────────────────
 
 def _persist_to_db(user_id: str, girlfriend_id: str, msg: dict) -> None:
-    """Save a message to the message_history table."""
+    """Save a message to the DB-backed milestone inbox store."""
     try:
         from app.core.supabase_client import get_supabase_admin
         from uuid import UUID
@@ -141,15 +144,24 @@ def _persist_to_db(user_id: str, girlfriend_id: str, msg: dict) -> None:
         except (ValueError, TypeError):
             return
 
-        admin.table("message_history").insert({
-            "id": msg["id"],
+        # Persist as a hidden chat message row so we don't depend on a separate
+        # `message_history` table being migrated everywhere.
+        admin.table("messages").insert({
+            "id": msg["id"],  # keep stable id for read/dismiss actions
             "user_id": user_id,
             "girlfriend_id": girlfriend_id,
-            "event_type": msg["event_type"],
-            "event_data": {"milestone_key": msg.get("milestone_key")},
-            "content": msg.get("content", {}),
-            "channel": "in_app",
-            "experiment_variant": msg.get("experiment_variant"),
+            "role": "system",
+            "event_type": "milestone_inbox",
+            "event_key": msg.get("milestone_key") or msg.get("event_type"),
+            "content": {
+                "event_type": msg.get("event_type"),
+                "content": msg.get("content", {}),
+                "milestone_key": msg.get("milestone_key"),
+                "sent_at": msg.get("sent_at"),
+                "read_at": msg.get("read_at"),
+                "dismissed": bool(msg.get("dismissed", False)),
+                "experiment_variant": msg.get("experiment_variant"),
+            },
         }).execute()
     except Exception as exc:
         logger.warning(f"Failed to persist message to DB: {exc}")
@@ -171,11 +183,13 @@ def _load_from_db(user_id: str, girlfriend_id: str) -> None:
             return
 
         res = (
-            admin.table("message_history")
+            admin.table("messages")
             .select("*")
             .eq("user_id", user_id)
             .eq("girlfriend_id", girlfriend_id)
-            .order("sent_at", desc=True)
+            .eq("role", "system")
+            .eq("event_type", "milestone_inbox")
+            .order("created_at", desc=True)
             .limit(50)
             .execute()
         )
@@ -184,13 +198,13 @@ def _load_from_db(user_id: str, girlfriend_id: str) -> None:
             _pending_messages[key] = [
                 {
                     "id": row["id"],
-                    "event_type": row["event_type"],
-                    "milestone_key": (row.get("event_data") or {}).get("milestone_key"),
-                    "content": row.get("content", {}),
-                    "sent_at": row.get("sent_at", ""),
-                    "read_at": row.get("read_at"),
-                    "dismissed": row.get("dismissed", False),
-                    "experiment_variant": row.get("experiment_variant"),
+                    "event_type": (row.get("content") or {}).get("event_type") or (row.get("event_key") or "unknown"),
+                    "milestone_key": (row.get("content") or {}).get("milestone_key"),
+                    "content": ((row.get("content") or {}).get("content") or {}),
+                    "sent_at": (row.get("content") or {}).get("sent_at") or row.get("created_at", ""),
+                    "read_at": (row.get("content") or {}).get("read_at"),
+                    "dismissed": bool((row.get("content") or {}).get("dismissed", False)),
+                    "experiment_variant": (row.get("content") or {}).get("experiment_variant"),
                 }
                 for row in res.data
             ]
@@ -202,9 +216,15 @@ def _update_read_in_db(user_id: str, message_ids: list[str], read_at: str) -> No
     try:
         from app.core.supabase_client import get_supabase_admin
         admin = get_supabase_admin()
-        if admin:
-            for mid in message_ids:
-                admin.table("message_history").update({"read_at": read_at}).eq("id", mid).execute()
+        if not admin:
+            return
+        for mid in message_ids:
+            row = admin.table("messages").select("content").eq("id", mid).limit(1).execute()
+            if not row.data:
+                continue
+            content = row.data[0].get("content") or {}
+            content["read_at"] = read_at
+            admin.table("messages").update({"content": content}).eq("id", mid).execute()
     except Exception:
         pass
 
@@ -213,8 +233,14 @@ def _update_click_in_db(user_id: str, message_id: str, clicked_at: str) -> None:
     try:
         from app.core.supabase_client import get_supabase_admin
         admin = get_supabase_admin()
-        if admin:
-            admin.table("message_history").update({"clicked_at": clicked_at}).eq("id", message_id).execute()
+        if not admin:
+            return
+        row = admin.table("messages").select("content").eq("id", message_id).limit(1).execute()
+        if not row.data:
+            return
+        content = row.data[0].get("content") or {}
+        content["clicked_at"] = clicked_at
+        admin.table("messages").update({"content": content}).eq("id", message_id).execute()
     except Exception:
         pass
 
@@ -223,7 +249,13 @@ def _update_dismiss_in_db(user_id: str, message_id: str) -> None:
     try:
         from app.core.supabase_client import get_supabase_admin
         admin = get_supabase_admin()
-        if admin:
-            admin.table("message_history").update({"dismissed": True}).eq("id", message_id).execute()
+        if not admin:
+            return
+        row = admin.table("messages").select("content").eq("id", message_id).limit(1).execute()
+        if not row.data:
+            return
+        content = row.data[0].get("content") or {}
+        content["dismissed"] = True
+        admin.table("messages").update({"content": content}).eq("id", message_id).execute()
     except Exception:
         pass

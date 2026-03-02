@@ -10,7 +10,7 @@ import MessageList from "@/components/chat/MessageList"
 import Composer from "@/components/chat/Composer"
 import GalleryGrid from "@/components/gallery/GalleryGrid"
 import ImageViewerModal from "@/components/gallery/ImageViewerModal"
-import type { GalleryItem, RegionKey, RelationshipState, AchievementsByRegion, RelationshipAchievement, AchievementRarity } from "@/lib/api/types"
+import type { GalleryItem, RegionKey, RelationshipState, AchievementsByRegion, RelationshipAchievement } from "@/lib/api/types"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
@@ -495,11 +495,11 @@ function RelationshipPanel({ onClose }: { onClose: () => void }) {
   // Fetch achievement catalog
   const { data: catalogData } = useQuery({
     queryKey: ["achievementsCatalog"],
-    queryFn: getAchievementsCatalog,
+    queryFn: () => getAchievementsCatalog(),
     staleTime: 60_000 * 10, // catalog rarely changes
   })
 
-  const achievementsByRegion: AchievementsByRegion = catalogData?.achievements_by_region ?? {}
+  const achievementsByRegion: AchievementsByRegion = catalogData?.achievements_by_region ?? ([] as AchievementsByRegion)
   const milestonesReached = new Set(relState?.milestones_reached ?? [])
 
   const level = relState?.level ?? 0

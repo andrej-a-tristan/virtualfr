@@ -15,13 +15,13 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Request, Response
 
 from app.api.store import (
-    get_session_user,
     get_girlfriend,
     get_messages as get_chat_messages,
     get_relationship_progress,
     get_trust_intimacy_state,
     get_achievement_progress,
 )
+from app.api.request_context import get_current_user
 from app.schemas.progression import (
     ChoiceActionRequest,
     EvaluateRequest,
@@ -42,17 +42,12 @@ from app.services import (
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/progression", tags=["progression"])
 
-SESSION_COOKIE = "session_id"
-
-
 def _require_user(request: Request):
-    sid = request.cookies.get(SESSION_COOKIE)
-    if not sid:
+    # Use the shared request_context resolver so Supabase-auth sessions work too.
+    sid, user, user_id, gf_id = get_current_user(request)
+    if not sid or not user:
         raise HTTPException(401, "Not authenticated")
-    user = get_session_user(sid)
-    if not user:
-        raise HTTPException(401, "Not authenticated")
-    return sid, user
+    return sid, user, user_id, gf_id
 
 
 # ── POST /evaluate ────────────────────────────────────────────────────────────
@@ -64,9 +59,9 @@ def evaluate_progression(body: EvaluateRequest, request: Request):
     Called by the chat endpoint after each user message, or can be
     called independently for explicit event triggers.
     """
-    sid, user = _require_user(request)
-    user_id = user.get("user_id") or user.get("id", "")
-    gf_id = body.girlfriend_id
+    sid, user, user_id_uuid, gf_id_session = _require_user(request)
+    user_id = str(user_id_uuid) if user_id_uuid else (user.get("user_id") or user.get("id", ""))
+    gf_id = body.girlfriend_id or gf_id_session
 
     # Extract quality signals from the message
     if body.message:
@@ -172,9 +167,9 @@ def list_messages(
     limit: int = 20,
 ):
     """List milestone messages (default: unread only)."""
-    sid, user = _require_user(request)
-    user_id = user.get("user_id") or user.get("id", "")
-    gf_id = girlfriend_id or user.get("current_girlfriend_id", "")
+    sid, user, user_id_uuid, gf_id_session = _require_user(request)
+    user_id = str(user_id_uuid) if user_id_uuid else (user.get("user_id") or user.get("id", ""))
+    gf_id = girlfriend_id or gf_id_session or user.get("current_girlfriend_id", "")
     if not gf_id:
         return MilestoneMessageList()
 
@@ -186,9 +181,9 @@ def list_messages(
 @router.post("/messages/read")
 def mark_messages_read(body: MarkReadRequest, request: Request):
     """Mark milestone messages as read."""
-    sid, user = _require_user(request)
-    user_id = user.get("user_id") or user.get("id", "")
-    gf_id = user.get("current_girlfriend_id", "")
+    sid, user, user_id_uuid, gf_id_session = _require_user(request)
+    user_id = str(user_id_uuid) if user_id_uuid else (user.get("user_id") or user.get("id", ""))
+    gf_id = gf_id_session or user.get("current_girlfriend_id", "")
 
     count = delivery_service.mark_read(user_id, gf_id, body.message_ids)
 
@@ -204,9 +199,9 @@ def mark_messages_read(body: MarkReadRequest, request: Request):
 @router.post("/messages/{message_id}/action")
 def record_choice_action(message_id: str, body: ChoiceActionRequest, request: Request):
     """Record a user's choice on a milestone message."""
-    sid, user = _require_user(request)
-    user_id = user.get("user_id") or user.get("id", "")
-    gf_id = user.get("current_girlfriend_id", "")
+    sid, user, user_id_uuid, gf_id_session = _require_user(request)
+    user_id = str(user_id_uuid) if user_id_uuid else (user.get("user_id") or user.get("id", ""))
+    gf_id = gf_id_session or user.get("current_girlfriend_id", "")
 
     ok = delivery_service.mark_clicked(user_id, gf_id, message_id, body.action)
 
@@ -223,9 +218,9 @@ def record_choice_action(message_id: str, body: ChoiceActionRequest, request: Re
 @router.post("/messages/{message_id}/dismiss")
 def dismiss_message(message_id: str, request: Request):
     """Dismiss a milestone message."""
-    sid, user = _require_user(request)
-    user_id = user.get("user_id") or user.get("id", "")
-    gf_id = user.get("current_girlfriend_id", "")
+    sid, user, user_id_uuid, gf_id_session = _require_user(request)
+    user_id = str(user_id_uuid) if user_id_uuid else (user.get("user_id") or user.get("id", ""))
+    gf_id = gf_id_session or user.get("current_girlfriend_id", "")
 
     ok = delivery_service.dismiss_message(user_id, gf_id, message_id)
 
@@ -239,9 +234,9 @@ def dismiss_message(message_id: str, request: Request):
 @router.get("/summary", response_model=ProgressionSummary)
 def get_summary(request: Request, girlfriend_id: str | None = None):
     """Get current progression state summary."""
-    sid, user = _require_user(request)
-    user_id = user.get("user_id") or user.get("id", "")
-    gf_id = girlfriend_id or user.get("current_girlfriend_id", "")
+    sid, user, user_id_uuid, gf_id_session = _require_user(request)
+    user_id = str(user_id_uuid) if user_id_uuid else (user.get("user_id") or user.get("id", ""))
+    gf_id = girlfriend_id or gf_id_session or user.get("current_girlfriend_id", "")
     if not gf_id:
         return ProgressionSummary()
 
