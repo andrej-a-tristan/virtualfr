@@ -16,7 +16,7 @@ interface BlurredImageCardProps {
 export default function BlurredImageCard({
   uiCopy,
   blurredImageUrl,
-  reason,
+  reason: _reason,
 }: BlurredImageCardProps) {
   const [upgradeOpen, setUpgradeOpen] = useState(false)
 

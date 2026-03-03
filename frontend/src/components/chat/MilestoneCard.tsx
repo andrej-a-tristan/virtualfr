@@ -62,10 +62,23 @@ interface Props {
   onDismiss?: () => void
 }
 
+type MilestoneContent = {
+  celebration?: string
+  meaning?: string
+  choices: {
+    action: string
+    label: string
+    icon?: string
+  }[]
+  reward?: {
+    type?: "story_beat" | "memory_card" | "bonus_points" | "unlock" | string
+  }
+}
+
 export default function MilestoneCard({ message, onDismiss }: Props) {
   const queryClient = useQueryClient()
   const [selectedAction, setSelectedAction] = useState<string | null>(null)
-  const { content } = message
+  const content = (message.content as MilestoneContent) ?? { choices: [] }
 
   const markReadMutation = useMutation({
     mutationFn: () => markProgressionMessagesRead([message.id]),

@@ -7,13 +7,14 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import OnboardingSignIn from "@/components/onboarding/OnboardingSignIn"
 
-const VIBE_OPTIONS = ["cute", "elegant", "sporty", "goth", "girl-next-door", "model"]
+const VIBE_OPTIONS = ["cute", "elegant", "sporty", "goth", "girl-next-door", "model"] as const
+type VibeOption = (typeof VIBE_OPTIONS)[number]
 
 export default function OnboardingAppearance() {
   const navigate = useNavigate()
   const appearance = useAppStore((s) => s.onboardingAppearance)
   const setOnboardingAppearance = useAppStore((s) => s.setOnboardingAppearance)
-  const [selected, setSelected] = useState<string>(appearance?.vibe ?? "")
+  const [selected, setSelected] = useState<VibeOption | "">(appearance?.vibe ?? "")
 
   const { data: promptImages } = useQuery({
     queryKey: ["onboardingPromptImages"],
@@ -22,7 +23,7 @@ export default function OnboardingAppearance() {
 
   const handleContinue = () => {
     if (!selected) return
-    setOnboardingAppearance({ ...appearance, vibe: selected })
+    setOnboardingAppearance({ ...appearance, vibe: selected as VibeOption })
     navigate("/onboarding/appearance/age", { replace: true })
   }
 

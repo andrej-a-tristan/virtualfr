@@ -27,34 +27,6 @@ export default function OnboardingGenerating() {
 
   const isAdditional = onboardingMode === "additional" || searchParams.get("mode") === "additional"
 
-  // Mutation for first-time onboarding
-  const firstMutation = useMutation({
-    mutationFn: completeOnboarding,
-    onSuccess: (gf) => {
-      setGirlfriend(gf)
-      clearOnboarding()
-      navigate("/onboarding/reveal", { replace: true })
-      queryClient.invalidateQueries({ queryKey: ["me"] })
-    },
-    onError: async (err: any) => {
-      const msg = err?.message || ""
-      // If session was lost (401), try to recover and retry
-      if (msg.includes("unauthorized") || msg.includes("session_expired")) {
-        setStatusText("Reconnecting session...")
-        try {
-          const res = await guestSession()
-          setUser(res.user)
-          // Retry the mutation
-          firstMutation.mutate(payload)
-          return
-        } catch {
-          // Recovery failed
-        }
-      }
-      navigate("/onboarding/traits", { replace: true })
-    },
-  })
-
   // Mutation for additional girlfriend creation
   const additionalMutation = useMutation({
     mutationFn: createAdditionalGirlfriend,
@@ -86,6 +58,36 @@ export default function OnboardingGenerating() {
       }
     : null
 
+  // Mutation for first-time onboarding
+  const firstMutation = useMutation({
+    mutationFn: completeOnboarding,
+    onSuccess: (gf) => {
+      setGirlfriend(gf)
+      clearOnboarding()
+      navigate("/onboarding/reveal", { replace: true })
+      queryClient.invalidateQueries({ queryKey: ["me"] })
+    },
+    onError: async (err: any) => {
+      const msg = err?.message || ""
+      // If session was lost (401), try to recover and retry
+      if (msg.includes("unauthorized") || msg.includes("session_expired")) {
+        setStatusText("Reconnecting session...")
+        try {
+          const res = await guestSession()
+          setUser(res.user)
+          // Retry the mutation with the same payload
+          if (payload) {
+            firstMutation.mutate(payload as NonNullable<typeof payload>)
+          }
+          return
+        } catch {
+          // Recovery failed
+        }
+      }
+      navigate("/onboarding/traits", { replace: true })
+    },
+  })
+
   useEffect(() => {
     if (started.current) return
     if (!payload) {
@@ -95,9 +97,9 @@ export default function OnboardingGenerating() {
     started.current = true
 
     if (isAdditional) {
-      additionalMutation.mutate(payload)
+      additionalMutation.mutate(payload as NonNullable<typeof payload>)
     } else {
-      firstMutation.mutate(payload)
+      firstMutation.mutate(payload as NonNullable<typeof payload>)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])

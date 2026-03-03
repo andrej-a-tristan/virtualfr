@@ -1,38 +1,30 @@
 /**
- * POST /v1/chat/stream (gateway → internal LLM) and parse SSE.
- * Stream format: event: token / data: {"token":"..."}, event: done / data: {"finish_reason":"stop"}.
- * Use flushSync so each token paints immediately (React 18 would otherwise batch updates).
+ * Stream chat from the internal `/api/chat/send` endpoint and parse SSE.
+ * Uses the full relationship/behavior pipeline (bond engine, dossier, achievements, etc.).
+ * Stream format: event: token / data: {"token":"..."}, plus richer events for gains/achievements.
  */
 import { flushSync } from "react-dom"
 import { useChatStore } from "@/lib/store/useChatStore"
 import { useAppStore } from "@/lib/store/useAppStore"
-
-const CHAT_GATEWAY_KEY = import.meta.env.VITE_CHAT_GATEWAY_KEY ?? "dev-key"
+import { getChatSendStreamUrl } from "@/lib/api/endpoints"
 
 export async function sendChatMessage(message: string): Promise<void> {
-  const { messages, appendMessage, setStreamingContent, setIsStreaming } = useChatStore.getState()
-  const user = useAppStore.getState().user
+  const { appendMessage, setStreamingContent, setIsStreaming } = useChatStore.getState()
   const girlfriendId = useAppStore.getState().currentGirlfriendId
-  const sessionId = user?.id ?? "anonymous"
 
   setStreamingContent("")
   setIsStreaming(true)
   try {
-    // history already includes the current user message (Composer appended it before calling sendMessage)
-    const history = messages.map((m) => ({ role: m.role, content: (m.content ?? "").trim() }))
+    // Backend already knows full history from persistence; send only this turn.
     const body = {
-      session_id: sessionId,
-      model: "mock-1",
-      model_version: "local",
-      messages: history,
+      message,
       girlfriend_id: girlfriendId,
     }
-    const res = await fetch("/api/chat/stream", {
+    const res = await fetch(getChatSendStreamUrl(), {
       method: "POST",
       credentials: "include",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${CHAT_GATEWAY_KEY}`,
       },
       body: JSON.stringify(body),
     })
@@ -176,10 +168,10 @@ export async function sendChatMessage(message: string): Promise<void> {
               } as Parameters<typeof appendMessage>[0])
               continue
             }
-            if (lastEvent === "token" && data.token) {
+            if ((lastEvent === "token" || data.type === "token") && data.token) {
               fullContent += data.token
               flushSync(() => setStreamingContent(fullContent))
-            } else if (lastEvent === "error" && data.error) {
+            } else if ((lastEvent === "error" || data.type === "error") && data.error) {
               appendMessage({
                 id: `assistant-${Date.now()}`,
                 role: "assistant",
@@ -190,7 +182,7 @@ export async function sendChatMessage(message: string): Promise<void> {
               })
               streamDone = true
               break
-            } else if (data.finish_reason) {
+            } else if (data.finish_reason || data.type === "done") {
               if (fullContent) {
                 appendMessage({
                   id: `assistant-${Date.now()}`,

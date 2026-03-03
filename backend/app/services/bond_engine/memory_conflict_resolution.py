@@ -74,17 +74,22 @@ def resolve_conflict(
     # Update the conflict count on the original memory
     if sb and memory_type == "factual":
         try:
-            sb.table("factual_memory").update({
-                "conflict_count": sb.table("factual_memory")
-                    .select("conflict_count")
-                    .eq("user_id", str(user_id))
-                    .eq("girlfriend_id", str(girlfriend_id))
-                    .eq("key", memory_key)
-                    .single()
-                    .execute()
-                    .data.get("conflict_count", 0) + 1 if False else 1,  # simplified
-                "is_conflicted": False,  # resolved by update
-            }).eq("user_id", str(user_id)).eq("girlfriend_id", str(girlfriend_id)).eq("key", memory_key).execute()
+            existing = (
+                sb.table("factual_memory")
+                .select("id,conflict_count")
+                .eq("user_id", str(user_id))
+                .eq("girlfriend_id", str(girlfriend_id))
+                .eq("key", memory_key)
+                .maybe_single()
+                .execute()
+            )
+            if existing and existing.data:
+                row = existing.data
+                new_count = (row.get("conflict_count") or 0) + 1
+                sb.table("factual_memory").update({
+                    "conflict_count": new_count,
+                    "is_conflicted": False,  # resolved by update
+                }).eq("id", row["id"]).execute()
         except Exception:
             pass  # best-effort
 

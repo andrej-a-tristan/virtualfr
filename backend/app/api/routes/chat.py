@@ -270,11 +270,6 @@ def chat_history(request: Request, girlfriend_id: str | None = None):
     else:
         # Pass explicit girlfriend_id so messages are per-girl
         messages = get_messages(sid, resolved_gf_id)
-    if not messages:
-        messages = [
-            {"id": "m1", "role": "user", "content": "Hey, how are you?", "image_url": None, "event_type": None, "event_key": None, "created_at": "2025-01-01T12:00:00Z"},
-            {"id": "m2", "role": "assistant", "content": "I'm doing great! Thanks for asking.", "image_url": None, "event_type": None, "event_key": None, "created_at": "2025-01-01T12:00:01Z"},
-        ]
     return {"messages": [_msg_to_schema(m) for m in messages]}
 
 
@@ -552,6 +547,21 @@ def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_f
     # Emit relationship gain events (trust/intimacy changes)
     if relationship_gain_events:
         for gain_evt in relationship_gain_events:
+            # Persist as a chat message so gains survive refresh
+            gain_msg = {
+                "id": str(uuid_mod.uuid4()),
+                "role": "assistant",
+                "content": "",
+                "image_url": None,
+                "event_type": "relationship_gain",
+                "event_key": gain_evt.get("reason", "conversation"),
+                "created_at": now_iso(),
+            }
+            if user_id and gf_id:
+                sb.append_message(user_id, gf_id, gain_msg)
+            else:
+                store_append_message(sid, gain_msg, girlfriend_id=girlfriend_id)
+
             yield sse_event({
                 "type": "relationship_gain",
                 "gain": gain_evt,
@@ -560,6 +570,21 @@ def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_f
     # Emit achievement unlock events
     if achievement_events:
         for ach_evt in achievement_events:
+            # Persist as a chat message card
+            ach_msg = {
+                "id": str(uuid_mod.uuid4()),
+                "role": "assistant",
+                "content": "",
+                "image_url": None,
+                "event_type": "relationship_achievement",
+                "event_key": ach_evt.get("id", ""),
+                "created_at": now_iso(),
+            }
+            if user_id and gf_id:
+                sb.append_message(user_id, gf_id, ach_msg)
+            else:
+                store_append_message(sid, ach_msg, girlfriend_id=girlfriend_id)
+
             yield sse_event({
                 "type": "relationship_achievement",
                 "achievement": ach_evt,
@@ -568,6 +593,21 @@ def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_f
     # Emit intimacy achievement unlock events
     if intimacy_unlock_events:
         for iu_evt in intimacy_unlock_events:
+            # Persist as a simple assistant bubble describing the unlock
+            ia_msg = {
+                "id": str(uuid_mod.uuid4()),
+                "role": "assistant",
+                "content": f"{iu_evt.get('icon', '🔥')} **{iu_evt.get('title', 'Achievement')}** unlocked — {iu_evt.get('subtitle', '')}",
+                "image_url": None,
+                "event_type": "intimacy_achievement",
+                "event_key": iu_evt.get("id", ""),
+                "created_at": now_iso(),
+            }
+            if user_id and gf_id:
+                sb.append_message(user_id, gf_id, ia_msg)
+            else:
+                store_append_message(sid, ia_msg, girlfriend_id=girlfriend_id)
+
             yield sse_event({
                 "type": "intimacy_achievement",
                 "achievement": iu_evt,
@@ -749,18 +789,6 @@ def send_message(request: Request, body: SendMessageRequest):
     if use_sb and user_id and gf_uuid:
         sb.append_message(user_id, gf_uuid, user_msg)
         messages = sb.get_messages(user_id, gf_uuid)
-        # Write memories from user message
-        try:
-            write_memories_from_message(
-                sb=get_supabase_admin(),
-                user_id=user_id,
-                girlfriend_id=gf_uuid,
-                message_id=user_msg["id"],
-                role="user",
-                text=body.message
-            )
-        except Exception as e:
-            logger.warning("Memory write failed: %s", e)
     else:
         store_append_message(sid, user_msg, girlfriend_id=resolved_gf_id)
         messages = get_messages(sid, girlfriend_id=resolved_gf_id)
@@ -1212,7 +1240,16 @@ def send_message(request: Request, body: SendMessageRequest):
             old_trust_vis = prev_state.get("trust_visible", 20) if prev_state else 20
             new_trust_vis = ti_state.trust_visible if hasattr(ti_state, "trust_visible") else (ti_state.get("trust_visible", 20) if isinstance(ti_state, dict) else 20)
             old_streak_val = 0
-            new_streak_val = prog.streak_days if hasattr(prog, "streak_days") else 0
+            # `prog` only exists in the in-memory progression path; for Supabase users
+            # we still want progression events to work without crashing.
+            try:
+                _prog_any = get_relationship_progress(sid, girlfriend_id=resolved_gf_id)
+                if isinstance(_prog_any, dict):
+                    new_streak_val = int(_prog_any.get("streak_days", 0) or 0)
+                else:
+                    new_streak_val = int(getattr(_prog_any, "streak_days", 0) or 0)
+            except Exception:
+                new_streak_val = 0
             ach_state = get_achievement_progress(sid, girlfriend_id=resolved_gf_id)
             old_mc = (ach_state.get("message_counter", 0) if isinstance(ach_state, dict) else getattr(ach_state, "message_counter", 0)) - 1
             new_mc = old_mc + 1

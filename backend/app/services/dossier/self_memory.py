@@ -347,7 +347,7 @@ def update_conversation_mode_state(
         callback_hit = 1.0 if story_ids_used else 0.0
         new_callback = old_callback * 0.85 + callback_hit * 0.15
 
-        sb.table("conversation_mode_state").upsert({
+        payload = {
             "user_id": uid,
             "girlfriend_id": gid,
             "question_ratio_10": round(new_ratio, 3),
@@ -358,7 +358,30 @@ def update_conversation_mode_state(
             "story_ids_used_recently": recent_stories,
             "generic_response_count": new_generic,
             "callback_hit_rate": round(new_callback, 3),
-        }, on_conflict="user_id,girlfriend_id").execute()
+        }
+
+        try:
+            sb.table("conversation_mode_state").upsert(
+                payload,
+                on_conflict="user_id,girlfriend_id",
+            ).execute()
+        except Exception as e:
+            # If DB schema is missing newer columns, retry without the unknown field(s)
+            # so the rest of the mode-state tracking still works.
+            msg = str(e)
+            m = re.search(r"Could not find the '([^']+)' column", msg)
+            if m:
+                missing_col = m.group(1)
+                if missing_col in payload:
+                    payload.pop(missing_col, None)
+                    sb.table("conversation_mode_state").upsert(
+                        payload,
+                        on_conflict="user_id,girlfriend_id",
+                    ).execute()
+                else:
+                    raise
+            else:
+                raise
 
     except Exception as e:
         logger.warning("Conversation mode state update failed: %s", e)

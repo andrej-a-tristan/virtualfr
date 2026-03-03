@@ -9,7 +9,6 @@ export default function Landing() {
   const queryClient = useQueryClient()
   const setUser = useAppStore((s) => s.setUser)
   const setGirlfriend = useAppStore((s) => s.setGirlfriend)
-  const clearOnboarding = useAppStore((s) => s.clearOnboarding)
   const reset = useAppStore((s) => s.reset)
   const [status, setStatus] = useState("Starting up...")
 

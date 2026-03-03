@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { getIntimacyAchievements } from "@/lib/api/endpoints"
 import { useAppStore } from "@/lib/store/useAppStore"
-import type { IntimacyAchievementsByTier, IntimacyAchievementItem } from "@/lib/api/types"
+import type { IntimacyAchievementItem } from "@/lib/api/types"
 import { cn } from "@/lib/utils"
 import {
   Heart,

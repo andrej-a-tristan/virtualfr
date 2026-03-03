@@ -13,7 +13,6 @@ import type {
   MemoryContext,
   MemorySummary,
   MemoryItemsResponse,
-  MemoryType,
   FactualMemoryItem,
   EmotionalMemoryItem,
   OnboardingCompleteRequest,
@@ -235,7 +234,7 @@ export async function getGiftCollection() {
 /** Get compact memory context for prompt building. */
 export async function getMemorySummaryContext(girlfriendId?: string): Promise<MemoryContext> {
   const params = girlfriendId ? `?girlfriendId=${girlfriendId}` : ""
-  return apiGet<MemoryContext>(`/memory/summary${params}`)
+  return apiGet<MemoryContext>(`/memory/context${params}`)
 }
 
 /** Get raw factual memory items. */
