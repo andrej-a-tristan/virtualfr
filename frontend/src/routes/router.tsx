@@ -29,7 +29,8 @@ import RelationshipPage from "@/pages/Relationship"
 const router = createBrowserRouter([
   { path: "/", element: <Landing /> },
   { path: "/login", element: <Login /> },
-  { path: "/signup", element: <Signup /> },
+  { path: "/create-account", element: <Signup /> },
+  { path: "/signup", element: <Navigate to="/onboarding/appearance" replace /> },
   {
     path: "/age-gate",
     element: (
@@ -38,7 +39,7 @@ const router = createBrowserRouter([
       </RequireAuth>
     ),
   },
-  /* Onboarding pages — no auth guards needed; Landing creates a guest session */
+  /* Onboarding pages — no auth guards needed; first-time users can enter directly */
   { path: "/onboarding/traits", element: <OnboardingTraits /> },
   { path: "/onboarding/appearance", element: <OnboardingAppearance /> },
   { path: "/onboarding/appearance/age", element: <AppearanceAge /> },

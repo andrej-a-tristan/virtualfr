@@ -1,4 +1,7 @@
-"""Auth endpoints: signup, login, logout with Supabase-first persistence."""
+"""Auth endpoints: signup, login, logout with Supabase-first persistence.
+
+Account required — no guest sessions.
+"""
 import logging
 from uuid import UUID, uuid4
 
@@ -45,13 +48,8 @@ def _user_response_from_session(sid: str, fallback_id: str, fallback_email: str,
 
 @router.post("/signup")
 def signup(body: SignupRequest, request: Request, response: Response):
-    """Create user and persist a DB-backed session when Supabase is configured.
-    
-    If the request has an existing guest session, the girlfriend created during
-    onboarding is transferred to the new real account.
-    """
+    """Create user account. User then proceeds to onboarding."""
     supabase = get_supabase()
-    old_sid = request.cookies.get(SESSION_COOKIE)  # guest session if present
     sid = _new_session_id()
 
     if supabase:
@@ -67,8 +65,6 @@ def signup(body: SignupRequest, request: Request, response: Response):
         if not user:
             raise HTTPException(status_code=400, detail="Signup failed")
 
-        # Supabase anti-enumeration: if email already exists, sign_up returns a fake user
-        # with no identities. Detect this and return a proper 409 error.
         identities = getattr(user, "identities", None)
         if identities is not None and len(identities) == 0:
             raise HTTPException(
@@ -78,49 +74,25 @@ def signup(body: SignupRequest, request: Request, response: Response):
 
         user_id = str(user.id)
 
-        # Auto-confirm email so login works immediately (no email verification needed)
+        # Auto-confirm email so login works immediately
         try:
             from app.core.supabase_client import get_supabase_admin
             admin = get_supabase_admin()
             if admin:
                 admin.auth.admin.update_user_by_id(user_id, {"email_confirm": True})
         except Exception:
-            pass  # Non-critical: user can still use the app, just can't re-login until confirmed
+            pass
 
-        # Transfer girlfriend from guest session if one was created during onboarding
-        gf = get_girlfriend(old_sid) if old_sid else None
-
-        # First set up the session so set_girlfriend can use the real user_id for DB persistence
         set_session_user(sid, {
             "id": user_id,
             "user_id": user_id,
             "email": str(body.email),
             "display_name": body.display_name,
             "plan": "free",
-            "age_gate_passed": True,  # they completed onboarding
-            "has_girlfriend": bool(gf),
+            "age_gate_passed": True,
+            "has_girlfriend": False,
             "current_girlfriend_id": None,
         })
-
-        # Transfer girlfriend data to new session
-        # set_girlfriend() handles Supabase persistence AND updates current_girlfriend_id
-        if gf:
-            from app.api.store import set_girlfriend as store_set_girlfriend
-            store_set_girlfriend(sid, gf)
-            # Re-read the session to get the updated current_girlfriend_id
-            # and persist it to Supabase
-            updated_user = get_session_user(sid) or {}
-            new_gf_id = updated_user.get("current_girlfriend_id")
-            logger.info(f"Signup: girlfriend transferred. new_gf_id={new_gf_id}, has_girlfriend={updated_user.get('has_girlfriend')}")
-            # Explicitly persist the updated session (with correct gf id) to Supabase
-            set_session_user(sid, {
-                "has_girlfriend": True,
-                "current_girlfriend_id": new_gf_id,
-            })
-
-        # Clear old guest session
-        if old_sid:
-            clear_session(old_sid)
 
         try:
             uid = UUID(str(user.id))
@@ -132,8 +104,7 @@ def signup(body: SignupRequest, request: Request, response: Response):
         _set_cookie(response, sid)
         return {"ok": True, "user": _user_response_from_session(sid, user_id, str(body.email), body.display_name)}
 
-    # Fallback (non-Supabase): still create unique session id.
-    gf = get_girlfriend(old_sid) if old_sid else None
+    # Fallback (non-Supabase)
     user_id = f"user-{body.email.split('@')[0]}"
     set_session_user(sid, {
         "id": user_id,
@@ -141,14 +112,9 @@ def signup(body: SignupRequest, request: Request, response: Response):
         "display_name": body.display_name,
         "plan": "free",
         "age_gate_passed": True,
-        "has_girlfriend": bool(gf),
+        "has_girlfriend": False,
         "current_girlfriend_id": None,
     })
-    if gf:
-        from app.api.store import set_girlfriend as store_set_girlfriend
-        store_set_girlfriend(sid, gf)
-    if old_sid:
-        clear_session(old_sid)
     _set_cookie(response, sid)
     return {"ok": True, "user": _user_response_from_session(sid, user_id, str(body.email), body.display_name)}
 
@@ -166,32 +132,26 @@ def login(body: LoginRequest, response: Response):
         except Exception as exc:
             detail = str(exc)
             logger.warning(f"Login failed for {body.email}: {detail}")
-            # If login fails, try auto-confirming email and retry (Supabase may require confirmation)
             if "Invalid login credentials" in detail or "Email not confirmed" in detail:
                 try:
                     from app.core.supabase_client import get_supabase_admin
                     admin = get_supabase_admin()
                     if admin:
-                        # Find user by email and auto-confirm
                         users_res = admin.auth.admin.list_users()
                         found_user = False
                         for u in (users_res or []):
                             if getattr(u, "email", None) == str(body.email):
                                 found_user = True
                                 confirmed = getattr(u, "email_confirmed_at", None)
-                                logger.info(f"Found user {u.id}, email_confirmed_at={confirmed}")
                                 if not confirmed:
                                     admin.auth.admin.update_user_by_id(str(u.id), {"email_confirm": True})
-                                    logger.info(f"Auto-confirmed email for user {u.id}")
-                                # Retry login
                                 try:
                                     auth_res = supabase.auth.sign_in_with_password({"email": str(body.email), "password": body.password})
-                                    logger.info(f"Retry login succeeded for {body.email}")
-                                except Exception as retry_exc:
-                                    logger.warning(f"Retry login also failed: {retry_exc}")
+                                except Exception:
+                                    pass
                                 break
                         if not found_user:
-                            logger.warning(f"No user found in Supabase auth with email {body.email}")
+                            logger.warning(f"No user found with email {body.email}")
                 except Exception as confirm_exc:
                     logger.error(f"Auto-confirm attempt failed: {confirm_exc}", exc_info=True)
                 if not auth_res:
@@ -203,11 +163,9 @@ def login(body: LoginRequest, response: Response):
         if not user:
             raise HTTPException(status_code=401, detail="Invalid email or password")
 
-        # Hydrate session with profile data from DB
         user_id = str(user.id)
         display_name = (user.user_metadata or {}).get("display_name")
 
-        # Try to load profile and girlfriend from Supabase
         profile = {}
         gf_id = None
         try:
@@ -225,7 +183,6 @@ def login(body: LoginRequest, response: Response):
         except Exception:
             pass
 
-        # If user has a girlfriend, they must have passed age gate
         age_gate = profile.get("age_gate_passed", False) or bool(gf_id)
         set_session_user(sid, {
             "id": user_id,
@@ -238,7 +195,6 @@ def login(body: LoginRequest, response: Response):
             "current_girlfriend_id": gf_id,
         })
 
-        # If there's a girlfriend, also load it into the in-memory store
         if gf_id:
             try:
                 from app.api.store import set_girlfriend, set_session_girlfriend_id
@@ -263,11 +219,7 @@ def login(body: LoginRequest, response: Response):
 
 @router.post("/guest")
 def guest_session(response: Response):
-    """Create a temporary guest session for onboarding (no Supabase auth needed).
-    
-    The guest session gets a session cookie so onboarding pages work.
-    At signup time (GirlfriendReveal), the session is upgraded to a real account.
-    """
+    """Create a temporary guest session for onboarding."""
     sid = _new_session_id()
     guest_id = f"guest-{uuid4().hex[:12]}"
     set_session_user(sid, {

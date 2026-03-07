@@ -16,6 +16,7 @@ from app.api.store import (
 from app.services.image_decision_engine import decide_image_action
 from app.api import supabase_store as sb_store
 from app.core.supabase_client import get_supabase_admin
+from app.utils.ai_images import pick_ai_image_url
 
 router = APIRouter(prefix="/images", tags=["images"])
 logger = logging.getLogger(__name__)
@@ -43,19 +44,19 @@ def _mock_gallery_for_girlfriend(girlfriend_id: str) -> list[dict]:
     return [
         {
             "id": f"img-{seed}-1",
-            "url": f"https://picsum.photos/seed/{seed}a/400/400",
+            "url": pick_ai_image_url(f"gallery:{seed}:a", fallback_url=f"https://picsum.photos/seed/{seed}a/400/400"),
             "created_at": "2025-01-01T12:00:00Z",
             "caption": "First photo together",
         },
         {
             "id": f"img-{seed}-2",
-            "url": f"https://picsum.photos/seed/{seed}b/400/400",
+            "url": pick_ai_image_url(f"gallery:{seed}:b", fallback_url=f"https://picsum.photos/seed/{seed}b/400/400"),
             "created_at": "2025-01-02T12:00:00Z",
             "caption": None,
         },
         {
             "id": f"img-{seed}-3",
-            "url": f"https://picsum.photos/seed/{seed}c/400/400",
+            "url": pick_ai_image_url(f"gallery:{seed}:c", fallback_url=f"https://picsum.photos/seed/{seed}c/400/400"),
             "created_at": "2025-01-03T12:00:00Z",
             "caption": "A special moment",
         },
@@ -115,7 +116,10 @@ def request_image(request: Request, body: ImageRequestBody | None = None):
             )
 
     job_id = str(uuid.uuid4())
-    image_url = f"https://picsum.photos/seed/{job_id[:8]}/400/400"
+    image_url = pick_ai_image_url(
+        f"request:{job_id[:8]}",
+        fallback_url=f"https://picsum.photos/seed/{job_id[:8]}/400/400",
+    )
     if get_supabase_admin() and user_uuid and gf_uuid:
         row = sb_store.create_image_job(
             user_uuid,

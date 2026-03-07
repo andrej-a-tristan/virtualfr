@@ -62,6 +62,12 @@ _intimacy_ach_phrase_log: dict[tuple[str, str], dict[str, float]] = {}
 # ── Spicy Leaks (independent collectible photos, per girlfriend) ──────────────
 # (session_id, girlfriend_id) -> { photo_id: unlocked_at_iso }
 _spicy_leaks_unlocked: dict[tuple[str, str], dict[str, str]] = {}
+# ── Legacy Leaks collection (per girlfriend) ──────────────────────────────────
+# (session_id, girlfriend_id) -> { leak_id: image_url }
+_leaks_unlocked: dict[tuple[str, str], dict[str, str]] = {}
+# ── Payments fulfillment idempotency ──────────────────────────────────────────
+# payment_intent_id -> fulfillment metadata dict
+_payments_fulfilled: dict[str, dict[str, Any]] = {}
 
 
 def _persist() -> None:
@@ -83,6 +89,8 @@ def _persist() -> None:
         "intimacy_ach_pending_photos": _intimacy_ach_pending_photos,
         "intimacy_ach_phrase_log": _intimacy_ach_phrase_log,
         "spicy_leaks_unlocked": _spicy_leaks_unlocked,
+        "leaks_unlocked": _leaks_unlocked,
+        "payments_fulfilled": _payments_fulfilled,
     }
     with _save_lock:
         try:
@@ -101,7 +109,7 @@ def _load_store() -> None:
     global _trust_intimacy_state, _achievement_progress
     global _intimacy_ach_unlocked, _intimacy_ach_last_award, _intimacy_ach_photos
     global _intimacy_ach_pending_photos, _intimacy_ach_phrase_log
-    global _spicy_leaks_unlocked
+    global _spicy_leaks_unlocked, _leaks_unlocked, _payments_fulfilled
 
     if not os.path.exists(_STORE_FILE):
         return
@@ -124,6 +132,8 @@ def _load_store() -> None:
         _intimacy_ach_pending_photos.update(data.get("intimacy_ach_pending_photos", {}))
         _intimacy_ach_phrase_log.update(data.get("intimacy_ach_phrase_log", {}))
         _spicy_leaks_unlocked.update(data.get("spicy_leaks_unlocked", {}))
+        _leaks_unlocked.update(data.get("leaks_unlocked", {}))
+        _payments_fulfilled.update(data.get("payments_fulfilled", {}))
         _logger.info("Loaded store from %s (%d sessions, %d girlfriends)",
                      _STORE_FILE, len(_sessions), sum(len(v) for v in _all_girlfriends.values()))
     except Exception as e:
@@ -822,3 +832,18 @@ def mark_spicy_leak_unlocked(session_id: str, photo_id: str, girlfriend_id: str 
         _spicy_leaks_unlocked[key] = {}
     _spicy_leaks_unlocked[key][photo_id] = datetime.now(timezone.utc).isoformat()
     _persist()
+
+
+# ── Payment fulfillment idempotency ───────────────────────────────────────────
+
+def is_payment_fulfilled(payment_intent_id: str) -> bool:
+    return payment_intent_id in _payments_fulfilled
+
+
+def mark_payment_fulfilled(payment_intent_id: str, payload: dict[str, Any] | None = None) -> None:
+    _payments_fulfilled[payment_intent_id] = payload or {}
+    _persist()
+
+
+def get_payment_fulfillment(payment_intent_id: str) -> dict[str, Any] | None:
+    return _payments_fulfilled.get(payment_intent_id)

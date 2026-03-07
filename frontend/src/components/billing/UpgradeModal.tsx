@@ -46,7 +46,6 @@ const PLAN_META: Record<string, { name: string; price: string; icon: typeof Crow
       "📸 30 photos / month — she sends just for you",
       "🔓 Unlock her spicy nude photos",
       "🎁 2 free Surprise Her mystery boxes",
-      "🎤 Voice messages from her",
     ],
   },
   premium: {

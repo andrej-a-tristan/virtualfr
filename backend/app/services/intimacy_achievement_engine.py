@@ -10,7 +10,6 @@ on every user message.
 """
 from __future__ import annotations
 
-import hashlib
 import logging
 import re
 import time
@@ -38,6 +37,7 @@ from app.api.store import (
     set_intimacy_phrase_log,
     add_gallery_item,
 )
+from app.utils.ai_images import pick_ai_image_url
 
 logger = logging.getLogger(__name__)
 
@@ -134,9 +134,10 @@ def _generate_image(achievement: IntimacyAchievement, girlfriend_id: str) -> str
     """Generate a photo for the achievement. Returns image URL.
     Currently uses picsum placeholder. Replace with real generation pipeline later.
     """
-    # Deterministic seed from achievement+girlfriend for consistency
-    seed = hashlib.md5(f"{girlfriend_id}:{achievement.id}".encode()).hexdigest()[:10]
-    return f"https://picsum.photos/seed/{seed}/400/400"
+    return pick_ai_image_url(
+        f"intimacy:{girlfriend_id}:{achievement.id}",
+        fallback_url=f"https://picsum.photos/seed/{girlfriend_id}-{achievement.id}/400/400",
+    )
 
 
 # ── Core Engine ───────────────────────────────────────────────────────────────

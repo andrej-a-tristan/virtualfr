@@ -19,6 +19,7 @@ from typing import List, Literal, Optional
 from app.schemas.intimacy import IntimacyState
 from app.services.intimacy_service import get_required_intimacy as _legacy_get_required_intimacy
 from app.services.trust_intimacy_service import get_required_intimacy
+from app.utils.ai_images import pick_ai_image_url
 
 # ── Sensitive intent detection ────────────────────────────────────────────────
 
@@ -36,19 +37,10 @@ def request_is_sensitive(text: str) -> bool:
     return bool(_SENSITIVE_KEYWORDS.search(text or ""))
 
 
-# ── Blurred preview images (mock URLs — will be real generated images later) ─
-
-_BLURRED_PREVIEW_URLS = [
-    "https://picsum.photos/seed/blur_preview_1/400/500",
-    "https://picsum.photos/seed/blur_preview_2/400/500",
-    "https://picsum.photos/seed/blur_preview_3/400/500",
-]
-
-
 def _pick_blurred_url(girlfriend_id: str = "") -> str:
     """Deterministic blurred preview URL based on girlfriend id."""
-    idx = hash(girlfriend_id) % len(_BLURRED_PREVIEW_URLS)
-    return _BLURRED_PREVIEW_URLS[idx]
+    seed = girlfriend_id or "default_blur_preview"
+    return pick_ai_image_url(seed, fallback_url="https://picsum.photos/seed/blur_preview_1/400/500")
 
 
 # ── Intimacy threshold for the blurred paywall "teaser" sent to free users ───

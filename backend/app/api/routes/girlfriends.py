@@ -36,6 +36,7 @@ from app.api.supabase_store import (
 )
 from app.services.big_five import map_traits_to_big_five
 from app.utils.identity_canon import generate_identity_canon
+from app.utils.ai_images import pick_ai_image_url
 
 router = APIRouter(prefix="/girlfriends", tags=["girlfriends"])
 
@@ -47,11 +48,8 @@ def _session_id(request: Request) -> str | None:
 
 
 def _require_user(request: Request) -> tuple[str, dict]:
-    sid = _session_id(request)
-    if not sid:
-        raise HTTPException(status_code=401, detail="unauthorized")
-    user = get_current_user(request)
-    if not user:
+    sid, user, _, _ = get_current_user(request)
+    if not sid or not user:
         raise HTTPException(status_code=401, detail="unauthorized")
     return sid, user
 
@@ -194,7 +192,10 @@ def create_additional_girlfriend(request: Request, body: OnboardingCompletePaylo
     gf_id = f"gf-{uuid4().hex[:8]}"
     seed_source = f'{user["id"]}|{gf_id}|{json.dumps(appearance_prefs, sort_keys=True)}'
     avatar_seed = hashlib.sha256(seed_source.encode("utf-8")).hexdigest()[:16]
-    avatar_url = f"https://picsum.photos/seed/{avatar_seed}/512/512"
+    avatar_url = pick_ai_image_url(
+        f"avatar:{avatar_seed}",
+        fallback_url=f"https://picsum.photos/seed/{avatar_seed}/512/512",
+    )
 
     canon_seed = int(hashlib.sha256(gf_id.encode("utf-8")).hexdigest()[:8], 16)
     identity_canon = generate_identity_canon(

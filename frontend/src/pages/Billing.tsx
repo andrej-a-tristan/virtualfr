@@ -52,7 +52,6 @@ const PLANS = [
       "📸 30 photos per month — she sends just for you",
       "🔓 Unlock spicy nude photos",
       "🎁 2 free Surprise Her mystery boxes",
-      "🎤 Voice messages from her",
     ],
   },
   {

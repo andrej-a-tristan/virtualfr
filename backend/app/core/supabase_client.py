@@ -24,7 +24,11 @@ def get_supabase() -> "Client | None":
     settings = get_settings()
     if not settings.supabase_url or not settings.supabase_anon_key:
         return None
-    from supabase import create_client
+    try:
+        from supabase import create_client
+    except ImportError:
+        logger.warning("supabase package not installed; falling back to in-memory mode")
+        return None
     _supabase = create_client(settings.supabase_url, settings.supabase_anon_key)
     return _supabase
 
@@ -37,7 +41,11 @@ def get_supabase_admin() -> "Client | None":
     settings = get_settings()
     if not settings.supabase_url or not settings.supabase_service_role_key:
         return None
-    from supabase import create_client
+    try:
+        from supabase import create_client
+    except ImportError:
+        logger.warning("supabase package not installed; admin client disabled")
+        return None
     _supabase_admin = create_client(settings.supabase_url, settings.supabase_service_role_key)
     return _supabase_admin
 
@@ -46,33 +54,3 @@ def is_supabase_configured() -> bool:
     """Return True if Supabase env vars are set."""
     settings = get_settings()
     return bool(settings.supabase_url and settings.supabase_anon_key)
-
-
-def get_supabase_admin() -> "Client | None":
-    """Return Supabase admin client using SERVICE_ROLE_KEY (bypasses RLS).
-
-    Falls back to anon-key client if service role key is not configured.
-    """
-    global _supabase_admin
-    if _supabase_admin is not None:
-        return _supabase_admin
-    settings = get_settings()
-    if not settings.supabase_url:
-        return None
-
-    from supabase import create_client
-
-    # Prefer service role key for admin operations (bypasses RLS)
-    service_key = getattr(settings, "supabase_service_role_key", None)
-    if service_key:
-        _supabase_admin = create_client(settings.supabase_url, service_key)
-        logger.info("Supabase admin client initialized with service role key")
-        return _supabase_admin
-
-    # Fall back to anon key
-    if settings.supabase_anon_key:
-        _supabase_admin = create_client(settings.supabase_url, settings.supabase_anon_key)
-        logger.warning("Supabase admin client using anon key (service role key not set)")
-        return _supabase_admin
-
-    return None

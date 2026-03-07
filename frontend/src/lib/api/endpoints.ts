@@ -197,6 +197,47 @@ export async function deletePaymentMethod(paymentMethodId: string) {
 export async function getStripePublishableKey() {
   return apiGet<{ publishable_key: string }>("/billing/stripe-key")
 }
+
+// ── Unified payments ──────────────────────────────────────────────────────
+
+export interface PaymentIntentRequest {
+  type: "subscription" | "gift" | "leaks_spin" | "mystery_box" | "upgrade" | "setup"
+  plan?: string
+  product_id?: string
+  tier?: string
+  girlfriend_id?: string
+  metadata?: Record<string, string>
+}
+
+export interface PaymentIntentResponse {
+  status: "succeeded" | "requires_action" | "requires_payment_method" | "no_card" | "failed"
+  payment_intent_client_secret?: string
+  setup_intent_client_secret?: string
+  payment_intent_id?: string
+  requires_setup?: boolean
+  display_amount?: { currency: string; amount: number }
+  saved_card_available?: boolean
+  saved_card_last4?: string
+  saved_card_brand?: string
+  error?: string
+  result_data?: Record<string, any>
+}
+
+export async function createPaymentIntent(body: PaymentIntentRequest) {
+  return apiPost<PaymentIntentResponse>("/payments/intent", body)
+}
+
+export interface PaymentConfirmRequest {
+  payment_intent_id: string
+  type: string
+  product_id?: string
+  tier?: string
+  girlfriend_id?: string
+}
+
+export async function confirmPayment(body: PaymentConfirmRequest) {
+  return apiPost<{ status: string; error?: string; [key: string]: any }>("/payments/confirm", body)
+}
 // ── Plan change with proration ────────────────────────────────────────────
 export async function previewPlanChange(plan: Plan): Promise<PreviewPlanChangeResponse> {
   return apiPost<PreviewPlanChangeResponse>("/billing/preview-change", { plan })
@@ -383,4 +424,20 @@ export async function dismissProgressionMessage(messageId: string) {
 export async function getProgressionSummary(girlfriendId?: string) {
   const params = girlfriendId ? `?girlfriend_id=${girlfriendId}` : ""
   return apiGet<ProgressionSummary>(`/progression/summary${params}`)
+}
+
+// ── Spicy Leaks Collection ─────────────────────────────────────────────
+import type { SpicyLeaksCollectionResponse, SpicyLeakSpinResponse } from "./types"
+
+export async function getSpicyLeaksCollection(girlfriendId?: string) {
+  const params = girlfriendId ? `?girlfriend_id=${girlfriendId}` : ""
+  return apiGet<SpicyLeaksCollectionResponse>(`/spicy-leaks/collection${params}`)
+}
+
+export async function spinSpicyLeak(boxId: string, photoId: string, girlfriendId?: string) {
+  return apiPost<SpicyLeakSpinResponse>("/spicy-leaks/spin", {
+    box_id: boxId,
+    photo_id: photoId,
+    girlfriend_id: girlfriendId,
+  })
 }

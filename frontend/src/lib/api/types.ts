@@ -571,3 +571,47 @@ export interface ProgressionSummary {
   unread_messages: number
   next_milestone: { key: string; title: string; progress_pct: number } | null
 }
+
+// ── Spicy Leaks Collection ────────────────────────────────────────────────
+export interface SpicyLeakPhoto {
+  id: string
+  title: string
+  subtitle: string
+  rarity: "COMMON" | "UNCOMMON" | "RARE" | "EPIC" | "LEGENDARY"
+  icon: string
+  unlocked: boolean
+  unlocked_at?: string | null
+  image_url?: string | null
+}
+
+export interface SpicyLeakBox {
+  id: string
+  name: string
+  emoji: string
+  price_eur: number
+  description: string
+  weights: Record<string, number>
+}
+
+export interface SpicyLeaksCollectionResponse {
+  photos: SpicyLeakPhoto[]
+  total: number
+  unlocked: number
+  boxes: SpicyLeakBox[]
+}
+
+export interface SpicyLeakSpinResponse {
+  status: "succeeded" | "requires_action" | "no_card" | "free"
+  ok?: boolean
+  already_unlocked?: boolean
+  photo_id: string
+  title: string
+  subtitle: string
+  rarity: string
+  icon: string
+  image_url?: string | null
+  unlocked_at?: string
+  client_secret?: string
+  payment_intent_id?: string
+  error?: string
+}

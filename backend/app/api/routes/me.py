@@ -32,7 +32,7 @@ def me(request: Request, response: Response):
             from app.api.supabase_store import get_user_profile
             user_id = user.get("user_id") or user.get("id")
             admin = get_supabase_admin()
-            if admin and user_id and not str(user_id).startswith("guest-"):
+            if admin and user_id:
                 profile = get_user_profile(user_id)
                 if profile:
                     language_pref = profile.get("language_pref", "en")
@@ -68,7 +68,7 @@ def age_gate(request: Request, response: Response):
     try:
         from app.core.supabase_client import get_supabase_admin
         admin = get_supabase_admin()
-        if admin and user.get("user_id") and not user.get("is_guest"):
+        if admin and user.get("user_id"):
             admin.table("users_profile").update({"age_gate_passed": True}).eq("user_id", user["user_id"]).execute()
     except Exception:
         pass

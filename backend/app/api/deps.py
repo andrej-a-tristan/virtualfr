@@ -1,9 +1,9 @@
 """Shared dependencies for API routes.
 
-Provides session validation with automatic guest session recovery.
+Provides session validation with Supabase DB restore on server restart.
+Guest sessions are no longer supported — account required.
 """
 import logging
-from uuid import uuid4
 
 from fastapi import Request, Response
 
@@ -19,11 +19,11 @@ def _session_id(request: Request) -> str | None:
 
 
 def get_current_user(request: Request, response: Response | None = None) -> dict | None:
-    """Get the current user from session, with automatic recovery.
+    """Get the current user from session.
 
     1. Check in-memory store
     2. Try to restore from Supabase DB (for real users after server restart)
-    3. For guest sessions that were lost: auto-create a new guest session
+    3. If nothing found, return None (401)
 
     Returns the user dict or None if no valid session exists.
     """
@@ -41,14 +41,7 @@ def get_current_user(request: Request, response: Response | None = None) -> dict
     if user:
         return user
 
-    # 3. If session ID looks like a guest session, auto-recreate it
-    if sid.startswith("sess-"):
-        user = _recreate_guest_session(sid)
-        if user:
-            logger.info(f"Auto-recreated guest session {sid[:16]}...")
-            return user
-
-    # 4. Session is truly lost — clear the stale cookie
+    # 3. Session is truly lost — clear the stale cookie
     if response:
         response.delete_cookie(SESSION_COOKIE)
 
@@ -115,31 +108,4 @@ def _try_restore_from_db(sid: str) -> dict | None:
         return user_data
     except Exception as exc:
         logger.warning(f"Failed to restore session from DB: {exc}")
-        return None
-
-
-def _recreate_guest_session(sid: str) -> dict | None:
-    """Re-create a guest session that was lost (e.g., server hot-reload).
-
-    Guest sessions are in-memory only and not persisted to DB.
-    When they're lost, we create a fresh guest user under the same session ID
-    so the browser cookie still works.
-    """
-    try:
-        guest_id = f"guest-{uuid4().hex[:12]}"
-        user_data = {
-            "id": guest_id,
-            "user_id": guest_id,
-            "email": "",
-            "display_name": None,
-            "plan": "free",
-            "age_gate_passed": True,
-            "has_girlfriend": False,
-            "current_girlfriend_id": None,
-            "is_guest": True,
-        }
-        set_session_user(sid, user_data)
-        return user_data
-    except Exception as exc:
-        logger.warning(f"Failed to recreate guest session: {exc}")
         return None

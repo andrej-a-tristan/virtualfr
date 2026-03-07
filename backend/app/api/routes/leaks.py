@@ -1,5 +1,4 @@
 """Leaks collection — per-girlfriend leaked photos unlocked via paid slot spins."""
-import hashlib
 import logging
 import random
 from fastapi import APIRouter, HTTPException, Request
@@ -10,6 +9,7 @@ from app.api.store import (
     _persist,
 )
 from app.services.stripe_payments import create_one_time_payment
+from app.utils.ai_images import pick_ai_image_url
 
 logger = logging.getLogger(__name__)
 
@@ -224,8 +224,10 @@ def spin_leak_slot(request: Request, body: LeakSpinRequest):
         return {"status": "failed", "error": result.error or "Payment failed. Please try again."}
 
     # ── Unlock the leak ───────────────────────────────────────────────────
-    seed = hashlib.md5(f"{gf}:{chosen_id}".encode()).hexdigest()[:10]
-    image_url = f"https://picsum.photos/seed/{seed}/400/600"
+    image_url = pick_ai_image_url(
+        f"leak:{gf}:{chosen_id}",
+        fallback_url=f"https://picsum.photos/seed/{gf}-{chosen_id}/400/600",
+    )
 
     key = (sid, gf)
     if key not in _leaks_unlocked:

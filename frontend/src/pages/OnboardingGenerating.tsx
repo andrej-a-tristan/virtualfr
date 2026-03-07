@@ -14,6 +14,9 @@ export default function OnboardingGenerating() {
   const [statusText, setStatusText] = useState("This only takes a moment.")
 
   const {
+    user,
+    girlfriends,
+    currentGirlfriendId,
     onboardingTraits,
     onboardingAppearance,
     onboardingContentPrefs,
@@ -25,7 +28,38 @@ export default function OnboardingGenerating() {
     clearOnboarding,
   } = useAppStore()
 
-  const isAdditional = onboardingMode === "additional" || searchParams.get("mode") === "additional"
+  const hasExistingGirlfriend = Boolean(user?.has_girlfriend || currentGirlfriendId || girlfriends.length > 0)
+  const wantsAdditional = onboardingMode === "additional" || searchParams.get("mode") === "additional"
+  const isAdditional = wantsAdditional && hasExistingGirlfriend
+
+  // Mutation for first-time onboarding
+  const firstMutation = useMutation({
+    mutationFn: completeOnboarding,
+    onSuccess: (gf) => {
+      setGirlfriend(gf)
+      clearOnboarding()
+      navigate("/onboarding/reveal", { replace: true })
+      queryClient.invalidateQueries({ queryKey: ["me"] })
+    },
+    onError: async (err: any) => {
+      const msg = err?.message || ""
+      if (msg.includes("unauthorized") || msg.includes("session_expired")) {
+        setStatusText("Reconnecting session...")
+        try {
+          const res = await guestSession()
+          setUser(res.user)
+          if (payload) {
+            firstMutation.mutate(payload)
+            return
+          }
+        } catch {
+          navigate("/login", { replace: true })
+          return
+        }
+      }
+      navigate("/onboarding/traits", { replace: true })
+    },
+  })
 
   // Mutation for additional girlfriend creation
   const additionalMutation = useMutation({
@@ -58,36 +92,6 @@ export default function OnboardingGenerating() {
       }
     : null
 
-  // Mutation for first-time onboarding
-  const firstMutation = useMutation({
-    mutationFn: completeOnboarding,
-    onSuccess: (gf) => {
-      setGirlfriend(gf)
-      clearOnboarding()
-      navigate("/onboarding/reveal", { replace: true })
-      queryClient.invalidateQueries({ queryKey: ["me"] })
-    },
-    onError: async (err: any) => {
-      const msg = err?.message || ""
-      // If session was lost (401), try to recover and retry
-      if (msg.includes("unauthorized") || msg.includes("session_expired")) {
-        setStatusText("Reconnecting session...")
-        try {
-          const res = await guestSession()
-          setUser(res.user)
-          // Retry the mutation with the same payload
-          if (payload) {
-            firstMutation.mutate(payload as NonNullable<typeof payload>)
-          }
-          return
-        } catch {
-          // Recovery failed
-        }
-      }
-      navigate("/onboarding/traits", { replace: true })
-    },
-  })
-
   useEffect(() => {
     if (started.current) return
     if (!payload) {
@@ -97,9 +101,9 @@ export default function OnboardingGenerating() {
     started.current = true
 
     if (isAdditional) {
-      additionalMutation.mutate(payload as NonNullable<typeof payload>)
+      additionalMutation.mutate(payload)
     } else {
-      firstMutation.mutate(payload as NonNullable<typeof payload>)
+      firstMutation.mutate(payload)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])

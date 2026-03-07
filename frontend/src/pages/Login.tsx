@@ -41,7 +41,7 @@ export default function Login() {
       const user = res.user
       const from = (location.state as { from?: { pathname: string } })?.from?.pathname
 
-      if (from && from !== "/login" && from !== "/signup") {
+      if (from && from !== "/login" && from !== "/signup" && from !== "/create-account") {
         // If there was a specific page the user was trying to reach, go there
         navigate(from, { replace: true })
       } else if (user.has_girlfriend && user.age_gate_passed) {
@@ -85,7 +85,7 @@ export default function Login() {
           </form>
           <p className="mt-4 text-center text-sm text-muted-foreground">
             Don&apos;t have an account?{" "}
-            <Link to="/" className="font-medium text-primary hover:underline">
+            <Link to="/create-account" className="font-medium text-primary hover:underline">
               Create one
             </Link>
           </p>

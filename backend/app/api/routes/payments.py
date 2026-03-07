@@ -26,6 +26,7 @@ from app.services.stripe_payments import (
     PaymentResult,
     PLAN_MONTHLY_CENTS,
 )
+from app.utils.ai_images import pick_ai_image_url
 
 router = APIRouter(prefix="/payments", tags=["payments"])
 logger = logging.getLogger(__name__)
@@ -112,7 +113,6 @@ def finalize_payment_intent_for_webhook(payment_intent_id: str) -> dict:
     # Leak slot
     if payment_type in ("leaks_spin", "leak_slot"):
         from app.api.routes.leaks import _leaks_unlocked, _persist as leaks_persist
-        import hashlib as _hl
 
         leak_id = meta.get("leak_id", "")
         if not sid or not gf_id or not leak_id:
@@ -122,8 +122,10 @@ def finalize_payment_intent_for_webhook(payment_intent_id: str) -> dict:
         if key not in _leaks_unlocked:
             _leaks_unlocked[key] = {}
         if leak_id not in _leaks_unlocked[key]:
-            seed = _hl.md5(f"{gf_id}:{leak_id}".encode()).hexdigest()[:10]
-            _leaks_unlocked[key][leak_id] = f"https://picsum.photos/seed/{seed}/400/600"
+            _leaks_unlocked[key][leak_id] = pick_ai_image_url(
+                f"leak:{gf_id}:{leak_id}",
+                fallback_url=f"https://picsum.photos/seed/{gf_id}-{leak_id}/400/600",
+            )
             leaks_persist()
         mark_payment_fulfilled(payment_intent_id, {"type": "leaks_spin", "leak_id": leak_id, "girlfriend_id": gf_id})
         return {"status": "succeeded", "type": "leaks_spin"}
@@ -313,7 +315,6 @@ def create_payment_intent(request: Request, body: PaymentIntentRequest):
         from app.api.routes.leaks import (
             LEAK_BOXES, _leaks_unlocked, _pick_random_leak, _persist as leaks_persist,
         )
-        import hashlib as _hl
 
         box = LEAK_BOXES.get(box_id)
         if not box:
@@ -353,8 +354,10 @@ def create_payment_intent(request: Request, body: PaymentIntentRequest):
         if result.status == "succeeded":
             pi_id = result.payment_intent_id or ""
             if not is_payment_fulfilled(pi_id):
-                seed = _hl.md5(f"{gf_id}:{chosen_id}".encode()).hexdigest()[:10]
-                image_url = f"https://picsum.photos/seed/{seed}/400/600"
+                image_url = pick_ai_image_url(
+                    f"leak:{gf_id}:{chosen_id}",
+                    fallback_url=f"https://picsum.photos/seed/{gf_id}-{chosen_id}/400/600",
+                )
                 key = (sid, gf_id)
                 if key not in _leaks_unlocked:
                     _leaks_unlocked[key] = {}

@@ -13,6 +13,7 @@ from app.schemas.girlfriend import (
     OnboardingCompletePayload,
 )
 from app.utils.identity_canon import generate_identity_canon
+from app.utils.ai_images import pick_ai_image_url
 
 
 router = APIRouter(prefix="/onboarding", tags=["onboarding"])
@@ -59,7 +60,10 @@ def _prompt_image_keys():
 def get_prompt_images():
     """Return static prompt image URLs keyed by question and by option."""
     keys = _prompt_image_keys()
-    return {key: f"https://picsum.photos/seed/{key}/640/360" for key in keys}
+    return {
+        key: pick_ai_image_url(key, fallback_url=f"https://picsum.photos/seed/{key}/640/360")
+        for key in keys
+    }
 
 
 @router.post("/complete")
@@ -93,7 +97,10 @@ def complete_onboarding(request: Request, response: Response, body: OnboardingCo
         f"{json.dumps(traits, sort_keys=True)}"
     )
     avatar_seed = hashlib.sha256(seed_source.encode("utf-8")).hexdigest()[:16]
-    avatar_url = f"https://picsum.photos/seed/{avatar_seed}/512/512"
+    avatar_url = pick_ai_image_url(
+        f"avatar:{avatar_seed}",
+        fallback_url=f"https://picsum.photos/seed/{avatar_seed}/512/512",
+    )
     
     # Generate identity canon (deterministic from gf_id)
     canon_seed = int(hashlib.sha256(gf_id.encode("utf-8")).hexdigest()[:8], 16)

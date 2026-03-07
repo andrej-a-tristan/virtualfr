@@ -443,7 +443,7 @@ export default function LeaksPanel({ onClose }: LeaksPanelProps) {
 
   const getImageUrl = (leak: LeakItem) => {
     if (!apiData?.unlocked?.[leak.id]) return null
-    return apiData.unlocked[leak.id] || `https://picsum.photos/seed/${leak.id}/400/600`
+    return apiData.unlocked[leak.id] || `/api/ai-gf/realvisxl_clean_00001_.png`
   }
 
   const [paymentBoxId, setPaymentBoxId] = useState<string | null>(null)

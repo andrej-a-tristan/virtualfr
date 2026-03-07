@@ -28,7 +28,8 @@ export default function Signup() {
     try {
       const res = await signup(data.email, data.password, data.display_name)
       setUser(res.user)
-      navigate("/age-gate", { replace: true })
+      // After signup, go to onboarding to create their first girlfriend
+      navigate("/onboarding/appearance", { replace: true })
     } catch (e) {
       setError(e instanceof Error ? e.message : "Sign up failed")
     }

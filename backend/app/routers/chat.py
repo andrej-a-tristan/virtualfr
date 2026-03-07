@@ -126,7 +126,8 @@ async def _proxy_stream(
     max_tokens: int = 180,
     temperature: float = 0.74,
 ):
-    """Call internal LLM (OpenAI-like POST /v1/chat/completions), parse SSE, yield gateway SSE (event: token / event: done)."""
+    """Call OpenAI API directly when API_KEY is set, else fall back to mock.
+    Parses SSE, yields gateway SSE (event: token / event: done)."""
     settings = get_settings()
     stream_timeout = settings.stream_timeout_seconds
     upstream_timeout = settings.upstream_token_timeout_seconds
@@ -135,27 +136,38 @@ async def _proxy_stream(
     status = "ok"
     error_message: str | None = None
 
-    # In-process mock: no HTTP self-call (avoids deadlock), same gateway SSE format
-    if settings.use_mock_model:
-        from app.routers.mock_model import stream_mock_reply_gateway
+    # Resolve API key: prefer api_key (OpenAI), then internal_llm_api_key
+    from app.core import get_api_key
+    api_key = get_api_key() or settings.internal_llm_api_key or settings.api_key
+
+    # ── Direct OpenAI call when API key is available ──────────────────────
+    if api_key:
         try:
-            async for chunk in stream_mock_reply_gateway(messages):
-                # Extract token for logging when we have a data line
-                for line in chunk.split("\n"):
-                    line = line.strip()
-                    if line.startswith("data:") and line != "data: [DONE]":
-                        try:
-                            data = json.loads(line[5:].strip())
-                            if data.get("token"):
-                                output_tokens.append(data["token"])
-                        except (json.JSONDecodeError, KeyError):
-                            pass
-                yield chunk
+            import openai
+            client = openai.AsyncOpenAI(api_key=api_key)
+            actual_model = settings.internal_llm_model or "gpt-4o-mini"
+            llm_messages = [{"role": m.get("role", "user"), "content": m.get("content", "")} for m in messages]
+
+            stream = await client.chat.completions.create(
+                model=actual_model,
+                messages=llm_messages,
+                stream=True,
+                max_tokens=500,
+                temperature=0.85,
+            )
+            async for chunk in stream:
+                choice = chunk.choices[0] if chunk.choices else None
+                if choice and choice.delta and choice.delta.content:
+                    token = choice.delta.content
+                    output_tokens.append(token)
+                    yield f"event: token\ndata: {json.dumps({'token': token})}\n\n"
+            yield "event: done\ndata: {\"finish_reason\":\"stop\"}\n\n"
         except Exception as e:
             status = "error"
             error_message = str(e).replace('"', '\\"')
             yield f'event: error\ndata: {{"error": "{error_message}"}}\n\n'
             yield "event: done\ndata: {\"finish_reason\":\"error\"}\n\n"
+
         latency_ms = int((time.monotonic() - stream_start) * 1000)
         write_chat_log({
             "request_id": request_id,
@@ -174,17 +186,53 @@ async def _proxy_stream(
         })
         return
 
+    # ── Mock fallback when no API key ────────────────────────────────────
+    from app.routers.mock_model import stream_mock_reply_gateway
+    try:
+        async for chunk in stream_mock_reply_gateway(messages):
+            for line in chunk.split("\n"):
+                line = line.strip()
+                if line.startswith("data:") and line != "data: [DONE]":
+                    try:
+                        data = json.loads(line[5:].strip())
+                        if data.get("token"):
+                            output_tokens.append(data["token"])
+                    except (json.JSONDecodeError, KeyError):
+                        pass
+            yield chunk
+    except Exception as e:
+        status = "error"
+        error_message = str(e).replace('"', '\\"')
+        yield f'event: error\ndata: {{"error": "{error_message}"}}\n\n'
+        yield "event: done\ndata: {\"finish_reason\":\"error\"}\n\n"
+    latency_ms = int((time.monotonic() - stream_start) * 1000)
+    write_chat_log({
+        "request_id": request_id,
+        "timestamp_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "session_id": session_id,
+        "user_id": user_id[:8] + "..." if len(user_id) > 8 else user_id,
+        "client_ip": client_ip,
+        "model": model,
+        "model_version": model_version,
+        "messages": messages,
+        "output_text": "".join(output_tokens),
+        "num_tokens": len(output_tokens),
+        "latency_ms": latency_ms,
+        "status": status,
+        "error_message": error_message,
+    })
+    return
+
+    # ── Legacy HTTP proxy path (kept but unreachable when API_KEY is set) ─
     base = settings.internal_llm_base_url.rstrip("/")
     path = settings.internal_llm_path.lstrip("/")
     url = f"{base}/{path}"
 
-    # Use internal_llm_api_key if set, else fall back to api_key (OpenAI key)
     llm_key = settings.internal_llm_api_key or settings.api_key
     headers = {"Content-Type": "application/json"}
     if llm_key:
         headers["Authorization"] = f"Bearer {llm_key}"
 
-    # Use configured model override if available
     actual_model = getattr(settings, "internal_llm_model", None) or model
 
     body = {

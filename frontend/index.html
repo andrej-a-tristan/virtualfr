@@ -2,12 +2,140 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Companion</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+
+    <!-- Branding -->
+    <title>Companion — Your AI Girlfriend</title>
+    <meta name="description" content="Meet your perfect AI companion. Chat, bond, and build a real connection — powered by advanced AI." />
+
+    <!-- Theme & Colors (matches --background: 222 47% 6%) -->
+    <meta name="theme-color" content="#0d1117" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="msapplication-TileColor" content="#0d1117" />
+
+    <!-- Favicon — inline heart SVG so no /public folder needed -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23e84393'/%3E%3Cstop offset='100%25' stop-color='%23fd79a8'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath fill='url(%23g)' d='M32 56S6 40 6 22a14 14 0 0 1 26-7 14 14 0 0 1 26 7c0 18-26 34-26 34z'/%3E%3C/svg%3E" />
+
+    <!-- Apple Mobile Web App -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Companion" />
+    <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230d1117'/%3E%3Cpath fill='%23e84393' d='M32 50S12 38 12 24a10 10 0 0 1 20-5 10 10 0 0 1 20 5c0 14-20 26-20 26z'/%3E%3C/svg%3E" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Companion — Your AI Girlfriend" />
+    <meta property="og:description" content="Meet your perfect AI companion. Chat, bond, and build a real connection." />
+    <meta property="og:site_name" content="Companion" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Companion — Your AI Girlfriend" />
+    <meta name="twitter:description" content="Meet your perfect AI companion. Chat, bond, and build a real connection." />
+
+    <!-- Preconnect to backend API (same origin via proxy, but useful in prod) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+    <!-- Prevent FOUC on dark background -->
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: #0d1117;
+        overflow-x: hidden;
+      }
+
+      /* ── Splash screen while React loads ── */
+      #splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(180deg, #0d1117 0%, #090c10 100%);
+        transition: opacity 0.4s ease, visibility 0.4s ease;
+      }
+      #splash.hide {
+        opacity: 0;
+        visibility: hidden;
+      }
+      #splash .heart {
+        width: 48px;
+        height: 48px;
+        animation: pulse 1.4s ease-in-out infinite;
+      }
+      #splash .brand {
+        margin-top: 16px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-size: 18px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        color: rgba(255, 255, 255, 0.7);
+      }
+      #splash .loader {
+        margin-top: 28px;
+        width: 32px;
+        height: 32px;
+        border: 3px solid rgba(232, 67, 147, 0.15);
+        border-top-color: #e84393;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+
+      @keyframes pulse {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.12); }
+      }
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+    </style>
   </head>
   <body>
+    <!-- Splash screen — hidden once React mounts -->
+    <div id="splash">
+      <svg class="heart" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="hg" x1="6" y1="8" x2="58" y2="56" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#e84393" />
+            <stop offset="1" stop-color="#fd79a8" />
+          </linearGradient>
+        </defs>
+        <path fill="url(#hg)" d="M32 56S6 40 6 22a14 14 0 0 1 26-7 14 14 0 0 1 26 7c0 18-26 34-26 34z"/>
+      </svg>
+      <span class="brand">Companion</span>
+      <div class="loader"></div>
+    </div>
+
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+
+    <!-- Dismiss splash once app paints -->
+    <script>
+      (function() {
+        var splash = document.getElementById('splash');
+        if (!splash) return;
+        // Give React a moment to render, then fade out
+        var observer = new MutationObserver(function() {
+          var root = document.getElementById('root');
+          if (root && root.children.length > 0) {
+            splash.classList.add('hide');
+            setTimeout(function() { splash.remove(); }, 500);
+            observer.disconnect();
+          }
+        });
+        observer.observe(document.getElementById('root'), { childList: true });
+        // Fallback: remove after 6s no matter what
+        setTimeout(function() {
+          if (splash.parentNode) {
+            splash.classList.add('hide');
+            setTimeout(function() { splash.remove(); }, 500);
+          }
+        }, 6000);
+      })();
+    </script>
   </body>
 </html>
