@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { CreditCard, Plus, Trash2, Check, CircleDot, Circle } from "lucide-react"
-import AddCardModal from "@/components/billing/AddCardModal"
+import UnifiedPaymentPanel from "@/components/billing/UnifiedPaymentPanel"
 
 const BRAND_DISPLAY: Record<string, string> = {
   visa: "Visa",
@@ -181,10 +181,13 @@ export default function PaymentOptions() {
         </CardContent>
       </Card>
 
-      <AddCardModal
+      <UnifiedPaymentPanel
         open={showCardModal}
+        payload={{ type: "setup" }}
+        title="Add payment card"
+        description="Save a card for subscriptions and purchases."
+        onSuccess={handleCardSaved}
         onClose={() => setShowCardModal(false)}
-        onSaved={handleCardSaved}
       />
     </div>
   )

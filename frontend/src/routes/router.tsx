@@ -1,5 +1,5 @@
 import { createBrowserRouter, Navigate } from "react-router-dom"
-import { RequireAuth, RequireAgeGate, RequireGirlfriend } from "./guards"
+import { RequireAuth, RequireAgeGate, RequireGirlfriend, RequireSubscription } from "./guards"
 import AppShell from "@/components/layout/AppShell"
 import Landing from "@/pages/Landing"
 import Login from "@/pages/Login"
@@ -18,8 +18,6 @@ import OnboardingIdentity from "@/pages/OnboardingIdentity"
 import GirlfriendReveal from "@/pages/GirlfriendReveal"
 import SubscriptionPlan from "@/pages/SubscriptionPlan"
 import RevealSuccess from "@/pages/RevealSuccess"
-import Chat from "@/pages/Chat"
-import Gallery from "@/pages/Gallery"
 import GirlPage from "@/pages/GirlPage"
 import Profile from "@/pages/Profile"
 import Settings from "@/pages/Settings"
@@ -69,7 +67,9 @@ const router = createBrowserRouter([
       <RequireAuth>
         <RequireAgeGate>
           <RequireGirlfriend>
-            <AppShell />
+            <RequireSubscription>
+              <AppShell />
+            </RequireSubscription>
           </RequireGirlfriend>
         </RequireAgeGate>
       </RequireAuth>

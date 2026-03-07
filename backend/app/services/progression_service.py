@@ -52,18 +52,13 @@ _STORY_FOLLOWUP_PATTERNS = [
     r"\bwhat('s| is) (next|the next)\b",
 ]
 
-# ── Region boundaries (match existing relationship_progression.py) ────────────
+# ── Region boundaries (mirror canonical relationship_regions.py) ─────────────
+# Single source of truth for region ranges lives in app.services.relationship_regions.
+from app.services.relationship_regions import REGIONS as RELATIONSHIP_REGIONS
 
 REGIONS = [
-    {"key": "EARLY_CONNECTION",       "min": 0,   "max": 14},
-    {"key": "COMFORT_FAMILIARITY",    "min": 15,  "max": 34},
-    {"key": "GROWING_CLOSENESS",      "min": 35,  "max": 59},
-    {"key": "EMOTIONAL_TRUST",        "min": 60,  "max": 89},
-    {"key": "DEEP_BOND",              "min": 90,  "max": 119},
-    {"key": "MUTUAL_DEVOTION",        "min": 120, "max": 149},
-    {"key": "INTIMATE_PARTNERSHIP",   "min": 150, "max": 174},
-    {"key": "SHARED_LIFE",            "min": 175, "max": 194},
-    {"key": "ENDURING_COMPANIONSHIP", "min": 195, "max": 200},
+    {"key": r.key, "min": r.min_level, "max": r.max_level}
+    for r in RELATIONSHIP_REGIONS
 ]
 
 # Trust milestones (triggers at trust_visible thresholds)
@@ -77,11 +72,15 @@ MESSAGE_MILESTONES = [50, 100, 250, 500, 1000]
 
 
 def region_for_level(level: int) -> dict:
-    """Return the region dict for a given level."""
-    for r in REGIONS:
-        if r["min"] <= level <= r["max"]:
-            return r
-    return REGIONS[-1]
+    """Return the region dict for a given level.
+
+    This is a thin wrapper over relationship_regions.get_region_for_level
+    so that all systems share identical boundaries (including level 0).
+    """
+    from app.services.relationship_regions import get_region_for_level
+
+    region = get_region_for_level(level)
+    return {"key": region.key, "min": region.min_level, "max": region.max_level}
 
 
 # ── Quality Signal Extraction ─────────────────────────────────────────────────

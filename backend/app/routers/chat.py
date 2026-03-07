@@ -28,6 +28,78 @@ router = APIRouter(prefix="/chat", tags=["chat-gateway"])
 KEEPALIVE_INTERVAL = 15.0
 
 
+def _compute_generation_controls(
+    user_text: str,
+    intent: str | None,
+    persona_vector: dict[str, Any] | None = None,
+) -> tuple[int, float]:
+    """Compute max_tokens/temperature for natural, concise replies."""
+    text = (user_text or "").strip()
+    wc = len(text.split())
+    intent_key = (intent or "").strip().lower()
+
+    # Default profile: concise conversational.
+    max_tokens = 180
+    temperature = 0.74
+
+    if intent_key in ("greeting", "banter"):
+        max_tokens = 90 if wc <= 8 else 130
+        temperature = 0.78
+    elif intent_key in ("ask_about_her", "mixed"):
+        max_tokens = 170
+        temperature = 0.72
+    elif intent_key == "support":
+        max_tokens = 220
+        temperature = 0.7
+    elif intent_key == "intimate":
+        max_tokens = 190
+        temperature = 0.76
+
+    # Very short user input should receive short output.
+    if wc <= 4:
+        max_tokens = min(max_tokens, 80)
+    elif wc <= 8:
+        max_tokens = min(max_tokens, 110)
+
+    # Persona-vector adaptive tuning.
+    pacing = (persona_vector or {}).get("pacing", {})
+    brevity_bias = float(pacing.get("brevity_bias", 0.55))
+    if brevity_bias >= 0.7:
+        max_tokens = int(max_tokens * 0.82)
+    elif brevity_bias <= 0.3:
+        max_tokens = int(max_tokens * 1.08)
+
+    question_tendency = float(pacing.get("question_tendency", 0.35))
+    if question_tendency < 0.3:
+        temperature = max(0.65, temperature - 0.03)
+
+    return max_tokens, temperature
+
+
+def _build_concise_style_guardrail(user_text: str, intent: str | None) -> str:
+    """Hard guardrail to prevent unnatural long replies."""
+    wc = len((user_text or "").split())
+    intent_key = (intent or "").strip().lower()
+
+    if wc <= 8 or intent_key in ("greeting", "banter"):
+        return (
+            "## RESPONSE LENGTH POLICY\n"
+            "- Keep this reply very short: 1 sentence, max 20 words.\n"
+            "- No list formatting and no multi-paragraph output."
+        )
+    if intent_key == "support":
+        return (
+            "## RESPONSE LENGTH POLICY\n"
+            "- Keep this reply emotionally present but concise: 2-4 sentences.\n"
+            "- Avoid rambling; do not exceed ~90 words unless user explicitly asks for detail."
+        )
+    return (
+        "## RESPONSE LENGTH POLICY\n"
+        "- Keep this reply concise: 1-3 sentences, usually under ~60 words.\n"
+        "- Avoid long monologues or multi-paragraph answers unless user asks for depth."
+    )
+
+
 class ChatMessage(BaseModel):
     role: str
     content: str
@@ -51,6 +123,8 @@ async def _proxy_stream(
     model_version: str,
     messages: list[dict],
     stream_start: float,
+    max_tokens: int = 180,
+    temperature: float = 0.74,
 ):
     """Call internal LLM (OpenAI-like POST /v1/chat/completions), parse SSE, yield gateway SSE (event: token / event: done)."""
     settings = get_settings()
@@ -117,8 +191,8 @@ async def _proxy_stream(
         "model": actual_model,
         "messages": [{"role": m.get("role", "user"), "content": m.get("content", "")} for m in messages],
         "stream": True,
-        "max_tokens": 500,
-        "temperature": 0.85,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
     }
 
     async def _read_lines(response):
@@ -237,7 +311,9 @@ async def chat_stream(
         )
 
     # ── Free-plan daily message cap ──────────────────────────────────────
-    sid = body.session_id
+    # Prefer cookie-based session (app users), fall back to body.session_id (external clients).
+    cookie_sid = request.cookies.get("session") if request else None
+    sid = cookie_sid or body.session_id
     user = get_session_user(sid) if sid else None
     user_plan = (user or {}).get("plan", "free")
     if user_plan == "free":
@@ -413,6 +489,25 @@ async def chat_stream(
         except Exception as e:
             _gw_logger.warning("Girlfriend Supabase fetch failed: %s", e)
 
+    # ── Persona Vector resolve (stored → deterministic fallback) ───────────
+    persona_vector = None
+    persona_vector_hash = None
+    if gf:
+        try:
+            if sb_admin and user_uid and gf_uid:
+                from app.services.persona_vector_store import get_active_persona_vector
+                pv_row = get_active_persona_vector(sb_admin, user_uid, gf_uid, version_hint=gf.get("persona_vector_version"))
+                if pv_row and pv_row.get("vector_json"):
+                    persona_vector = pv_row["vector_json"]
+                    persona_vector_hash = pv_row.get("vector_hash")
+            if not persona_vector:
+                from app.services.persona_vector import build_persona_vector, persona_vector_hash as _pv_hash
+                persona_vector = build_persona_vector(gf.get("traits") or {})
+                persona_vector_hash = _pv_hash(persona_vector)
+            gf["persona_vector"] = persona_vector
+        except Exception as e:
+            _gw_logger.debug("Persona vector resolve failed: %s", e)
+
     # ── Fetch relationship state ──────────────────────────────────────────
     rel_state = None
     rel_level = 0
@@ -432,6 +527,8 @@ async def chat_stream(
                     str(gf_uid)[:8] if gf_uid else "None",
                     rel_level,
                     last_user_msg[:50])
+    if persona_vector_hash:
+        _gw_logger.info("Persona vector hash: %s", persona_vector_hash)
 
     # ── Bond Engine: unified turn processing ──────────────────────────────
     bond_context_prompt = ""
@@ -475,6 +572,7 @@ async def chat_stream(
     # ── Behavior Engine: intent + dossier + turn rules ────────────────────
     behavior_prompt_section = ""
     behavior_result = None
+    behavior_intent: str | None = None
     try:
         from app.services.behavior_engine.behavior_orchestrator import (
             BehaviorTurnInput, process_behavior_turn,
@@ -492,6 +590,7 @@ async def chat_stream(
         )
         behavior_result = process_behavior_turn(behavior_input)
         behavior_prompt_section = behavior_result.get_full_behavior_context()
+        behavior_intent = behavior_result.intent.primary
         _gw_logger.info("Behavior engine OK: intent=%s, must_answer=%s, max_q=%d, prompt_len=%d",
                         behavior_result.intent.primary,
                         behavior_result.contract.must_answer_user_question,
@@ -552,6 +651,9 @@ async def chat_stream(
     if behavior_prompt_section:
         system_parts.append(behavior_prompt_section)
 
+    # 6. Compactness policy (prevents long, unnatural replies)
+    system_parts.append(_build_concise_style_guardrail(last_user_msg, behavior_intent))
+
     # Inject unified system message (always prepend — even without full gf data)
     if system_parts:
         system_content = "\n\n".join(system_parts)
@@ -604,6 +706,13 @@ async def chat_stream(
             _gw_logger.warning("User message persistence failed: %s", e)
 
     # ── Stream with response capture for persistence ──────────────────────
+    gen_max_tokens, gen_temperature = _compute_generation_controls(
+        last_user_msg,
+        behavior_intent,
+        persona_vector=persona_vector,
+    )
+    _gw_logger.info("Generation controls: intent=%s max_tokens=%d temp=%.2f", behavior_intent, gen_max_tokens, gen_temperature)
+
     async def generate():
         output_tokens: list[str] = []
         async for chunk in _proxy_stream(
@@ -615,8 +724,11 @@ async def chat_stream(
             model_version=body.model_version,
             messages=messages_data,
             stream_start=stream_start,
+            max_tokens=gen_max_tokens,
+            temperature=gen_temperature,
         ):
-            # Capture tokens for persistence
+            # Pass-through streaming for external clients, while capturing tokens for logging/persistence.
+            yield chunk
             for line in chunk.split("\n"):
                 line = line.strip()
                 if line.startswith("data:") and line != "data: [DONE]":
@@ -626,10 +738,11 @@ async def chat_stream(
                             output_tokens.append(data["token"])
                     except (json.JSONDecodeError, KeyError):
                         pass
-            yield chunk
 
-        # ── After stream completes: persist assistant response ────────
-        full_response = "".join(output_tokens)
+        # ── After upstream completes: aggregate response for persistence/metrics ─────
+        full_response = "".join(output_tokens).strip()
+
+        # ── Persist assistant response ───────────────────────────────────
         if full_response:
             try:
                 from datetime import datetime as _dt, timezone as _tz
@@ -659,6 +772,7 @@ async def chat_stream(
                     BehaviorTurnInput as _BehInp,
                     BehaviorTurnResult as _BehRes,
                     persist_behavior_turn as _persist_beh,
+                    validate_behavior_response as _validate_beh,
                 )
                 if sb_admin and user_uid and gf_uid:
                     _beh_persist_inp = _BehInp(
@@ -670,7 +784,17 @@ async def chat_stream(
                         sb_admin=sb_admin,
                     )
                     _beh_res = behavior_result if behavior_result is not None else _BehRes()
+                    final_validation = _validate_beh(full_response, _beh_res, recent_responses=recent_assistant[-5:])
                     _persist_beh(_beh_persist_inp, _beh_res, full_response, request_id)
+                    if final_validation and final_validation.issues:
+                        try:
+                            issue_keys = [f"{i.validator}:{i.severity}" for i in final_validation.issues[:5]]
+                            sb_admin.table("conversation_mode_state").update({
+                                "last_quality_issues": issue_keys,
+                            }).eq("user_id", str(user_uid)).eq("girlfriend_id", str(gf_uid)).execute()
+                        except Exception:
+                            pass
+                        _gw_logger.info("Behavior validation issues: %s", ", ".join(issue_keys))
                     _gw_logger.info("Behavior persistence OK (self-memory + mode state)")
             except Exception as e:
                 _gw_logger.debug("Behavior persistence failed: %s", e)

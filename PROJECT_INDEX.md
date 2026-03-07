@@ -59,10 +59,13 @@ virtualfr/
 │       │       ├── girlfriends.py   — List, create, switch, get current — multi-girl CRUD with plan limits
 │       │       ├── health.py        — Health check
 │       │       ├── images.py        — Image jobs, gallery — per-girlfriend
+│       │       ├── intimacy_achievements.py — Intimacy achievement catalog (per-girlfriend unlocked status)
+│       │       ├── leaks.py         — Leaks collection + paid slot spin (Stripe) — per-girlfriend
 │       │       ├── me.py            — Current user, age gate
 │       │       ├── memory.py        — Memory summary/items/stats
 │       │       ├── moderation.py    — Content reports
 │       │       ├── onboarding.py    — Prompt images, complete onboarding (first girl)
+│       │       ├── profile.py       — Aggregated per-girlfriend stats (streaks, collections, activity)
 │       │       └── relationship.py  — Achievement catalog API endpoint
 │       ├── routers/
 │       │   ├── chat.py            — Chat gateway (SSE proxy + canon injection, accepts girlfriend_id)
@@ -95,7 +98,9 @@ virtualfr/
 │       │   ├── memory.py                  — Factual & emotional memory extraction/context
 │       │   ├── habits.py                  — User habit profiling
 │       │   ├── initiation_engine.py       — Girlfriend-initiated messages
-│       │   └── time_utils.py              — Time helpers
+│       │   ├── streaks.py                — Talking streak calculator (compute_streaks → StreakResult)
+│       │   ├── time_utils.py              — Time helpers
+│       │   └── intimacy_achievement_engine.py — Keyword-triggered intimacy achievement unlocks
 │       └── utils/
 │           ├── identity_canon.py  — Deterministic identity canon generation
 │           ├── prompt_identity.py — Builds canon system prompt for LLM injection
@@ -116,11 +121,11 @@ virtualfr/
         ├── styles/globals.css        — Theme (dark, pink primary)
         ├── routes/
         │   ├── router.tsx             — All routes
-        │   └── guards.tsx             — RequireAuth, RequireAgeGate, RequireGirlfriend
+        │   └── guards.tsx             — RequireAuth, RequireAgeGate, RequireGirlfriend, RequireSubscription
         ├── lib/
         │   ├── api/
         │   │   ├── client.ts          — Axios/fetch wrapper
-        │   │   ├── endpoints.ts       — All API call functions (multi-girl, gifts, gift collection, billing, gallery, achievements)
+        │   │   ├── endpoints.ts       — All API call functions (multi-girl, gifts, gift collection, billing, gallery, achievements, leaks, profile)
         │   │   ├── types.ts           — TypeScript types (Girlfriend, gifts, billing, memory, Big Five, achievements, gift collection)
         │   │   └── zod.ts             — Zod schemas for forms
         │   ├── constants/identity.ts  — Job vibes, hobbies, city vibes, name validation
@@ -162,16 +167,16 @@ virtualfr/
     │   ├── OnboardingPreferences.tsx — Mandatory age verification (blocks under-18, auto-sets wants_spicy_photos)
     │   ├── OnboardingIdentity.tsx    — Name, job vibe, hobbies, origin
     │   ├── OnboardingGenerating.tsx  — Calls completeOnboarding or createAdditionalGirlfriend, shows spinner
-    │   ├── GirlfriendReveal.tsx      — Blurred photo + signup form
+    │   ├── GirlfriendReveal.tsx      — Blurred photo + mandatory signup form (no skip options)
     │   ├── SubscriptionPlan.tsx      — 3-tier subscription paywall
     │   ├── RevealSuccess.tsx         — Unblurred photo + "Let's chat" after subscribing
     │   ├── PersonaPreview.tsx        — Final persona summary
-    │   ├── GirlPage.tsx              — Per-girl hub: chat + gallery tabs, 3 side buttons (My Relationship, Intimate Progression, Gift Collection), fullscreen panels (portaled)
+    │   ├── GirlPage.tsx              — Per-girl hub: chat + gallery tabs, side buttons (My Relationship, Intimate Progression, Gift Collection, Surprise Her, Leaks), fullscreen panels (portaled)
     │   ├── Relationship.tsx          — (legacy, content moved into GirlPage)
     │   ├── Chat.tsx                  — Main chat interface (per-girlfriend history)
     │   ├── Gallery.tsx               — Photo gallery (per-girlfriend)
-    │   ├── Profile.tsx               — Girlfriend profile
-    │   ├── Settings.tsx              — User settings
+    │   ├── Profile.tsx               — Girl cards grid with rich stats (streaks, trust/intimacy meters, collections, sorting)
+    │   ├── Settings.tsx              — User settings + Account section (password change, delete account, logout) + Notifications
     │   ├── Billing.tsx               — Billing/plans management (upgrade, cancel)
     │   ├── PaymentOptions.tsx        — View/update saved card
     │   └── Safety.tsx                — Safety/moderation
@@ -185,6 +190,8 @@ virtualfr/
             │   ├── GiftModal.tsx           — Gift catalog modal with tabs + preview + inline Stripe payment + "Already Gifted" state
             │   ├── GiftCollectionPanel.tsx — Fullscreen gift collection: all 26 gifts by tier, purchased state, photo slot grid per gift
             │   ├── IntimateProgressionPanel.tsx — Fullscreen intimate collection: 7 tiers, 50 sexual achievements with scene descriptions + photo slots
+            │   ├── LeaksPanel.tsx             — Fullscreen leaks panel: 50 leaked photos by rarity, paid slot machine (3 tiers), collection grid, Stripe payment
+            │   ├── MysteryBoxPanel.tsx         — Fullscreen gift mystery box panel: 3 box tiers, slot machine spin, Stripe payment, gift reveal
             │   ├── AchievementUnlockedCard.tsx  — Chat card for achievement unlock events (rarity-styled)
             │   ├── MessageBubble.tsx       — Message bubble with avatar (handles achievement events)
             │   ├── MessageList.tsx         — Scrollable message list
@@ -301,6 +308,25 @@ virtualfr/
 |--------|------|-------------|
 | `GET` | `/api/relationship/achievements` | Achievement catalog by region (54 achievements with rarity + trigger) |
 
+### Intimacy Achievements
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/intimacy/achievements` | Intimacy achievement catalog by tier (50 achievements), per-girlfriend unlocked status |
+
+### Leaks Collection (per-girlfriend)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/leaks/collection` | Get unlocked leaks for current girlfriend (`?girlfriend_id=`). Returns `{unlocked, total}` |
+| `POST` | `/api/leaks/spin` | Purchase a leak slot spin (Stripe). Body: `{box_id, girlfriend_id?}`. 3 box tiers (Quick Peek €1.99, Private Collection €4.99, Fully Uncensored €9.99). Returns random leaked photo by rarity. |
+
+### Profile Stats
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/profile/girls` | Aggregated per-girlfriend stats: relationship, activity, streaks, collections. Single-call for Profile page. |
+
 ### Memory
 
 | Method | Path | Description |
@@ -337,6 +363,8 @@ All per-girlfriend data is keyed by `(session_id, girlfriend_id)`:
 | `_habit_profile` | `(session_id, girlfriend_id)` | User habit data per girl |
 | `_gallery` | `(session_id, girlfriend_id)` | Gallery images per girl |
 | `_gift_purchases` | `(session_id, girlfriend_id)` | Gift purchase records per girl |
+| `_leaks_unlocked` | `(session_id, girlfriend_id)` | Unlocked leaked photos per girl (leak_id → image_url) |
+| `_intimacy_ach_unlocked` | `(session_id, girlfriend_id)` | Unlocked intimacy achievements per girl |
 
 ### Plan Limits
 
@@ -371,14 +399,16 @@ Identity (name, job vibe, hobbies, origin)
   ↓
 Generating (POST /api/onboarding/complete)
   ↓
-Reveal (blurred photo + signup form)
+Reveal (blurred photo + MANDATORY signup form — no skip options)
   ↓
-Subscribe (Free / Plus / Premium tiers)
+Subscribe (Free / Plus / Premium tiers — card required for all plans)
   ↓
 Reveal Success (unblurred photo + "Let's chat")
   ↓
 Chat
 ```
+
+**No skip allowed.** Users must create an account, add a payment card, and choose a plan before accessing the chat. The `RequireSubscription` guard blocks `/app` access without a card on file.
 
 **Additional girl onboarding** (Premium users): Same flow but skips signup/reveal/subscribe. Goes straight from Generating → Chat. Sign-in button is hidden.
 
@@ -388,9 +418,11 @@ Chat
 
 | Tier | Price | Tagline | Features |
 |------|-------|---------|----------|
-| **Free** | €0.00/mo | "Meet [name] and chat to her" | Reveal photo, unlimited messaging |
-| **Plus** | €14.99/mo | "Your sweetheart" | Everything in Free, voice messages, 30 photos/month |
-| **Premium** | €29.99/mo | "Exclusive relationship" | Everything in Plus, 80 photos/month, up to 5 girls |
+| **Free** | €0.00/mo | "Say hi to [name]" | 7-day free trial (auto-upgrades to Plus), 20 messages/day, see profile photo |
+| **Plus** | €14.99/mo | "She can't stop thinking about you" | Unlimited messaging, 30 photos/month, spicy nude photos, 2 free mystery boxes, voice messages |
+| **Premium** | €29.99/mo | "She's completely yours" | Everything in Plus, 80 photos/month, 2 gift + 2 intimacy boxes/month, most explicit content, up to 3 girlfriends |
+
+**Card required for all plans** (including Free trial). No skip option during onboarding.
 
 ---
 
@@ -535,9 +567,9 @@ Both Trust and Intimacy use a **visible/bank split**:
 
 ---
 
-## GirlPage — Three Side Panels
+## GirlPage — Side Panels
 
-The GirlPage has 3 fullscreen panels accessed via side buttons (desktop) or bottom strip buttons (mobile):
+The GirlPage has 5 fullscreen panels accessed via side buttons (desktop) or bottom strip buttons (mobile):
 
 ### 1. My Relationship (RelationshipPanel)
 
@@ -565,6 +597,28 @@ The GirlPage has 3 fullscreen panels accessed via side buttons (desktop) or bott
 - Purple theme for normal photo slots, rose theme for spicy
 - Floating gift icons background
 
+### 4. Surprise Her (MysteryBoxPanel)
+
+- 3 mystery box tiers (Bronze, Gold, Diamond) with escalating prices
+- Slot machine spin animation with easing deceleration
+- Stripe payment via saved card (inline, 3DS support)
+- Reveals random gift from catalog with tier-specific styling
+- Odds bar per box showing tier distribution
+- No duplicates — skips already-owned gifts
+
+### 5. Leaks (LeaksPanel)
+
+- **Spin tab**: 3 paid slot boxes (Quick Peek €1.99, Private Collection €4.99, Fully Uncensored €9.99)
+  - Slot machine with animated reel, dramatic reveal of leaked photo
+  - Rarity-weighted odds: higher boxes = more explicit content (Epic/Legendary)
+  - Stripe payment via saved card, 3DS support
+- **Collection tab**: Grid of all 50 leaked photos by rarity
+  - 5 rarities: Common (18), Uncommon (12), Rare (10), Epic (6), Legendary (4)
+  - Explicit/sexual titles visible for all photos (locked and unlocked)
+  - Rarity filter, progress bar, fullscreen image viewer
+  - No duplicates — each spin unlocks something new
+- **Only way to unlock leaks** — no chat-based random drops
+
 ---
 
 ## Key Schemas
@@ -590,6 +644,8 @@ The GirlPage has 3 fullscreen panels accessed via side buttons (desktop) or bott
 - **GiftCollectionItem**: extends GiftDefinition with `purchased`, `purchased_at`
 - **GiftImageReward**: `album_size`, `normal_photos`, `spicy_photos`, `photo_prompts[]`, `spicy_photo_prompts[]`, `suggestive_level` ("safe" | "mild" | "spicy")
 - **BigFive**: `openness`, `conscientiousness`, `extraversion`, `agreeableness`, `neuroticism` (0–100)
+- **GirlProfileStats**: `girlfriend_id`, `name`, `avatar_url`, `vibe_line`, `relationship`, `activity` (streaks), `collections`
+- **ProfileGirlsResponse**: `girls[]`, `totals` (girls, messages, photos, gifts_owned)
 
 ---
 

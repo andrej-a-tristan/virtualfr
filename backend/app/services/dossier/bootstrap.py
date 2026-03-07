@@ -543,6 +543,20 @@ def bootstrap_dossier_from_onboarding(
             "user_id": uid_str, "girlfriend_id": gf_id_str,
         }, on_conflict="user_id,girlfriend_id").execute()
 
+        # Persona vector (shared compact controls for all chat engines).
+        try:
+            from app.services.persona_vector_store import upsert_active_persona_vector
+
+            upsert_active_persona_vector(
+                sb=sb,
+                user_id=user_id,
+                girlfriend_id=girlfriend_id,
+                traits=traits,
+                version_tag="pv1",
+            )
+        except Exception as e:
+            logger.warning("Persona vector upsert failed: %s", e)
+
     except Exception as e:
         logger.error("Dossier bootstrap persistence error: %s", e)
 

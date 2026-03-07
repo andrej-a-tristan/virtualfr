@@ -4,13 +4,9 @@ Separate from the relationship achievement system and from the image_decision_en
 Does NOT award trust/intimacy points. One-time per achievement per girlfriend.
 Server-side throttle: max 1 photo reward per 6 hours per girlfriend.
 
-IMPORTANT — TWO UNLOCK PATHS:
-  1) CHAT KEYWORDS (this engine): Strictly gated by tier requirements
-     (required_region_index + required_intimacy_visible). Called from chat.py
-     on every user message.
-  2) MYSTERY BOX ("Seduce Her Now"): Bypasses ALL tier/region/intimacy gates.
-     Handled by POST /api/intimacy/mystery-unlock in intimacy_achievements.py.
-     This is the ONLY way to unlock achievements early.
+Unlock path: CHAT KEYWORDS — strictly gated by tier requirements
+(required_region_index + required_intimacy_visible). Called from chat.py
+on every user message.
 """
 from __future__ import annotations
 
@@ -89,12 +85,7 @@ def is_eligible(
     current_region_index: int,
     intimacy_visible: int,
 ) -> bool:
-    """Check if a user meets the tier gate for this achievement.
-
-    NOTE: This gate is ONLY enforced for chat-keyword unlocks.
-    Mystery box ("Seduce Her Now") unlocks bypass this entirely via
-    the /api/intimacy/mystery-unlock endpoint.
-    """
+    """Check if a user meets the tier gate for this achievement."""
     if current_region_index < ach.required_region_index:
         return False
     if ach.required_intimacy_visible is not None:

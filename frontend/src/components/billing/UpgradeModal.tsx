@@ -8,10 +8,10 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { Crown, Sparkles, Users, Check, CreditCard, Info, ArrowUpCircle } from "lucide-react"
-import { previewPlanChange, changePlan } from "@/lib/api/endpoints"
+import { Crown, Sparkles, Check, Info } from "lucide-react"
+import { previewPlanChange } from "@/lib/api/endpoints"
 import type { Plan, PreviewPlanChangeResponse } from "@/lib/api/types"
-import AddCardModal from "./AddCardModal"
+import UnifiedPaymentPanel from "./UnifiedPaymentPanel"
 
 /** Format cents → display string like "€14.99" */
 function formatCents(cents: number, currency = "eur"): string {
@@ -79,11 +79,10 @@ export default function UpgradeModal({
   onSuccess,
 }: UpgradeModalProps) {
   const queryClient = useQueryClient()
-  const [loading, setLoading] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)
-  const [showCardModal, setShowCardModal] = useState(false)
+  const [showPayment, setShowPayment] = useState(false)
   const [preview, setPreview] = useState<PreviewPlanChangeResponse | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
 
@@ -115,65 +114,37 @@ export default function UpgradeModal({
     }
   }, [open, loadPreview])
 
-  // ── Confirm upgrade ─────────────────────────────────────────────────
-  const handleConfirm = async () => {
+  // ── Confirm upgrade — open unified payment panel ────────────────────
+  const handleConfirm = () => {
     setConfirming(true)
-    setError("")
-    try {
-      const res = await changePlan(plan)
-      if (res.ok) {
-        setSuccess(true)
-        queryClient.invalidateQueries({ queryKey: ["billingStatus"] })
-        queryClient.invalidateQueries({ queryKey: ["girlfriendsList"] })
-        onSuccess?.()
-        setTimeout(() => {
-          setSuccess(false)
-          onClose()
-        }, 1500)
-      } else {
-        setError("Plan change failed. Please try again.")
-      }
-    } catch (e: any) {
-      const msg = e?.response?.data?.detail || e?.message || ""
-      console.error("[UpgradeModal] changePlan error:", msg, e)
-      if (
-        msg === "NO_PAYMENT_METHOD" ||
-        msg === "Conflict" ||
-        msg.includes("card") ||
-        msg.includes("payment method") ||
-        msg.includes("No Stripe customer") ||
-        msg.includes("NO_PAYMENT") ||
-        msg.includes("409")
-      ) {
-        setShowCardModal(true)
-        setError("")
-      } else {
-        setError(msg || "Failed to change plan")
-      }
-    } finally {
-      setConfirming(false)
-    }
+    setShowPayment(true)
   }
 
-  // ── Card saved → retry upgrade ──────────────────────────────────────
-  const handleCardSaved = async () => {
-    setShowCardModal(false)
-    await queryClient.invalidateQueries({ queryKey: ["billingStatus"] })
-    await handleConfirm()
+  const handlePaymentSuccess = () => {
+    setConfirming(false)
+    setShowPayment(false)
+    setSuccess(true)
+    queryClient.invalidateQueries({ queryKey: ["billingStatus"] })
+    queryClient.invalidateQueries({ queryKey: ["girlfriendsList"] })
+    onSuccess?.()
+    setTimeout(() => {
+      setSuccess(false)
+      onClose()
+    }, 1500)
   }
 
-  // ── Reset on close ──────────────────────────────────────────────────
   const handleClose = () => {
     if (confirming) return
     setError("")
     setSuccess(false)
     setPreview(null)
+    setShowPayment(false)
     onClose()
   }
 
   return (
     <>
-      <Dialog open={open && !showCardModal} onOpenChange={(v) => !v && handleClose()}>
+      <Dialog open={open && !showPayment} onOpenChange={(v) => !v && handleClose()}>
         <DialogContent className="max-w-md border-white/10 bg-card">
           <DialogHeader className="text-center">
             <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-pink-500 shadow-lg">
@@ -305,12 +276,19 @@ export default function UpgradeModal({
         </DialogContent>
       </Dialog>
 
-      {/* Card modal — shown when user has no card saved */}
-      <AddCardModal
-        open={showCardModal}
-        onClose={() => setShowCardModal(false)}
-        onSaved={handleCardSaved}
-        plan={plan}
+      {/* Unified payment panel — handles card saving + upgrade */}
+      <UnifiedPaymentPanel
+        open={showPayment}
+        payload={{ type: "upgrade", plan }}
+        title={`Upgrade to ${meta.name}`}
+        description={`${meta.price} — using your saved card.`}
+        amountLabel={meta.price}
+        onSuccess={handlePaymentSuccess}
+        onClose={() => {
+          setShowPayment(false)
+          setConfirming(false)
+        }}
+        autoCharge
       />
     </>
   )

@@ -25,7 +25,8 @@ TIER_GATES: Dict[int, Dict[str, int]] = {
     3: {"required_region_index": 4, "required_intimacy_visible": 45},
     4: {"required_region_index": 5, "required_intimacy_visible": 60},
     5: {"required_region_index": 7, "required_intimacy_visible": 75},
-    6: {"required_region_index": 9, "required_intimacy_visible": 90},
+    # Tier 6 (Ultimate Connection) should unlock in the final canonical region (index 8)
+    6: {"required_region_index": 8, "required_intimacy_visible": 90},
 }
 
 TIER_RARITY: Dict[int, Rarity] = {

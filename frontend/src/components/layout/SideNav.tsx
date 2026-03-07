@@ -54,7 +54,6 @@ export default function SideNav() {
   const resetChat = useChatStore((s) => s.reset)
 
   const plan = billing?.plan ?? "free"
-  const isPremium = plan === "premium"
   const isPaid = plan !== "free"
   const girlfriends = gfList?.girlfriends ?? []
   const girlsMax = billing?.girls_max ?? (isPaid ? 3 : 1)

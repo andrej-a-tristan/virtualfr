@@ -128,6 +128,7 @@ def process_behavior_turn(inp: BehaviorTurnInput) -> BehaviorTurnResult:
         conversation_mode=conv_mode,
         relationship_level=inp.relationship_level,
         recent_fingerprints=recent_fps,
+        persona_vector=gf.get("persona_vector"),
     )
 
     # ── Step 4: Fetch dossier context ─────────────────────────────────────
@@ -183,6 +184,7 @@ def validate_behavior_response(
         recent_responses=recent_responses,
         blacklisted_openings=result.contract.blacklisted_openings,
         blacklisted_phrases=result.contract.blacklisted_phrases,
+        max_words=result.contract.max_words,
     )
 
 
