@@ -178,7 +178,7 @@ def billing_status(request: Request):
             set_session_user(sid, {**user, "plan": "plus"})
             user = get_session_user(sid)  # refresh
 
-    girls_max = 3 if plan in ("premium", "plus") else 1
+    girls_max = 3 if plan == "premium" else 1
     girls_count = get_girlfriend_count(sid)
 
     # Try to fetch subscription period info from Stripe

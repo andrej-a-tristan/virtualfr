@@ -55,8 +55,9 @@ export default function SideNav() {
 
   const plan = billing?.plan ?? "free"
   const isPaid = plan !== "free"
+  const isPremium = plan === "premium"
   const girlfriends = gfList?.girlfriends ?? []
-  const girlsMax = billing?.girls_max ?? (isPaid ? 3 : 1)
+  const girlsMax = billing?.girls_max ?? (isPremium ? 3 : 1)
   const atMax = girlfriends.length >= girlsMax
 
   const handleSwitch = async (girlfriendId: string) => {
@@ -206,7 +207,7 @@ export default function SideNav() {
             <span className="text-[10px] font-normal opacity-80">
               {isPaid
                 ? `${girlfriends.length}/${girlsMax} girls`
-                : "Upgrade: up to 3 girls"}
+                : "Upgrade to Premium: up to 3 girls"}
             </span>
           </div>
         </Button>

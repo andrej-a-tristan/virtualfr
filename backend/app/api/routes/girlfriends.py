@@ -1,5 +1,5 @@
 """Girlfriend CRUD: create, list, get current, switch.
-Supports multiple girlfriends per user (Free: 1, Plus: 3, Premium: 3).
+Supports multiple girlfriends per user (Free: 1, Plus: 1, Premium: 3).
 Uses Supabase when configured, else in-memory store."""
 import hashlib
 import json
@@ -24,7 +24,6 @@ from app.api.store import (
     set_girlfriend,
     get_all_girlfriends,
     add_girlfriend,
-    get_girlfriend_count,
     set_current_girlfriend_id,
 )
 from app.api.request_context import get_current_user
@@ -32,6 +31,7 @@ from app.core.supabase_client import get_supabase_admin
 from app.api.supabase_store import (
     create_girlfriend as sb_create_girlfriend,
     get_current_girlfriend as sb_get_current_girlfriend,
+    get_latest_subscription as sb_get_latest_subscription,
     upsert_habit_profile,
 )
 from app.services.big_five import map_traits_to_big_five
@@ -40,7 +40,7 @@ from app.utils.ai_images import pick_ai_image_url
 
 router = APIRouter(prefix="/girlfriends", tags=["girlfriends"])
 
-PLAN_LIMITS = {"free": 1, "plus": 3, "premium": 3}
+PLAN_LIMITS = {"free": 1, "plus": 1, "premium": 3}
 
 
 def _session_id(request: Request) -> str | None:
@@ -61,6 +61,17 @@ def _gf_to_response(gf: dict) -> GirlfriendResponse:
 def _use_supabase(user_id) -> bool:
     if not get_supabase_admin() or not user_id:
         return False
+
+
+def _normalize_plan(plan: str | None) -> str:
+    raw = (plan or "free").strip().lower()
+    aliases = {
+        "pro": "plus",
+        "pro_plus": "plus",
+        "plus_plan": "plus",
+    }
+    normalized = aliases.get(raw, raw)
+    return normalized if normalized in PLAN_LIMITS else "free"
     try:
         UUID(str(user_id))
         return True
@@ -164,18 +175,31 @@ def switch_girlfriend(request: Request, body: SetCurrentRequest):
 
 @router.post("/create")
 def create_additional_girlfriend(request: Request, body: OnboardingCompletePayload):
-    """Create an additional girlfriend. Enforces plan limits (Free: 1, Plus: 3, Premium: 5)."""
+    """Create an additional girlfriend. Enforces plan limits (Free: 1, Plus: 1, Premium: 3)."""
     sid, user = _require_user(request)
 
-    plan = user.get("plan", "free")
+    plan = _normalize_plan(user.get("plan", "free"))
+    user_id_raw = user.get("user_id") or user.get("id")
+    if _use_supabase(user_id_raw):
+        try:
+            sub = sb_get_latest_subscription(UUID(str(user_id_raw))) or {}
+            sub_plan = _normalize_plan(sub.get("plan"))
+            if sub_plan != plan:
+                plan = sub_plan
+                user = {**user, "plan": plan}
+                set_session_user(sid, user)
+        except Exception:
+            pass
+
     girls_max = PLAN_LIMITS.get(plan, 1)
-    current_count = get_girlfriend_count(sid)
+    # Always count from source-of-truth list (Supabase-aware), not only in-memory cache.
+    current_count = len(get_all_girlfriends(sid))
 
     if current_count >= girls_max:
-        if plan in ("premium", "plus"):
+        if plan == "premium":
             raise HTTPException(status_code=403, detail=f"You can have up to {girls_max} girlfriends on your plan.")
         else:
-            raise HTTPException(status_code=403, detail="Upgrade to Plus or Premium to create more girlfriends.")
+            raise HTTPException(status_code=403, detail="Upgrade to Premium to create more girlfriends.")
 
     girlfriend_name = body.identity.girlfriend_name.strip()
     traits = body.traits.model_dump()

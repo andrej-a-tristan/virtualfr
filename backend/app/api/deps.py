@@ -87,13 +87,23 @@ def _try_restore_from_db(sid: str) -> dict | None:
         except Exception:
             pass
 
+        # Resolve plan from subscriptions first; users_profile may not track plan.
+        plan = "free"
+        try:
+            from app.api import supabase_store as sb_store
+            from uuid import UUID
+            sub = sb_store.get_latest_subscription(UUID(str(user_id))) or {}
+            plan = sub.get("plan", "free") or "free"
+        except Exception:
+            plan = profile.get("plan", "free")
+
         age_gate = profile.get("age_gate_passed", False) or bool(gf_id)
         user_data = {
             "id": user_id,
             "user_id": user_id,
             "email": sess.get("email", ""),
             "display_name": sess.get("display_name") or profile.get("display_name"),
-            "plan": profile.get("plan", "free"),
+            "plan": plan,
             "age_gate_passed": age_gate,
             "has_girlfriend": bool(gf_id),
             "current_girlfriend_id": gf_id,

@@ -183,13 +183,22 @@ def login(body: LoginRequest, response: Response):
         except Exception:
             pass
 
+        # Resolve plan from subscriptions first; users_profile may not track plan.
+        plan = "free"
+        try:
+            uid = UUID(user_id)
+            sub = sb.get_latest_subscription(uid) or {}
+            plan = sub.get("plan", "free") or "free"
+        except Exception:
+            plan = profile.get("plan", "free")
+
         age_gate = profile.get("age_gate_passed", False) or bool(gf_id)
         set_session_user(sid, {
             "id": user_id,
             "user_id": user_id,
             "email": str(body.email),
             "display_name": display_name,
-            "plan": profile.get("plan", "free"),
+            "plan": plan,
             "age_gate_passed": age_gate,
             "has_girlfriend": bool(gf_id),
             "current_girlfriend_id": gf_id,
