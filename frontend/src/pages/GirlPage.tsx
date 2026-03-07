@@ -38,6 +38,7 @@ import IntimateProgressionPanel from "@/components/chat/IntimateProgressionPanel
 import GiftCollectionPanel from "@/components/chat/GiftCollectionPanel"
 import MysteryBoxPanel from "@/components/chat/MysteryBoxPanel"
 import MilestoneInbox from "@/components/chat/MilestoneInbox"
+import SpicyLeaksPanel from "@/components/chat/SpicyLeaksPanel"
 
 type Tab = "chat" | "gallery"
 
@@ -370,64 +371,58 @@ function MysteryBoxButtonMobile({ onClick }: { onClick: () => void }) {
   )
 }
 
-// Desktop "Seduce Her Now" sidebar button
-function SeduceHerButton({ onClick }: { onClick: () => void }) {
+// Desktop "See Her Leaked Photos" sidebar button
+function SpicyLeaksButton({ onClick }: { onClick: () => void }) {
   return (
     <button
       onClick={onClick}
       className={cn(
-        "group relative flex flex-col items-center gap-2.5 rounded-2xl border border-red-500/25",
-        "w-16 bg-gradient-to-b from-red-500/10 via-rose-500/6 to-pink-500/10",
-        "px-1.5 py-6 transition-all duration-500 ease-out",
-        "hover:border-red-400/40",
-        "hover:bg-gradient-to-b hover:from-red-500/18 hover:via-rose-500/10 hover:to-pink-500/15",
-        "hover:shadow-[0_0_40px_6px_rgba(239,68,68,0.18),inset_0_0_30px_0_rgba(239,68,68,0.05)]",
-        "hover:scale-[1.04] active:scale-[0.97]",
+        "flex items-center gap-3 w-full",
+        "rounded-xl border border-pink-500/20 px-4 py-3",
+        "bg-gradient-to-r from-pink-500/10 via-rose-500/5 to-red-500/10",
+        "transition-all duration-300",
+        "hover:border-pink-400/35 hover:shadow-[0_0_24px_3px_rgba(236,72,153,0.15)]",
+        "active:scale-[0.98]",
       )}
     >
-      <div className="absolute -inset-px rounded-2xl bg-gradient-to-b from-red-500/10 via-transparent to-pink-500/10 opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
       <div className="relative">
-        <div className="absolute -inset-2 animate-pulse rounded-full bg-red-500/20 blur-lg transition-all group-hover:bg-red-500/30 group-hover:blur-xl" style={{ animationDuration: "2s" }} />
-        <div className="relative flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-red-500 via-rose-600 to-pink-600 shadow-lg shadow-red-500/30 ring-2 ring-red-400/20 transition-all duration-300 group-hover:shadow-red-500/50 group-hover:ring-red-400/35">
-          <Flame className="h-5 w-5 text-white drop-shadow-sm" />
+        <div className="absolute -inset-1 animate-pulse rounded-full bg-pink-500/25 blur-md" style={{ animationDuration: "3s" }} />
+        <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-pink-500 via-rose-600 to-red-600 shadow-lg shadow-pink-500/30 ring-1 ring-pink-400/20">
+          <ImageIcon className="h-4 w-4 text-white" />
         </div>
       </div>
-      <div className="relative flex flex-col items-center gap-0.5">
-        <span className="text-[9px] font-bold uppercase tracking-[0.08em] text-white/60 transition-colors group-hover:text-red-200/80">
-          Seduce
-        </span>
-        <span className="text-[8px] font-bold uppercase tracking-[0.06em] text-white/45 transition-colors group-hover:text-red-200/65">
-          Her Now
-        </span>
+      <div className="flex flex-col">
+        <span className="text-sm font-semibold text-white/80">See Her Leaked Photos</span>
+        <span className="text-[10px] text-white/35">Collect all 50 exclusive photos</span>
       </div>
-      <div className="h-px w-8 bg-gradient-to-r from-transparent via-red-400/25 to-transparent transition-all group-hover:via-red-400/55" />
+      <span className="ml-auto text-white/20 text-lg">&rsaquo;</span>
     </button>
   )
 }
 
-// Mobile "Seduce Her Now" button — horizontal strip
-function SeduceHerButtonMobile({ onClick }: { onClick: () => void }) {
+// Mobile "See Her Leaked Photos" button
+function SpicyLeaksButtonMobile({ onClick }: { onClick: () => void }) {
   return (
     <button
       onClick={onClick}
       className={cn(
         "flex md:hidden items-center gap-3 w-full mt-2",
-        "rounded-xl border border-red-500/20 px-4 py-3",
-        "bg-gradient-to-r from-red-500/10 via-rose-500/6 to-pink-500/10",
+        "rounded-xl border border-pink-500/20 px-4 py-3",
+        "bg-gradient-to-r from-pink-500/10 via-rose-500/6 to-red-500/10",
         "transition-all duration-300",
-        "hover:border-red-400/35 hover:shadow-[0_0_24px_3px_rgba(239,68,68,0.15)]",
+        "hover:border-pink-400/35 hover:shadow-[0_0_24px_3px_rgba(236,72,153,0.15)]",
         "active:scale-[0.98]",
       )}
     >
       <div className="relative">
-        <div className="absolute -inset-1 animate-pulse rounded-full bg-red-500/25 blur-md" style={{ animationDuration: "2s" }} />
-        <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-red-500 via-rose-600 to-pink-600 shadow-lg shadow-red-500/30 ring-1 ring-red-400/20">
-          <Flame className="h-4 w-4 text-white" />
+        <div className="absolute -inset-1 animate-pulse rounded-full bg-pink-500/25 blur-md" style={{ animationDuration: "3s" }} />
+        <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-pink-500 via-rose-600 to-red-600 shadow-lg shadow-pink-500/30 ring-1 ring-pink-400/20">
+          <ImageIcon className="h-4 w-4 text-white" />
         </div>
       </div>
       <div className="flex flex-col">
-        <span className="text-sm font-semibold text-white/80">Seduce Her Now</span>
-        <span className="text-[10px] text-white/35">Unlock intimate achievements early</span>
+        <span className="text-sm font-semibold text-white/80">See Her Leaked Photos</span>
+        <span className="text-[10px] text-white/35">Collect all 50 exclusive photos</span>
       </div>
       <span className="ml-auto text-white/20 text-lg">&rsaquo;</span>
     </button>
@@ -1006,7 +1001,7 @@ export default function GirlPage() {
   const [showIntimate, setShowIntimate] = useState(false)
   const [showGiftCollection, setShowGiftCollection] = useState(false)
   const [showMysteryBox, setShowMysteryBox] = useState(false)
-  const [showSeduceHer, setShowSeduceHer] = useState(false)
+  const [showSpicyLeaks, setShowSpicyLeaks] = useState(false)
   const setMessages = useChatStore((s) => s.setMessages)
   const currentGirlfriendId = useAppStore((s) => s.currentGirlfriendId)
   const queryClient = useQueryClient()
@@ -1093,9 +1088,9 @@ export default function GirlPage() {
         <MysteryBoxPanel onClose={() => setShowMysteryBox(false)} />,
         document.body
       )}
-      {/* Fullscreen seduce her (intimate progression → surprise tab) */}
-      {showSeduceHer && createPortal(
-        <IntimateProgressionPanel onClose={() => setShowSeduceHer(false)} defaultTab="surprise" />,
+      {/* Fullscreen spicy leaks collection */}
+      {showSpicyLeaks && createPortal(
+        <SpicyLeaksPanel onClose={() => setShowSpicyLeaks(false)} />,
         document.body
       )}
       {/* Chat / Gallery card */}
@@ -1192,18 +1187,18 @@ export default function GirlPage() {
       <div className="hidden md:flex flex-col gap-3">
         <RelationshipButton onClick={() => setShowRelationship(true)} />
         <IntimateButton onClick={() => setShowIntimate(true)} />
-        <SeduceHerButton onClick={() => setShowSeduceHer(true)} />
         <GiftCollectionButton onClick={() => setShowGiftCollection(true)} />
         <MysteryBoxButton onClick={() => setShowMysteryBox(true)} />
+        <SpicyLeaksButton onClick={() => setShowSpicyLeaks(true)} />
       </div>
 
       {/* Bottom buttons — mobile */}
       <div className="fixed bottom-16 left-0 right-0 z-40 px-4 md:hidden">
         <RelationshipButtonMobile onClick={() => setShowRelationship(true)} />
         <IntimateButtonMobile onClick={() => setShowIntimate(true)} />
-        <SeduceHerButtonMobile onClick={() => setShowSeduceHer(true)} />
         <GiftCollectionButtonMobile onClick={() => setShowGiftCollection(true)} />
         <MysteryBoxButtonMobile onClick={() => setShowMysteryBox(true)} />
+        <SpicyLeaksButtonMobile onClick={() => setShowSpicyLeaks(true)} />
       </div>
     </div>
   )

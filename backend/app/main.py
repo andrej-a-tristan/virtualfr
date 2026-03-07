@@ -31,10 +31,12 @@ from app.api.routes import (
     health,
     images,
     intimacy_achievements,
+    leaks,
     me,
     memory,
     moderation,
     onboarding,
+    payments,
     profile,
     progression,
     prompt,
@@ -43,6 +45,7 @@ from app.api.routes import (
 )
 from app.routers import chat as chat_gateway
 from app.routers import mock_model
+from app.utils.ai_images import get_ai_images_dir
 
 app = FastAPI(title="Companion API", version="1.0.0")
 setup_cors(app)
@@ -137,13 +140,20 @@ app.include_router(prompt.router, prefix="/api")
 app.include_router(dossier.router, prefix="/api")
 app.include_router(relationship.router, prefix="/api")
 app.include_router(intimacy_achievements.router, prefix="/api")
+app.include_router(leaks.router, prefix="/api")
 app.include_router(spicy_leaks.router, prefix="/api")
+app.include_router(payments.router, prefix="/api")
 
 # Chat gateway: /v1/chat/stream and /api/chat/stream (same handler; /api works with proxy)
 app.include_router(chat_gateway.router, prefix="/v1")
 app.include_router(chat_gateway.router, prefix="/api")
 app.include_router(mock_model.router)
 app.include_router(mock_model.router_completions)
+
+# Serve local AI girlfriend image pack to frontend via /api/ai-gf/*
+_ai_images_dir = get_ai_images_dir()
+if _ai_images_dir.exists():
+    app.mount("/api/ai-gf", StaticFiles(directory=str(_ai_images_dir)), name="ai-gf")
 
 # In production, serve built frontend: static files from dist, SPA fallback to index.html
 settings = get_settings()

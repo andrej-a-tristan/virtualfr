@@ -1,6 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { getSpicyLeaksCollection, spinSpicyLeak } from "@/lib/api/endpoints"
+import {
+  getSpicyLeaksCollection,
+  spinSpicyLeak,
+  getStripePublishableKey,
+  getPaymentMethod,
+} from "@/lib/api/endpoints"
 import { useAppStore } from "@/lib/store/useAppStore"
 import type { SpicyLeakPhoto, SpicyLeakBox } from "@/lib/api/types"
 import { cn } from "@/lib/utils"
@@ -295,6 +300,11 @@ export default function SpicyLeaksPanel({ onClose, defaultTab = "collection" }: 
     queryFn: () => getSpicyLeaksCollection(girlfriendId || undefined),
     staleTime: 30_000,
   })
+  const { data: paymentMethod } = useQuery({
+    queryKey: ["paymentMethod"],
+    queryFn: getPaymentMethod,
+    staleTime: 30_000,
+  })
 
   const photos = apiData?.photos ?? []
   const boxes = apiData?.boxes ?? []
@@ -331,6 +341,7 @@ export default function SpicyLeaksPanel({ onClose, defaultTab = "collection" }: 
   // Track payment state
   const [purchasing, setPurchasing] = useState<string | null>(null)
   const [purchaseError, setPurchaseError] = useState<string | null>(null)
+  const [confirmBoxId, setConfirmBoxId] = useState<string | null>(null)
 
   useEffect(() => {
     const prev = document.body.style.overflow
@@ -362,7 +373,7 @@ export default function SpicyLeaksPanel({ onClose, defaultTab = "collection" }: 
 
       if (res.status === "requires_action" && res.client_secret) {
         const { loadStripe } = await import("@stripe/stripe-js")
-        const stripeKey = (import.meta as any).env?.VITE_STRIPE_PUBLISHABLE_KEY
+        const { publishable_key: stripeKey } = await getStripePublishableKey()
         if (stripeKey) {
           const stripeJs = await loadStripe(stripeKey)
           if (stripeJs) {
@@ -390,6 +401,8 @@ export default function SpicyLeaksPanel({ onClose, defaultTab = "collection" }: 
       setPurchasing(null)
     }
   }
+
+  const selectedBox = boxes.find((b) => b.id === confirmBoxId) ?? null
 
   // Group photos by rarity for collection display
   const rarityOrder: LeakRarity[] = ["COMMON", "UNCOMMON", "RARE", "EPIC", "LEGENDARY"]
@@ -589,7 +602,7 @@ export default function SpicyLeaksPanel({ onClose, defaultTab = "collection" }: 
                       </div>
 
                       <button
-                        onClick={() => handleSpin(box.id)}
+                        onClick={() => setConfirmBoxId(box.id)}
                         disabled={soldOut || purchasing === box.id}
                         className={cn("w-full rounded-xl py-3.5 text-sm font-bold transition-all flex items-center justify-center gap-2",
                           soldOut ? "bg-white/[0.04] text-white/20 cursor-not-allowed"
@@ -601,7 +614,7 @@ export default function SpicyLeaksPanel({ onClose, defaultTab = "collection" }: 
                         ) : purchasing === box.id ? (
                           <><div className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" /> Processing...</>
                         ) : (
-                          <><Camera className="h-4 w-4" /> Spin for Leaked Photo<ChevronRight className="h-4 w-4" /></>
+                          <><Camera className="h-4 w-4" /> Pay & Spin<ChevronRight className="h-4 w-4" /></>
                         )}
                       </button>
                     </div>
@@ -651,6 +664,46 @@ export default function SpicyLeaksPanel({ onClose, defaultTab = "collection" }: 
           onClose={() => setSlotWinner(null)}
           onUnlock={handleUnlock}
         />
+      )}
+
+      {/* Confirm payment modal */}
+      {selectedBox && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/70 px-4">
+          <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-[#120a10] p-5 shadow-2xl">
+            <h3 className="text-lg font-bold text-white">Confirm Stripe payment</h3>
+            <p className="mt-2 text-sm text-white/60">
+              You are about to pay <span className="font-semibold text-white">EUR {selectedBox.price_eur.toFixed(2)}</span> for{" "}
+              <span className="font-semibold text-white">{selectedBox.name}</span>.
+            </p>
+            <p className="mt-2 text-xs text-white/45">
+              {paymentMethod?.has_card && paymentMethod.card
+                ? `Card on file: ${paymentMethod.card.brand?.toUpperCase() || "CARD"} •••• ${paymentMethod.card.last4}`
+                : "No saved card detected. You will need to add a card in Payment Options."}
+            </p>
+            <div className="mt-5 flex gap-3">
+              <button
+                type="button"
+                className="flex-1 rounded-xl border border-white/15 bg-white/5 py-2.5 text-sm font-semibold text-white/70 hover:bg-white/10"
+                onClick={() => setConfirmBoxId(null)}
+                disabled={Boolean(purchasing)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="flex-1 rounded-xl bg-gradient-to-r from-pink-600 to-red-600 py-2.5 text-sm font-bold text-white disabled:opacity-60"
+                onClick={async () => {
+                  const boxId = selectedBox.id
+                  setConfirmBoxId(null)
+                  await handleSpin(boxId)
+                }}
+                disabled={Boolean(purchasing)}
+              >
+                {purchasing ? "Processing..." : "Pay & Spin"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <style>{`

@@ -3,9 +3,9 @@
 Completely independent of intimacy progression and achievements.
 50 collectible leaked photos that users unlock by spinning slots.
 """
-import hashlib
 import logging
 import uuid
+from uuid import UUID
 from datetime import datetime, timezone
 
 import stripe
@@ -21,6 +21,7 @@ from app.api.store import (
     mark_spicy_leak_unlocked,
     add_gallery_item,
 )
+from app.utils.ai_images import pick_ai_image_url
 
 logger = logging.getLogger(__name__)
 
@@ -169,7 +170,6 @@ LEAK_BOXES: dict[str, dict] = {
         "name": "Naughty Tease",
         "emoji": "🍑",
         "price_eur": 4.99,
-        "free_on_plan": "plus",
         "description": "Teasing selfies, towel drops, and accidental flashes.",
         "weights": {"COMMON": 0.50, "UNCOMMON": 0.30, "RARE": 0.13, "EPIC": 0.05, "LEGENDARY": 0.02},
     },
@@ -178,7 +178,6 @@ LEAK_BOXES: dict[str, dict] = {
         "name": "Explicit Stash",
         "emoji": "🔞",
         "price_eur": 8.49,
-        "free_on_plan": "premium",
         "description": "Full nudes, provocative angles, and private photos she never meant to share.",
         "weights": {"COMMON": 0.0, "UNCOMMON": 0.25, "RARE": 0.40, "EPIC": 0.28, "LEGENDARY": 0.07},
     },
@@ -187,7 +186,6 @@ LEAK_BOXES: dict[str, dict] = {
         "name": "Forbidden Vault",
         "emoji": "🔐",
         "price_eur": 13.99,
-        "free_on_plan": "premium",
         "description": "Her most private, dirtiest photos — the ones she swore nobody would ever see.",
         "weights": {"COMMON": 0.0, "UNCOMMON": 0.0, "RARE": 0.15, "EPIC": 0.45, "LEGENDARY": 0.40},
     },
@@ -224,16 +222,44 @@ def _get_default_pm(user: dict, sid: str) -> tuple[str, str]:
 
     stripe.api_key = settings.stripe_secret_key
 
+    # Sync billing identifiers from Supabase if available, so we use
+    # the same saved card shown in profile/payment settings.
+    try:
+        from app.core.supabase_client import get_supabase_admin
+        from app.api import supabase_store as sb_store
+
+        user_id_raw = user.get("user_id") or user.get("id")
+        admin = get_supabase_admin()
+        if admin and user_id_raw:
+            try:
+                user_uuid = UUID(str(user_id_raw))
+                billing = sb_store.get_billing_customer(user_uuid) or {}
+                if billing:
+                    user = {
+                        **user,
+                        "stripe_customer_id": billing.get("stripe_customer_id", user.get("stripe_customer_id")),
+                        "default_payment_method_id": billing.get("default_payment_method_id", user.get("default_payment_method_id")),
+                    }
+                    set_session_user(sid, user)
+            except (ValueError, TypeError):
+                pass
+    except Exception:
+        pass
+
     stripe_customer_id = user.get("stripe_customer_id")
     if not stripe_customer_id:
-        customer = stripe.Customer.create(
-            email=user.get("email", ""),
-            metadata={"user_id": user.get("id", "")},
-        )
-        stripe_customer_id = customer.id
-        set_session_user(sid, {**user, "stripe_customer_id": stripe_customer_id})
+        return "", ""
 
     default_pm = user.get("default_payment_method_id")
+    if not default_pm:
+        try:
+            customer = stripe.Customer.retrieve(stripe_customer_id)
+            inv_settings = customer.get("invoice_settings") if isinstance(customer, dict) else None
+            if inv_settings:
+                default_pm = inv_settings.get("default_payment_method")
+        except Exception:
+            default_pm = None
+
     if not default_pm:
         pms = stripe.Customer.list_payment_methods(stripe_customer_id, type="card", limit=1)
         if pms.data:
@@ -265,8 +291,10 @@ def get_collection(request: Request, girlfriend_id: str | None = None):
         is_unlocked = p.id in unlocked_map
         image_url = None
         if is_unlocked and girlfriend_id:
-            seed = hashlib.md5(f"{girlfriend_id}:{p.id}".encode()).hexdigest()[:10]
-            image_url = f"https://picsum.photos/seed/{seed}/400/400"
+            image_url = pick_ai_image_url(
+                f"spicy:{girlfriend_id}:{p.id}",
+                fallback_url=f"https://picsum.photos/seed/{girlfriend_id}-{p.id}/400/400",
+            )
 
         photos.append({
             "id": p.id,
@@ -334,8 +362,10 @@ def spin_leak(request: Request, body: SpinRequest):
     # Check not already unlocked
     unlocked = get_spicy_leaks_unlocked(sid, girlfriend_id=girlfriend_id)
     if body.photo_id in unlocked:
-        seed = hashlib.md5(f"{girlfriend_id}:{photo.id}".encode()).hexdigest()[:10]
-        image_url = f"https://picsum.photos/seed/{seed}/400/400"
+        image_url = pick_ai_image_url(
+            f"spicy:{girlfriend_id}:{photo.id}",
+            fallback_url=f"https://picsum.photos/seed/{girlfriend_id}-{photo.id}/400/400",
+        )
         return {
             "status": "free",
             "ok": True,
@@ -348,68 +378,63 @@ def spin_leak(request: Request, body: SpinRequest):
             "image_url": image_url,
         }
 
-    # Check if box is free on user's plan
-    plan = user.get("plan", "free")
-    plan_order = {"free": 0, "plus": 1, "premium": 2}
-    free_on = box.get("free_on_plan", "")
-    is_free = plan_order.get(plan, 0) >= plan_order.get(free_on, 99)
-
-    payment_status = "free" if is_free else "pending"
+    payment_status = "pending"
     client_secret = None
 
-    if not is_free:
-        stripe_customer_id, default_pm = _get_default_pm(user, sid)
+    stripe_customer_id, default_pm = _get_default_pm(user, sid)
 
-        if not stripe_customer_id or not default_pm:
-            settings = get_settings()
-            if not settings.stripe_secret_key:
-                logger.info("DEV MODE: Leaked photo delivered free (no Stripe)")
-                payment_status = "free"
-            else:
-                return {
-                    "status": "no_card",
-                    "error": "No card on file. Please add a card first.",
-                }
+    if not stripe_customer_id or not default_pm:
+        settings = get_settings()
+        if not settings.stripe_secret_key:
+            logger.info("DEV MODE: Leaked photo delivered free (no Stripe)")
+            payment_status = "free"
         else:
-            amount_cents = int(round(box["price_eur"] * 100))
-            try:
-                pi = stripe.PaymentIntent.create(
-                    amount=amount_cents,
-                    currency="eur",
-                    customer=stripe_customer_id,
-                    payment_method=default_pm,
-                    off_session=True,
-                    confirm=True,
-                    description=f"Leaked Photo: {box['name']}",
-                    metadata={
-                        "type": "spicy_leak",
-                        "box_id": body.box_id,
-                        "photo_id": body.photo_id,
-                        "user_id": user.get("id", ""),
-                        "girlfriend_id": girlfriend_id,
-                        "session_id": sid,
-                    },
-                )
+            return {
+                "status": "no_card",
+                "error": "No card on file. Please add a card first.",
+            }
+    else:
+        amount_cents = int(round(box["price_eur"] * 100))
+        try:
+            pi = stripe.PaymentIntent.create(
+                amount=amount_cents,
+                currency="eur",
+                customer=stripe_customer_id,
+                payment_method=default_pm,
+                off_session=True,
+                confirm=True,
+                description=f"Leaked Photo: {box['name']}",
+                metadata={
+                    "type": "spicy_leak",
+                    "box_id": body.box_id,
+                    "photo_id": body.photo_id,
+                    "user_id": user.get("id", ""),
+                    "girlfriend_id": girlfriend_id,
+                    "session_id": sid,
+                },
+            )
 
-                if pi.status == "succeeded":
-                    payment_status = "succeeded"
-                elif pi.status == "requires_action":
-                    return {
-                        "status": "requires_action",
-                        "client_secret": pi.client_secret,
-                        "payment_intent_id": pi.id,
-                    }
-                else:
-                    raise HTTPException(status_code=402, detail=f"Payment failed: {pi.status}")
-            except stripe.error.CardError as e:
-                raise HTTPException(status_code=402, detail=str(e.user_message or e))
+            if pi.status == "succeeded":
+                payment_status = "succeeded"
+            elif pi.status == "requires_action":
+                return {
+                    "status": "requires_action",
+                    "client_secret": pi.client_secret,
+                    "payment_intent_id": pi.id,
+                }
+            else:
+                raise HTTPException(status_code=402, detail=f"Payment failed: {pi.status}")
+        except stripe.error.CardError as e:
+            raise HTTPException(status_code=402, detail=str(e.user_message or e))
 
     # Unlock the photo
     now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    mark_spicy_leak_unlocked(sid, photo.id, now_iso, girlfriend_id=girlfriend_id)
+    mark_spicy_leak_unlocked(sid, photo.id, girlfriend_id=girlfriend_id)
 
-    seed = hashlib.md5(f"{girlfriend_id}:{photo.id}".encode()).hexdigest()[:10]
-    image_url = f"https://picsum.photos/seed/{seed}/400/400"
+    image_url = pick_ai_image_url(
+        f"spicy:{girlfriend_id}:{photo.id}",
+        fallback_url=f"https://picsum.photos/seed/{girlfriend_id}-{photo.id}/400/400",
+    )
 
     add_gallery_item(sid, {
         "id": f"leak-{photo.id}-{uuid.uuid4().hex[:6]}",

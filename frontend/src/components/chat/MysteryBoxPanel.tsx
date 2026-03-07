@@ -1,13 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { apiGet, apiPost } from "@/lib/api/client"
+import { apiGet } from "@/lib/api/client"
 import { cn } from "@/lib/utils"
 import {
   ArrowLeft,
   Gift,
   Sparkles,
   Star,
-  Crown,
   Flame,
   Heart,
   ImageIcon,
@@ -15,6 +14,7 @@ import {
   X,
   ChevronRight,
 } from "lucide-react"
+import UnifiedPaymentPanel from "@/components/billing/UnifiedPaymentPanel"
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -248,8 +248,8 @@ function SlotRevealOverlay({
   const targetOffset = WINNER_INDEX * CELL_W
 
   useEffect(() => {
-    const el = reelRef.current
-    if (!el) return
+    const node = reelRef.current
+    if (!node) return
 
     const startTime = performance.now()
 
@@ -264,7 +264,7 @@ function SlotRevealOverlay({
       const easedProgress = easeOutQuint(progress)
 
       const currentOffset = easedProgress * targetOffset
-      el.style.transform = `translateX(-${currentOffset}px)`
+      node!.style.transform = `translateX(-${currentOffset}px)`
 
       if (progress < 1) {
         rafRef.current = requestAnimationFrame(animate)
@@ -434,7 +434,6 @@ interface MysteryBoxPanelProps {
 
 export default function MysteryBoxPanel({ onClose }: MysteryBoxPanelProps) {
   const queryClient = useQueryClient()
-  const [purchasing, setPurchasing] = useState<string | null>(null)
   const [revealedGift, setRevealedGift] = useState<{ gift: RevealedGift; boxName: string } | null>(null)
   const [error, setError] = useState("")
 
@@ -455,76 +454,23 @@ export default function MysteryBoxPanel({ onClose }: MysteryBoxPanelProps) {
     return () => { document.body.style.overflow = prev }
   }, [])
 
-  const handleOpen = useCallback(async (boxId: string) => {
+  const [paymentBoxId, setPaymentBoxId] = useState<string | null>(null)
+
+  const handleOpen = useCallback((boxId: string) => {
     setError("")
-    setPurchasing(boxId)
-    try {
-      const res = await apiPost<{
-        status: string
-        gift?: RevealedGift
-        box?: { id: string; name: string; price_eur: number }
-        error?: string
-        client_secret?: string
-        payment_intent_id?: string
-      }>("/gifts/mystery-box/open", { box_id: boxId })
+    setPaymentBoxId(boxId)
+  }, [])
 
-      // No card on file
-      if (res.status === "no_card") {
-        setError(res.error ?? "No card on file. Add one in Payment Options first.")
-        return
-      }
-
-      // Payment failed
-      if (res.status === "failed") {
-        setError(res.error ?? "Payment failed. Please try again.")
-        return
-      }
-
-      // 3DS authentication required
-      if (res.status === "requires_action" && res.client_secret) {
-        try {
-          const { loadStripe } = await import("@stripe/stripe-js")
-          const stripeKey = (import.meta as any).env?.VITE_STRIPE_PUBLISHABLE_KEY
-          if (stripeKey) {
-            const stripeJs = await loadStripe(stripeKey)
-            if (stripeJs) {
-              const { error: stripeErr } = await stripeJs.confirmCardPayment(res.client_secret)
-              if (stripeErr) {
-                setError(stripeErr.message || "3D Secure authentication failed")
-                return
-              }
-              // 3DS succeeded — gift data is in the response already
-              if (res.gift && res.box) {
-                setRevealedGift({ gift: res.gift, boxName: res.box.name })
-                queryClient.invalidateQueries({ queryKey: ["giftCatalog"] })
-                queryClient.invalidateQueries({ queryKey: ["giftCollection"] })
-                queryClient.invalidateQueries({ queryKey: ["mysteryBoxes"] })
-                return
-              }
-            }
-          }
-          setError("Could not complete 3D Secure. Please try again.")
-        } catch (e3ds: any) {
-          setError(e3ds?.message || "3D Secure failed")
-        }
-        return
-      }
-
-      // Payment succeeded
-      if (res.status === "succeeded" && res.gift && res.box) {
-        setRevealedGift({ gift: res.gift, boxName: res.box.name })
-        queryClient.invalidateQueries({ queryKey: ["giftCatalog"] })
-        queryClient.invalidateQueries({ queryKey: ["giftCollection"] })
-        queryClient.invalidateQueries({ queryKey: ["mysteryBoxes"] })
-      } else {
-        setError(res.error ?? "Something went wrong")
-      }
-    } catch (e: any) {
-      const msg = e?.message ?? "Something went wrong"
-      setError(msg)
-    } finally {
-      setPurchasing(null)
+  const handlePaymentSuccess = useCallback((data?: Record<string, any>) => {
+    setPaymentBoxId(null)
+    const gift = data?.gift as RevealedGift | undefined
+    const box = data?.box as { id: string; name: string; price_eur: number } | undefined
+    if (gift && box) {
+      setRevealedGift({ gift, boxName: box.name })
     }
+    queryClient.invalidateQueries({ queryKey: ["giftCatalog"] })
+    queryClient.invalidateQueries({ queryKey: ["giftCollection"] })
+    queryClient.invalidateQueries({ queryKey: ["mysteryBoxes"] })
   }, [queryClient])
 
   const handleRevealClose = () => {
@@ -597,7 +543,7 @@ export default function MysteryBoxPanel({ onClose }: MysteryBoxPanelProps) {
             ) : (
               boxes.map((box) => {
                 const style = BOX_STYLES[box.id] ?? BOX_STYLES.bronze
-                const isOpening = purchasing === box.id
+                const isOpening = paymentBoxId === box.id
                 const soldOut = !box.has_eligible_gifts
 
                 let ev = 0
@@ -658,7 +604,7 @@ export default function MysteryBoxPanel({ onClose }: MysteryBoxPanelProps) {
 
                       <button
                         onClick={() => handleOpen(box.id)}
-                        disabled={isOpening || soldOut || purchasing !== null}
+                        disabled={isOpening || soldOut || paymentBoxId !== null}
                         className={cn(
                           "w-full mt-4 rounded-xl py-3.5 text-sm font-bold transition-all duration-200",
                           "flex items-center justify-center gap-2",
@@ -674,7 +620,7 @@ export default function MysteryBoxPanel({ onClose }: MysteryBoxPanelProps) {
                         ) : isOpening ? (
                           <><div className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" /> Spinning...</>
                         ) : (
-                          <><Sparkles className="h-4 w-4" /> Spin &amp; Surprise<ChevronRight className="h-4 w-4" /></>
+                          <><Sparkles className="h-4 w-4" /> Pay &amp; Spin<ChevronRight className="h-4 w-4" /></>
                         )}
                       </button>
                     </div>
@@ -702,6 +648,19 @@ export default function MysteryBoxPanel({ onClose }: MysteryBoxPanelProps) {
           </div>
         </div>
       </div>
+
+      {/* Unified payment panel */}
+      {paymentBoxId && (
+        <UnifiedPaymentPanel
+          open={!!paymentBoxId}
+          payload={{ type: "mystery_box", tier: paymentBoxId }}
+          title="Confirm Stripe payment"
+          description={`Surprise Her — ${boxes.find(b => b.id === paymentBoxId)?.name ?? "Mystery Box"}`}
+          amountLabel={`€${(boxes.find(b => b.id === paymentBoxId)?.price_eur ?? 0).toFixed(2)}`}
+          onSuccess={handlePaymentSuccess}
+          onClose={() => setPaymentBoxId(null)}
+        />
+      )}
 
       {/* Slot reveal overlay */}
       {revealedGift && (
