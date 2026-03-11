@@ -31,14 +31,14 @@ const PLANS = [
     period: "/month",
     icon: Sparkles,
     highlight: true,
-    badge: "🔥 Most Popular",
+    badge: "Most Popular",
     tagline: () => "She can't stop thinking about you",
     features: [
-      "💬 Unlimited messaging — talk all night",
-      "📸 30 photos / month — she sends just for you",
-      "🔓 Unlock spicy nude photos",
-      "🎁 2 free Surprise Her mystery boxes",
-      "🎤 Voice messages from her",
+      "Unlimited messaging — talk all night",
+      "30 photos / month — she sends just for you",
+      "Unlock spicy nude photos",
+      "2 free Surprise Her mystery boxes",
+      "Voice messages from her",
     ],
   },
   {
@@ -48,14 +48,14 @@ const PLANS = [
     period: "/month",
     icon: Crown,
     highlight: false,
-    badge: "💎 Best Value",
+    badge: "Best Value",
     tagline: () => "She's completely yours",
     features: [
       "Everything in Plus",
-      "📸 80 photos / month — her most exclusive content",
-      "🎁 2 free gift boxes + 2 intimacy boxes / month",
-      "💋 The most explicit & intimate photos",
-      "👩‍❤️‍👩 Up to 3 girlfriends",
+      "80 photos / month — her most exclusive content",
+      "2 free gift boxes + 2 intimacy boxes / month",
+      "The most explicit & intimate photos",
+      "Up to 3 girlfriends",
     ],
   },
 ] as const
@@ -168,42 +168,25 @@ export default function SubscriptionPlan() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center bg-gradient-to-b from-background to-background/95 px-4 py-8">
-      <div className="w-full max-w-4xl space-y-8">
-        {/* Blurred photo + title */}
-        <div className="flex flex-col items-center gap-6">
-          <div className="relative w-40 overflow-hidden rounded-2xl border-2 border-white/10 shadow-xl shadow-primary/10">
-            <div className="aspect-[3/4] w-full overflow-hidden bg-muted">
-              {avatarUrl ? (
-                <img
-                  src={avatarUrl}
-                  alt={girlfriendName}
-                  className="h-full w-full object-cover blur-lg scale-110"
-                />
-              ) : (
-                <div className="h-full w-full bg-gradient-to-br from-primary/30 via-primary/10 to-background blur-lg scale-110" />
-              )}
-            </div>
-            {!avatarUrl && (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <span className="text-5xl font-bold text-white/20">{(girlfriendName ?? "?")[0]}</span>
-              </div>
-            )}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
-            <div className="absolute bottom-0 left-0 right-0 p-3 text-center">
-              <p className="text-sm font-semibold text-white">{girlfriendName}</p>
-            </div>
-          </div>
+    <div className="min-h-screen bg-background flex flex-col">
+      {/* Progress bar */}
+      <div className="fixed top-0 inset-x-0 z-50">
+        <div className="h-1 bg-muted">
+          <div className="h-full bg-primary w-[95%]" />
+        </div>
+      </div>
 
-          <div className="text-center space-y-2">
-            <h1 className="text-3xl font-bold tracking-tight md:text-4xl bg-gradient-to-r from-pink-400 via-amber-300 to-pink-400 bg-clip-text text-transparent">
-              Unlock {girlfriendName}&apos;s World
+      <div className="flex-1 flex flex-col items-center px-4 py-10">
+        <div className="w-full max-w-4xl space-y-8">
+          {/* Header */}
+          <div className="text-center space-y-3">
+            <h1 className="text-3xl md:text-4xl font-serif text-foreground">
+              Choose your <span className="text-primary">experience</span>
             </h1>
-            <p className="text-muted-foreground max-w-md">
-              Choose how deep your relationship goes
+            <p className="text-muted-foreground max-w-md mx-auto">
+              Unlock everything {girlfriendName} has to offer
             </p>
           </div>
-        </div>
 
         {/* Plan cards */}
         <div className="grid gap-4 md:grid-cols-3">
@@ -353,6 +336,16 @@ export default function SubscriptionPlan() {
               Free trial lasts 7 days. After the trial period, your account will be automatically upgraded to the Plus plan (€14.99/mo). A valid payment method is required to continue. You may cancel before the trial ends to avoid charges.
             </p>
           )}
+          
+          {/* Skip option */}
+          <button
+            type="button"
+            className="text-sm text-muted-foreground/60 hover:text-muted-foreground transition-colors mt-4"
+            onClick={() => navigate("/app/girl", { replace: true })}
+          >
+            Skip for now and start chatting
+          </button>
+        </div>
         </div>
       </div>
 
