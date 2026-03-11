@@ -57,6 +57,30 @@ export const contentPrefsSchema = z.object({
   wants_spicy_photos: z.boolean(),
 })
 
+export const identityCandidateScoreSchema = z.object({
+  candidate_index: z.number(),
+  seed: z.number(),
+  pose_image: z.string(),
+  face_score: z.number(),
+  anatomy_score: z.number(),
+  attribute_match_score: z.number(),
+  aesthetic_score: z.number(),
+  reference_usefulness_score: z.number(),
+  total_score: z.number(),
+  rejected: z.boolean(),
+  rejection_reasons: z.array(z.string()),
+})
+
+export const identityPackageSchema = z.object({
+  main_avatar_url: z.string().nullable(),
+  face_ref_primary_url: z.string().nullable(),
+  face_ref_secondary_url: z.string().nullable(),
+  upper_body_ref_url: z.string().nullable(),
+  body_ref_url: z.string().nullable(),
+  candidate_urls: z.array(z.string()),
+  metadata: z.record(z.any()),
+})
+
 export type SignupInput = z.infer<typeof signupSchema>
 export type LoginInput = z.infer<typeof loginSchema>
 export type TraitSelectionInput = z.infer<typeof traitSelectionSchema>

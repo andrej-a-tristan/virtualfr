@@ -2,6 +2,8 @@
 from typing import Any
 from pydantic import BaseModel, field_validator, model_validator
 
+from app.schemas.image_generation import IdentityPackage
+
 
 class TraitsPayload(BaseModel):
     """Trait selection payload (snake_case for API)."""
@@ -81,6 +83,8 @@ class GirlfriendResponse(BaseModel):
     content_prefs: dict | None = None
     identity: IdentityResponse | None = None
     identity_canon: IdentityCanon | None = None
+    identity_images: dict | None = None
+    identity_metadata: dict | None = None
     created_at: str | None = None
 
     @model_validator(mode="before")
@@ -100,4 +104,11 @@ class GirlfriendResponse(BaseModel):
             if not values.get("traits"):
                 values["traits"] = {}
         return values
+
+
+class OnboardingCompleteResponse(BaseModel):
+    girlfriend: GirlfriendResponse
+    image_job_id: str
+    image_job: dict[str, Any] | None = None
+    identity_package: IdentityPackage | None = None
 

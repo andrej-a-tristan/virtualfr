@@ -79,6 +79,47 @@ export type OnboardingCompleteRequest = {
   identity: IdentityPrefs
 }
 
+export interface IdentityCandidateScore {
+  candidate_index: number
+  seed: number
+  pose_image: string
+  face_score: number
+  anatomy_score: number
+  attribute_match_score: number
+  aesthetic_score: number
+  reference_usefulness_score: number
+  total_score: number
+  rejected: boolean
+  rejection_reasons: string[]
+}
+
+export interface IdentityPackage {
+  main_avatar_url: string | null
+  face_ref_primary_url: string | null
+  face_ref_secondary_url: string | null
+  upper_body_ref_url: string | null
+  body_ref_url: string | null
+  candidate_urls: string[]
+  metadata: Record<string, any>
+}
+
+export interface IdentityJobResponse {
+  status: "pending" | "running" | "processing" | "completed" | "done" | "failed"
+  type?: string | null
+  girlfriend_id?: string | null
+  progress_message?: string | null
+  image_url?: string | null
+  identity_package?: IdentityPackage | null
+  error?: string | null
+}
+
+export interface OnboardingCompleteResponse {
+  girlfriend: Girlfriend
+  image_job_id: string
+  image_job?: IdentityJobResponse | null
+  identity_package?: IdentityPackage | null
+}
+
 export interface Girlfriend {
   id: string
   display_name?: string
@@ -89,6 +130,8 @@ export interface Girlfriend {
   content_prefs?: Record<string, any>
   identity?: IdentityPrefs
   identity_canon?: IdentityCanon
+  identity_images?: Record<string, any>
+  identity_metadata?: Record<string, any>
   created_at: string
 }
 
@@ -208,8 +251,13 @@ export interface UserHabitProfile {
 }
 
 export interface ImageJob {
-  status: "pending" | "processing" | "done" | "failed"
+  status: "pending" | "running" | "processing" | "completed" | "done" | "failed"
+  type?: string
+  girlfriend_id?: string
+  progress_message?: string
   image_url?: string
+  identity_package?: IdentityPackage | null
+  error?: string | null
 }
 
 export interface GalleryItem {

@@ -19,7 +19,7 @@
 | **Database** | Supabase (PostgreSQL + Auth + RLS). Falls back to in-memory dict store (pickle-persisted) when Supabase is not configured |
 | **AI/LLM** | OpenAI API (gpt-4o-mini) via `openai` Python SDK. SSE streaming to frontend |
 | **Payments** | Stripe (subscriptions, setup intents, gift checkout) |
-| **Auth** | Supabase Auth (email/password signup). Anonymous guest sessions for onboarding before signup |
+| **Auth** | Supabase Auth (email/password signup/login) + temporary guest sessions for onboarding bootstrap |
 | **Dev proxy** | Vite proxies `/api` and `/v1` to `localhost:8000` |
 
 ---
@@ -39,14 +39,14 @@ virtualfr/
 │       ├── App.tsx              # QueryClientProvider + TooltipProvider + RouterProvider
 │       ├── routes/
 │       │   ├── router.tsx       # All routes (onboarding, app shell, auth pages)
-│       │   └── guards.tsx       # RequireAuth, RequireAgeGate, RequireGirlfriend
+│       │   └── guards.tsx       # RequireAuth, RequireAgeGate, RequireGirlfriend, RequireSubscription
 │       ├── pages/               # 22 page components (see §4)
 │       ├── components/
 │       │   ├── chat/            # Chat UI (MessageBubble, Composer, SpicyLeaksPanel, IntimateProgressionPanel, etc.)
 │       │   ├── layout/          # AppShell, TopNav, SideNav, MobileNav, Footer
 │       │   ├── ui/              # Reusable primitives (button, card, dialog, input, badge, etc.)
 │       │   ├── onboarding/      # TraitCard, TraitSelector, ProgressStepper, PersonaPreviewCard
-│       │   ├── billing/         # AddCardModal, UpgradeModal
+│       │   ├── billing/         # AddCardModal, UpgradeModal, UnifiedPaymentPanel, StripeProvider
 │       │   ├── gallery/         # GalleryGrid, ImageViewerModal
 │       │   └── safety/          # ContentPreferences, ReportDialog
 │       ├── lib/
@@ -86,7 +86,7 @@ virtualfr/
 │   │   ├── mock_main.py         # Alternate entrypoint for mock-only mode
 │   │   │
 │   │   ├── api/
-│   │   │   ├── deps.py              # Session resolution: cookie -> in-memory -> Supabase restore -> guest auto-recreate
+│   │   │   ├── deps.py              # Session resolution: cookie -> in-memory -> Supabase restore
 │   │   │   ├── request_context.py   # get_current_user() from request
 │   │   │   ├── store.py             # IN-MEMORY DATA STORE — all dicts (sessions, girlfriends, messages, relationship, habits, gallery, progression, intimacy, trust, achievements, spicy leaks). Pickle-persisted to _store_cache.pkl. Dual-writes to Supabase when configured. Key functions: get/set_session_user, add/get_girlfriend, get/append_messages, migrate_session_data, find_session_by_user_id
 │   │   │   ├── supabase_store.py    # Supabase CRUD helpers (mirrors store.py but hits DB)
@@ -103,7 +103,7 @@ virtualfr/
 │   │   │       ├── relationship.py  # /relationship/achievements
 │   │   │       ├── progression.py   # /progression/messages, /progression/summary, mark-read, dismiss, record-action
 │   │   │       ├── intimacy_achievements.py  # /intimacy/achievements, /intimacy/purchase-box, /intimacy/mystery-unlock
-│   │   │       ├── spicy_leaks.py   # /spicy-leaks/catalog, /spicy-leaks/spin, /spicy-leaks/unlocked (50 collectible solo photos)
+│   │   │       ├── spicy_leaks.py   # /spicy-leaks/collection, /spicy-leaks/spin (50 collectible solo photos)
 │   │   │       ├── memory.py        # /memory/summary, /memory/items, /memory/stats
 │   │   │       ├── profile.py       # /profile/girls
 │   │   │       ├── prompt.py        # /prompt/build (debug: shows assembled system prompt)
@@ -254,9 +254,10 @@ virtualfr/
 
 | Route | Page Component | Auth? | Description |
 |-------|---------------|-------|-------------|
-| `/` | `Landing.tsx` | No | Entry: creates guest session, auto-passes age gate, redirects to `/onboarding/appearance` |
+| `/` | `Landing.tsx` | No | Entry: restores existing session (or creates guest session) and routes to app/onboarding |
 | `/login` | `Login.tsx` | No | Email/password login |
-| `/signup` | `Signup.tsx` | No | Email/password signup |
+| `/create-account` | `Signup.tsx` | No | Email/password signup |
+| `/signup` | redirect | No | Redirects to `/onboarding/appearance` (legacy compatibility) |
 | `/age-gate` | `AgeGate.tsx` | Yes | Age verification (bypassed automatically for guests) |
 | `/onboarding/appearance` | `OnboardingAppearance.tsx` | No* | Pick appearance vibe (cute/elegant/sporty/etc.) |
 | `/onboarding/appearance/age` | `AppearanceAge.tsx` | No* | Pick age range |
@@ -272,7 +273,7 @@ virtualfr/
 | `/onboarding/reveal-success` | `RevealSuccess.tsx` | — | Photo fully revealed after signup |
 | `/onboarding/preview` | `PersonaPreview.tsx` | — | Preview persona card |
 | `/app` | `AppShell` → redirect to `/app/girl` | Yes+AgeGate+Girlfriend | Protected app shell |
-| `/app/girl` | `GirlPage.tsx` | Yes | **Main page**: Chat + sidebar (relationship meter, gifts, "See Her Leaked Photos" slots, "Leaked Collection" button, intimate progression). Desktop sidebar is 2-column grid |
+| `/app/girl` | `GirlPage.tsx` | Yes | **Main page**: Chat + relationship/gifts/mystery/leaks panels with in-app Stripe confirmation flows |
 | `/app/girls/:girlId/relationship` | `Relationship.tsx` | Yes | Detailed relationship view for a specific girlfriend |
 | `/app/profile` | `Profile.tsx` | Yes | User profile |
 | `/app/settings` | `Settings.tsx` | Yes | App settings |
@@ -320,12 +321,12 @@ virtualfr/
 
 ## 6. Authentication Flow
 
-1. **Landing** (`/`): Creates anonymous guest session → `POST /auth/guest` → sets `session` cookie → auto age-gate → redirects to onboarding
+1. **Landing** (`/`): Tries to restore existing session first; if none, creates guest session via `POST /auth/guest` and redirects to onboarding
 2. **Onboarding**: User picks traits, appearance, identity. At the end, `POST /onboarding/complete` creates the girlfriend in-memory under the guest session
 3. **Reveal** (`/onboarding/reveal`): Shows blurred girlfriend photo. User must create an account (signup form)
 4. **Signup**: `POST /auth/signup` → creates Supabase user → calls `migrate_session_data(old_guest_sid, new_sid)` to transfer all in-memory girlfriend data to the new real session → new session cookie
-5. **Login** (returning users): `POST /auth/login` → authenticates with Supabase → restores session from DB or in-memory store → sets `age_gate_passed: true`, `has_girlfriend: true`
-6. **Session recovery**: `deps.py` handles: (a) in-memory lookup, (b) Supabase DB restore, (c) guest session auto-recreate, (d) stale cookie cleanup
+5. **Login** (returning users): `POST /auth/login` → authenticates with Supabase → restores session/profile/subscription metadata
+6. **Session recovery**: `deps.py` handles in-memory lookup + Supabase DB restore + stale cookie cleanup
 
 ---
 
@@ -434,7 +435,7 @@ User message
 
 ### Spicy Leaks Collection
 - **50 collectible "leaked photos"** with rarities
-- Unlocked via a **slot machine** mechanic
+- Unlocked via paid spin flow with explicit **Confirm Stripe payment** step
 - Content escalates with rarity
 - All photos are **strictly solo** (no other individuals or male anatomy)
 
@@ -447,9 +448,9 @@ User message
 ## 10. Payments (Stripe)
 
 ### Plans
-- **Free**: 20 messages/day, blurred images
-- **Plus**: Unlimited messages, image generation, more features
-- **Premium**: Everything + priority, exclusive content
+- **Free**: 20 messages/day, 1 girlfriend max
+- **Plus**: Paid features, **1 girlfriend max**
+- **Premium**: Paid features + **3 girlfriends max**
 
 ### Integration Points
 - `POST /billing/subscribe` — Creates Stripe subscription
@@ -503,3 +504,13 @@ npm run dev
 4. **SSE streaming**: Real-time token streaming from OpenAI through FastAPI to React. Custom SSE event types for rich chat events (achievements, relationship gains, image decisions).
 5. **Frontend engine mirrors**: `lib/engines/` has TypeScript ports of backend engines for client-side prediction and UI rendering.
 6. **Per-girlfriend state**: All relationship, memory, and game state is keyed by `(session_id, girlfriend_id)` tuple, enabling multi-girlfriend support.
+
+---
+
+## 14. Image Engine (Current Behavior)
+
+- The image pipeline is currently **decision-gated + deterministic asset selection**, not full text-to-image synthesis.
+- `POST /images/request` runs `image_decision_engine.py` gates (age gate, spicy opt-in, intimacy threshold, plan gate, quota flag).
+- On allowed requests, backend selects a deterministic image from local `AI_gf_images` via `pick_ai_image_url(...)`.
+- Local images are served from `/api/ai-gf/*` (mounted in `backend/app/main.py`).
+- Image jobs are marked done immediately, then added to gallery; Supabase is used when configured, otherwise in-memory fallback.

@@ -49,6 +49,17 @@ class Settings(BaseSettings):
     stripe_success_url: str = "http://localhost:5173/app/chat?gift_success=1"
     stripe_cancel_url: str = "http://localhost:5173/app/chat?gift_cancel=1"
 
+    # Identity image generation provider config (Workflow A first).
+    image_provider: str = "mock"  # mock | runpod
+    avatar_pose_dir: str = "poses/"
+    avatar_pose_images: str = ""  # optional comma-separated override
+    avatar_workflow_template_path: str = (
+        "app/services/image_generation/workflow_configs/FINAL_AVATAR_WF_APP_READY.json"
+    )
+    runpod_serverless_url: str = ""
+    runpod_api_key: str = ""
+    runpod_timeout_seconds: int = 120
+
     @property
     def is_production(self) -> bool:
         return self.env.lower() == "production"

@@ -30,8 +30,8 @@ export default function OnboardingGenerating() {
   // Mutation for first-time onboarding
   const firstMutation = useMutation({
     mutationFn: completeOnboarding,
-    onSuccess: (gf) => {
-      setGirlfriend(gf)
+    onSuccess: (res) => {
+      setGirlfriend(res.girlfriend)
       clearOnboarding()
       navigate("/onboarding/reveal", { replace: true })
       queryClient.invalidateQueries({ queryKey: ["me"] })
@@ -45,7 +45,7 @@ export default function OnboardingGenerating() {
           const res = await guestSession()
           setUser(res.user)
           // Retry the mutation
-          firstMutation.mutate(payload)
+          if (payload) firstMutation.mutate(payload)
           return
         } catch {
           // Recovery failed

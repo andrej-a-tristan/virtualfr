@@ -207,6 +207,8 @@ def _row_to_girlfriend(row: dict[str, Any]) -> dict[str, Any]:
         "content_prefs": row.get("content_prefs") or {},
         "identity": row.get("identity") or {},
         "identity_canon": row.get("identity_canon") or {},
+        "identity_images": row.get("identity_images") or {},
+        "identity_metadata": row.get("identity_metadata") or {},
         "created_at": row["created_at"],
     }
 
@@ -249,7 +251,15 @@ def create_girlfriend(user_id: UUID, display_name: str, traits: dict, extra: dic
         "traits": traits,
     }
     if extra:
-        for key in ("avatar_url", "appearance_prefs", "content_prefs", "identity", "identity_canon"):
+        for key in (
+            "avatar_url",
+            "appearance_prefs",
+            "content_prefs",
+            "identity",
+            "identity_canon",
+            "identity_images",
+            "identity_metadata",
+        ):
             if key in extra:
                 payload[key] = extra.get(key)
     r = sb.table("girlfriends").insert(payload).execute()
@@ -272,6 +282,51 @@ def list_girlfriends(user_id: UUID) -> list[dict[str, Any]]:
     if not r.data:
         return []
     return [_row_to_girlfriend(row) for row in r.data]
+
+
+def update_girlfriend_identity(
+    user_id: UUID,
+    girlfriend_id: UUID,
+    *,
+    avatar_url: str | None = None,
+    identity_images: dict[str, Any] | None = None,
+    identity_metadata: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    sb = _admin()
+    if not sb:
+        return None
+    payload: dict[str, Any] = {}
+    if avatar_url is not None:
+        payload["avatar_url"] = avatar_url
+    if identity_images is not None:
+        payload["identity_images"] = identity_images
+    if identity_metadata is not None:
+        payload["identity_metadata"] = identity_metadata
+    if not payload:
+        return get_girlfriend_by_id(user_id, girlfriend_id)
+    try:
+        r = (
+            sb.table("girlfriends")
+            .update(payload)
+            .eq("user_id", str(user_id))
+            .eq("id", str(girlfriend_id))
+            .execute()
+        )
+    except Exception:
+        # Older schema fallback: keep avatar only if JSONB columns are missing.
+        avatar_payload = {"avatar_url": avatar_url} if avatar_url is not None else {}
+        if not avatar_payload:
+            return None
+        r = (
+            sb.table("girlfriends")
+            .update(avatar_payload)
+            .eq("user_id", str(user_id))
+            .eq("id", str(girlfriend_id))
+            .execute()
+        )
+    if not r.data:
+        return None
+    return _row_to_girlfriend(r.data[0])
 
 
 def get_messages(user_id: UUID, girlfriend_id: UUID) -> list[dict[str, Any]]:
@@ -665,11 +720,15 @@ def create_image_job(
     image_url: str | None = None,
     request_prompt: str | None = None,
     error: str | None = None,
+    job_type: str | None = None,
+    progress_message: str | None = None,
+    identity_package: dict[str, Any] | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     sb = _admin()
     if not sb:
         return None
-    payload = {
+    payload: dict[str, Any] = {
         "user_id": str(user_id),
         "girlfriend_id": str(girlfriend_id),
         "status": status,
@@ -678,7 +737,28 @@ def create_image_job(
         "error": error,
         "completed_at": datetime.now(timezone.utc).isoformat() if status in ("done", "failed") else None,
     }
-    r = sb.table("image_jobs").insert(payload).execute()
+    if job_type is not None:
+        payload["job_type"] = job_type
+    if progress_message is not None:
+        payload["progress_message"] = progress_message
+    if identity_package is not None:
+        payload["identity_package"] = identity_package
+    if metadata is not None:
+        payload["metadata"] = metadata
+    try:
+        r = sb.table("image_jobs").insert(payload).execute()
+    except Exception:
+        # Backward compatibility for older table schema that lacks new fields.
+        fallback = {
+            "user_id": str(user_id),
+            "girlfriend_id": str(girlfriend_id),
+            "status": status,
+            "image_url": image_url,
+            "request_prompt": request_prompt,
+            "error": error,
+            "completed_at": datetime.now(timezone.utc).isoformat() if status in ("done", "failed") else None,
+        }
+        r = sb.table("image_jobs").insert(fallback).execute()
     if not r.data:
         return None
     return r.data[0]
@@ -697,6 +777,63 @@ def get_image_job(user_id: UUID, girlfriend_id: UUID, job_id: str) -> dict[str, 
         .limit(1)
         .execute()
     )
+    if not r.data:
+        return None
+    return r.data[0]
+
+
+def update_image_job(
+    user_id: UUID,
+    girlfriend_id: UUID,
+    *,
+    job_id: str,
+    status: str | None = None,
+    image_url: str | None = None,
+    progress_message: str | None = None,
+    identity_package: dict[str, Any] | None = None,
+    metadata: dict[str, Any] | None = None,
+    error: str | None = None,
+) -> dict[str, Any] | None:
+    sb = _admin()
+    if not sb:
+        return None
+    payload: dict[str, Any] = {}
+    if status is not None:
+        payload["status"] = status
+        if status in ("done", "completed", "failed"):
+            payload["completed_at"] = datetime.now(timezone.utc).isoformat()
+    if image_url is not None:
+        payload["image_url"] = image_url
+    if progress_message is not None:
+        payload["progress_message"] = progress_message
+    if identity_package is not None:
+        payload["identity_package"] = identity_package
+    if metadata is not None:
+        payload["metadata"] = metadata
+    if error is not None:
+        payload["error"] = error
+    if not payload:
+        return get_image_job(user_id, girlfriend_id, job_id)
+    try:
+        r = (
+            sb.table("image_jobs")
+            .update(payload)
+            .eq("id", str(job_id))
+            .eq("user_id", str(user_id))
+            .eq("girlfriend_id", str(girlfriend_id))
+            .execute()
+        )
+    except Exception:
+        # Backward compatibility with older schemas.
+        fallback_payload = {k: v for k, v in payload.items() if k in {"status", "image_url", "error", "completed_at"}}
+        r = (
+            sb.table("image_jobs")
+            .update(fallback_payload)
+            .eq("id", str(job_id))
+            .eq("user_id", str(user_id))
+            .eq("girlfriend_id", str(girlfriend_id))
+            .execute()
+        )
     if not r.data:
         return None
     return r.data[0]

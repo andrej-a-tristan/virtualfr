@@ -38,6 +38,8 @@ _messages: dict[tuple[str, str], list[dict[str, Any]]] = {}
 _habit_profile: dict[tuple[str, str], dict[str, Any]] = {}
 # (session_id, girlfriend_id) -> list of gallery item dicts
 _gallery: dict[tuple[str, str], list[dict[str, Any]]] = {}
+# image job id -> image job dict
+_image_jobs: dict[str, dict[str, Any]] = {}
 # (session_id, girlfriend_id) -> RelationshipProgressState
 _relationship_progress: dict[tuple[str, str], RelationshipProgressState] = {}
 # (session_id, girlfriend_id) -> IntimacyState
@@ -79,6 +81,7 @@ def _persist() -> None:
         "messages": _messages,
         "habit_profile": _habit_profile,
         "gallery": _gallery,
+        "image_jobs": _image_jobs,
         "relationship_progress": _relationship_progress,
         "intimacy_state": _intimacy_state,
         "trust_intimacy_state": _trust_intimacy_state,
@@ -105,7 +108,7 @@ def _persist() -> None:
 def _load_store() -> None:
     """Load persisted data from pickle file into the in-memory dicts."""
     global _sessions, _all_girlfriends, _relationship_state, _messages
-    global _habit_profile, _gallery, _relationship_progress, _intimacy_state
+    global _habit_profile, _gallery, _image_jobs, _relationship_progress, _intimacy_state
     global _trust_intimacy_state, _achievement_progress
     global _intimacy_ach_unlocked, _intimacy_ach_last_award, _intimacy_ach_photos
     global _intimacy_ach_pending_photos, _intimacy_ach_phrase_log
@@ -122,6 +125,7 @@ def _load_store() -> None:
         _messages.update(data.get("messages", {}))
         _habit_profile.update(data.get("habit_profile", {}))
         _gallery.update(data.get("gallery", {}))
+        _image_jobs.update(data.get("image_jobs", {}))
         _relationship_progress.update(data.get("relationship_progress", {}))
         _intimacy_state.update(data.get("intimacy_state", {}))
         _trust_intimacy_state.update(data.get("trust_intimacy_state", {}))
@@ -229,6 +233,9 @@ def clear_session(session_id: str) -> None:
         _relationship_progress.pop((session_id, gf_id), None)
         _intimacy_state.pop((session_id, gf_id), None)
         _trust_intimacy_state.pop((session_id, gf_id), None)
+    for job_id, job in list(_image_jobs.items()):
+        if job.get("session_id") == session_id:
+            _image_jobs.pop(job_id, None)
     _persist()
     if get_supabase_admin():
         try:
@@ -565,6 +572,199 @@ def set_gallery(session_id: str, items: list[dict[str, Any]], girlfriend_id: str
         except Exception:
             pass
     _persist()
+
+
+# ── Image Jobs ────────────────────────────────────────────────────────────────
+
+def create_image_job(
+    session_id: str,
+    *,
+    girlfriend_id: str,
+    status: str,
+    job_type: str = "image_request",
+    image_url: str | None = None,
+    request_prompt: str | None = None,
+    progress_message: str | None = None,
+    identity_package: dict[str, Any] | None = None,
+    metadata: dict[str, Any] | None = None,
+    error: str | None = None,
+) -> dict[str, Any]:
+    import uuid
+
+    user_uuid = _session_user_uuid(session_id)
+    gf_uuid = _gf_uuid(girlfriend_id)
+    if get_supabase_admin() and user_uuid and gf_uuid:
+        try:
+            row = sb.create_image_job(
+                user_uuid,
+                gf_uuid,
+                status=status,
+                image_url=image_url,
+                request_prompt=request_prompt,
+                error=error,
+                job_type=job_type,
+                progress_message=progress_message,
+                identity_package=identity_package,
+                metadata=metadata,
+            )
+            if row:
+                out = {
+                    "id": str(row.get("id")),
+                    "status": row.get("status", status),
+                    "type": row.get("job_type", job_type),
+                    "girlfriend_id": girlfriend_id,
+                    "image_url": row.get("image_url"),
+                    "progress_message": row.get("progress_message"),
+                    "identity_package": row.get("identity_package"),
+                    "metadata": row.get("metadata") or {},
+                    "error": row.get("error"),
+                    "session_id": session_id,
+                }
+                _image_jobs[out["id"]] = out
+                _persist()
+                return out
+        except Exception:
+            pass
+
+    job_id = str(uuid.uuid4())
+    row = {
+        "id": job_id,
+        "status": status,
+        "type": job_type,
+        "girlfriend_id": girlfriend_id,
+        "session_id": session_id,
+        "image_url": image_url,
+        "progress_message": progress_message,
+        "identity_package": identity_package,
+        "metadata": metadata or {},
+        "error": error,
+    }
+    _image_jobs[job_id] = row
+    _persist()
+    return row
+
+
+def get_image_job(session_id: str, *, girlfriend_id: str | None, job_id: str) -> dict[str, Any] | None:
+    user_uuid = _session_user_uuid(session_id)
+    gf_uuid = _gf_uuid(girlfriend_id)
+    if get_supabase_admin() and user_uuid and gf_uuid:
+        try:
+            row = sb.get_image_job(user_uuid, gf_uuid, job_id)
+            if row:
+                out = {
+                    "id": str(row.get("id")),
+                    "status": row.get("status"),
+                    "type": row.get("job_type"),
+                    "girlfriend_id": str(row.get("girlfriend_id") or girlfriend_id),
+                    "image_url": row.get("image_url"),
+                    "progress_message": row.get("progress_message"),
+                    "identity_package": row.get("identity_package"),
+                    "metadata": row.get("metadata") or {},
+                    "error": row.get("error"),
+                    "session_id": session_id,
+                }
+                _image_jobs[job_id] = out
+                return out
+        except Exception:
+            pass
+    job = _image_jobs.get(job_id)
+    if not job:
+        return None
+    if job.get("session_id") != session_id:
+        return None
+    return job
+
+
+def update_image_job(
+    session_id: str,
+    *,
+    girlfriend_id: str,
+    job_id: str,
+    status: str | None = None,
+    image_url: str | None = None,
+    progress_message: str | None = None,
+    identity_package: dict[str, Any] | None = None,
+    metadata: dict[str, Any] | None = None,
+    error: str | None = None,
+) -> dict[str, Any] | None:
+    job = get_image_job(session_id, girlfriend_id=girlfriend_id, job_id=job_id)
+    if not job:
+        return None
+
+    if status is not None:
+        job["status"] = status
+    if image_url is not None:
+        job["image_url"] = image_url
+    if progress_message is not None:
+        job["progress_message"] = progress_message
+    if identity_package is not None:
+        job["identity_package"] = identity_package
+    if metadata is not None:
+        merged_metadata = dict(job.get("metadata") or {})
+        merged_metadata.update(metadata)
+        job["metadata"] = merged_metadata
+    if error is not None:
+        job["error"] = error
+    _image_jobs[job_id] = job
+    _persist()
+
+    user_uuid = _session_user_uuid(session_id)
+    gf_uuid = _gf_uuid(girlfriend_id)
+    if get_supabase_admin() and user_uuid and gf_uuid:
+        try:
+            sb.update_image_job(
+                user_uuid,
+                gf_uuid,
+                job_id=job_id,
+                status=job.get("status"),
+                image_url=job.get("image_url"),
+                progress_message=job.get("progress_message"),
+                identity_package=job.get("identity_package"),
+                metadata=job.get("metadata"),
+                error=job.get("error"),
+            )
+        except Exception:
+            pass
+    return job
+
+
+def apply_identity_package_to_girlfriend(
+    session_id: str,
+    *,
+    girlfriend_id: str,
+    identity_package: dict[str, Any],
+) -> dict[str, Any] | None:
+    gf = get_girlfriend_by_id(session_id, girlfriend_id)
+    if not gf:
+        return None
+
+    updated = dict(gf)
+    metadata = dict(identity_package.get("metadata") or {})
+    updated["avatar_url"] = identity_package.get("main_avatar_url") or updated.get("avatar_url")
+    updated["identity_images"] = {
+        "main_avatar_url": identity_package.get("main_avatar_url"),
+        "face_ref_primary_url": identity_package.get("face_ref_primary_url"),
+        "face_ref_secondary_url": identity_package.get("face_ref_secondary_url"),
+        "upper_body_ref_url": identity_package.get("upper_body_ref_url"),
+        "body_ref_url": identity_package.get("body_ref_url"),
+        "candidate_urls": identity_package.get("candidate_urls") or [],
+    }
+    updated["identity_metadata"] = metadata
+    set_girlfriend(session_id, updated)
+    ctx = _supabase_ctx(session_id, girlfriend_id)
+    if ctx:
+        user_uuid, gf_uuid = ctx
+        try:
+            sb.update_girlfriend_identity(
+                user_uuid,
+                gf_uuid,
+                avatar_url=updated.get("avatar_url"),
+                identity_images=updated.get("identity_images"),
+                identity_metadata=updated.get("identity_metadata"),
+            )
+        except Exception:
+            pass
+    return updated
 
 
 # ── Relationship Progression (per girlfriend) ─────────────────────────────────

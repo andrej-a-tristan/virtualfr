@@ -6,10 +6,15 @@ import { Eye, Sparkles } from "lucide-react"
 export default function GirlfriendReveal() {
   const navigate = useNavigate()
   const girlfriend = useAppStore((s) => s.girlfriend)
+  const identityPackage = useAppStore((s) => s.onboardingIdentityPackage)
 
   const girlfriendName =
     girlfriend?.display_name || girlfriend?.name || "Your Girl"
-  const avatarUrl = girlfriend?.avatar_url || null
+  const avatarUrl =
+    identityPackage?.main_avatar_url ||
+    (girlfriend?.identity_images?.main_avatar_url as string | undefined) ||
+    girlfriend?.avatar_url ||
+    null
 
   const handleContinue = () => {
     navigate("/onboarding/subscribe", { replace: true })

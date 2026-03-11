@@ -4,6 +4,8 @@ import type {
   AppearancePrefs,
   ContentPrefs,
   Girlfriend,
+  IdentityJobResponse,
+  IdentityPackage,
   IdentityPrefs,
   TraitSelection,
   Traits,
@@ -37,6 +39,9 @@ interface AppState {
   onboardingAppearance?: AppearancePrefs
   onboardingContentPrefs?: ContentPrefs
   onboardingIdentity?: IdentityPrefs
+  onboardingImageJobId?: string
+  onboardingIdentityPackage?: IdentityPackage
+  onboardingImageJob?: IdentityJobResponse
   // Onboarding mode: "first" or "additional"
   onboardingMode: "first" | "additional"
   // Actions
@@ -54,6 +59,9 @@ interface AppState {
   setOnboardingTraits: (traits: Traits | undefined) => void
   setOnboardingAppearance: (prefs: AppearancePrefs | undefined) => void
   setOnboardingContentPrefs: (prefs: ContentPrefs | undefined) => void
+  setOnboardingImageJobId: (jobId: string | undefined) => void
+  setOnboardingIdentityPackage: (pkg: IdentityPackage | undefined) => void
+  setOnboardingImageJob: (job: IdentityJobResponse | undefined) => void
   setGirlfriendName: (name: string) => void
   setJobVibe: (vibe: string) => void
   toggleHobby: (hobby: string) => void
@@ -74,6 +82,9 @@ export const useAppStore = create<AppState>()(
       onboardingAppearance: undefined,
       onboardingContentPrefs: undefined,
       onboardingIdentity: undefined,
+      onboardingImageJobId: undefined,
+      onboardingIdentityPackage: undefined,
+      onboardingImageJob: undefined,
       onboardingMode: "first" as const,
       setUser: (user) => set({ user }),
       setGirlfriend: (girlfriend) => {
@@ -127,6 +138,9 @@ export const useAppStore = create<AppState>()(
       setOnboardingTraits: (onboardingTraits) => set({ onboardingTraits }),
       setOnboardingAppearance: (onboardingAppearance) => set({ onboardingAppearance }),
       setOnboardingContentPrefs: (onboardingContentPrefs) => set({ onboardingContentPrefs }),
+      setOnboardingImageJobId: (onboardingImageJobId) => set({ onboardingImageJobId }),
+      setOnboardingIdentityPackage: (onboardingIdentityPackage) => set({ onboardingIdentityPackage }),
+      setOnboardingImageJob: (onboardingImageJob) => set({ onboardingImageJob }),
       setGirlfriendName: (name) =>
         set((state) => ({
           onboardingIdentity: { ...state.onboardingIdentity, girlfriend_name: name, hobbies: state.onboardingIdentity?.hobbies ?? [] },
@@ -156,6 +170,9 @@ export const useAppStore = create<AppState>()(
           onboardingAppearance: undefined,
           onboardingContentPrefs: undefined,
           onboardingIdentity: undefined,
+          onboardingImageJobId: undefined,
+          onboardingIdentityPackage: undefined,
+          onboardingImageJob: undefined,
           onboardingMode: "first" as const,
         }),
       reset: () =>
@@ -169,6 +186,9 @@ export const useAppStore = create<AppState>()(
           onboardingAppearance: undefined,
           onboardingContentPrefs: undefined,
           onboardingIdentity: undefined,
+          onboardingImageJobId: undefined,
+          onboardingIdentityPackage: undefined,
+          onboardingImageJob: undefined,
           onboardingMode: "first" as const,
         }),
     }),
@@ -180,6 +200,9 @@ export const useAppStore = create<AppState>()(
         onboardingAppearance: s.onboardingAppearance,
         onboardingContentPrefs: s.onboardingContentPrefs,
         onboardingIdentity: s.onboardingIdentity,
+        onboardingImageJobId: s.onboardingImageJobId,
+        onboardingIdentityPackage: s.onboardingIdentityPackage,
+        onboardingImageJob: s.onboardingImageJob,
         // Persist multi-girl state so it survives page navigations
         girlfriends: s.girlfriends,
         currentGirlfriendId: s.currentGirlfriendId,

@@ -1,0 +1,58 @@
+{
+  "nodes": {
+    "checkpoint_loader": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": {
+        "ckpt_name": "__CHECKPOINT_NAME__"
+      }
+    },
+    "positive_prompt": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "text": "__POSITIVE_PROMPT__"
+      }
+    },
+    "negative_prompt": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "text": "__NEGATIVE_PROMPT__"
+      }
+    },
+    "pose_image_loader": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "__POSE_IMAGE__"
+      }
+    },
+    "controlnet_loader": {
+      "class_type": "ControlNetLoader",
+      "inputs": {
+        "control_net_name": "__CONTROLNET_MODEL__"
+      }
+    },
+    "sampler": {
+      "class_type": "KSampler",
+      "inputs": {
+        "seed": 12345,
+        "steps": 30,
+        "cfg": 5.5,
+        "sampler_name": "dpmpp_2m_sde",
+        "scheduler": "karras"
+      }
+    },
+    "latent_image": {
+      "class_type": "EmptyLatentImage",
+      "inputs": {
+        "width": 896,
+        "height": 1152,
+        "batch_size": 1
+      }
+    },
+    "save_image": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "filename_prefix": "__OUTPUT_PREFIX__candidate"
+      }
+    }
+  }
+}

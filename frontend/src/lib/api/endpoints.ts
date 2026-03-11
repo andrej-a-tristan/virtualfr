@@ -16,6 +16,7 @@ import type {
   FactualMemoryItem,
   EmotionalMemoryItem,
   OnboardingCompleteRequest,
+  OnboardingCompleteResponse,
   GirlfriendListResponse,
   SwitchGirlfriendResponse,
   CreateGirlfriendResponse,
@@ -307,7 +308,7 @@ export function getOnboardingPromptImages() {
 }
 
 export function completeOnboarding(body: OnboardingCompleteRequest) {
-  return apiPost<Girlfriend>("/onboarding/complete", body)
+  return apiPost<OnboardingCompleteResponse>("/onboarding/complete", body)
 }
 
 // Relationship achievements

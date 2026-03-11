@@ -1,22 +1,36 @@
 """Onboarding endpoints: prompt images and completion."""
 import hashlib
-import json
+import logging
+import threading
+from datetime import datetime, timezone
+from uuid import uuid4
 
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
 
 from app.api.deps import get_current_user
-from app.api.store import set_girlfriend, get_girlfriend
+from app.api.store import create_image_job, get_girlfriend, set_girlfriend, update_image_job
 from app.schemas.girlfriend import (
     GirlfriendResponse,
-    IdentityResponse,
+    OnboardingCompleteResponse,
     OnboardingCompletePayload,
 )
-from app.utils.identity_canon import generate_identity_canon
+from app.schemas.image_generation import (
+    IdentityAppearance,
+    IdentityGenerationConfig,
+    IdentityGenerationRequest,
+    IdentityPersona,
+    IdentityPreferences,
+)
+from app.services.image_generation.onboarding_identity_service import (
+    generate_initial_identity_package,
+)
 from app.utils.ai_images import pick_ai_image_url
+from app.utils.identity_canon import generate_identity_canon
 
 
 router = APIRouter(prefix="/onboarding", tags=["onboarding"])
+logger = logging.getLogger(__name__)
 
 
 # Per-question keys (one image per question)
@@ -68,7 +82,7 @@ def get_prompt_images():
 
 @router.post("/complete")
 def complete_onboarding(request: Request, response: Response, body: OnboardingCompletePayload):
-    """Finalize onboarding by creating a single girlfriend avatar."""
+    """Finalize onboarding and start identity image generation job."""
     user = get_current_user(request, response)
     if not user:
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
@@ -88,19 +102,8 @@ def complete_onboarding(request: Request, response: Response, body: OnboardingCo
         "origin_vibe": body.identity.origin_vibe,
     }
 
-    # Deterministic seed for avatar and canon
-    from uuid import uuid4
     gf_id = f"gf-{uuid4().hex[:8]}"
-    seed_source = (
-        f'{user["id"]}|'
-        f"{json.dumps(appearance_prefs, sort_keys=True)}|"
-        f"{json.dumps(traits, sort_keys=True)}"
-    )
-    avatar_seed = hashlib.sha256(seed_source.encode("utf-8")).hexdigest()[:16]
-    avatar_url = pick_ai_image_url(
-        f"avatar:{avatar_seed}",
-        fallback_url=f"https://picsum.photos/seed/{avatar_seed}/512/512",
-    )
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     
     # Generate identity canon (deterministic from gf_id)
     canon_seed = int(hashlib.sha256(gf_id.encode("utf-8")).hexdigest()[:8], 16)
@@ -118,17 +121,42 @@ def complete_onboarding(request: Request, response: Response, body: OnboardingCo
         "id": gf_id,
         "name": girlfriend_name,
         "display_name": girlfriend_name,
-        "avatar_url": avatar_url,
+        "avatar_url": None,
         "traits": traits,
         "appearance_prefs": appearance_prefs,
         "content_prefs": content_prefs,
         "identity": identity,
         "identity_canon": identity_canon.model_dump(),
-        "created_at": "2025-01-01T00:00:00Z",
+        "identity_images": {
+            "main_avatar_url": None,
+            "face_ref_primary_url": None,
+            "face_ref_secondary_url": None,
+            "upper_body_ref_url": None,
+            "body_ref_url": None,
+            "candidate_urls": [],
+        },
+        "identity_metadata": {
+            "identity_package_version": "identity_pack_v1",
+            "workflow_version": "workflow_a_v1",
+            "status": "pending",
+        },
+        "created_at": now,
     }
 
     set_girlfriend(sid, gf)
     saved = get_girlfriend(sid) or gf
+    image_job = create_image_job(
+        sid,
+        girlfriend_id=gf_id,
+        status="pending",
+        job_type="identity_creation",
+        progress_message="Queued identity generation",
+        metadata={
+            "identity_package_version": "identity_pack_v1",
+            "workflow_version": "workflow_a_v1",
+            "phase": "queued",
+        },
+    )
 
     # ── Bootstrap dossier + persona vector (compact runtime controls) ───────
     try:
@@ -155,7 +183,89 @@ def complete_onboarding(request: Request, response: Response, body: OnboardingCo
             except (ValueError, TypeError):
                 pass
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning("Dossier bootstrap failed (non-fatal): %s", e)
+        logger.warning("Dossier bootstrap failed (non-fatal): %s", e)
 
-    return GirlfriendResponse(**saved)
+    identity_request = IdentityGenerationRequest(
+        girlfriend_id=gf_id,
+        user_id=str(user.get("user_id") or user.get("id") or ""),
+        appearance=IdentityAppearance(
+            age_band=appearance_prefs.get("age_range") or "young adult",
+            ethnicity=appearance_prefs.get("ethnicity") or "european",
+            appearance_vibe=appearance_prefs.get("vibe") or "natural",
+            body_type=appearance_prefs.get("body_type"),
+            breast_size=appearance_prefs.get("breast_size"),
+            butt_size=appearance_prefs.get("butt_size"),
+            hair_color=appearance_prefs.get("hair_color") or "brown",
+            hair_style=appearance_prefs.get("hair_style") or "long",
+            eye_color=appearance_prefs.get("eye_color") or "brown",
+        ),
+        persona=IdentityPersona(
+            display_name=girlfriend_name,
+            traits=[
+                traits.get("emotional_style", ""),
+                traits.get("attachment_style", ""),
+                traits.get("reaction_to_absence", ""),
+                traits.get("communication_style", ""),
+                traits.get("relationship_pace", ""),
+                traits.get("cultural_personality", ""),
+            ],
+            job_vibe=body.identity.job_vibe,
+            hobbies=body.identity.hobbies or [],
+            origin_vibe=body.identity.origin_vibe,
+        ),
+        preferences=IdentityPreferences(
+            spicy_photos_opt_in=bool(content_prefs.get("wants_spicy_photos")),
+        ),
+        generation=IdentityGenerationConfig(
+            workflow_type="identity_creation",
+            workflow_version="workflow_a_v1",
+            candidate_count=4,
+        ),
+    )
+
+    def _run_identity_generation_async() -> None:
+        try:
+            update_image_job(
+                sid,
+                girlfriend_id=gf_id,
+                job_id=image_job["id"],
+                status="running",
+                progress_message="Generating 4 avatar candidates",
+                metadata={"phase": "generating_candidates"},
+            )
+            generated = generate_initial_identity_package(identity_request, session_id=sid)
+            identity_package = generated.identity_package.model_dump() if generated.identity_package else None
+            update_image_job(
+                sid,
+                girlfriend_id=gf_id,
+                job_id=image_job["id"],
+                status="completed",
+                image_url=(identity_package or {}).get("main_avatar_url") if identity_package else None,
+                progress_message="Identity package ready",
+                identity_package=identity_package,
+                metadata={"phase": "completed"},
+            )
+        except Exception as exc:
+            logger.exception("Identity generation failed for %s: %s", gf_id, exc)
+            update_image_job(
+                sid,
+                girlfriend_id=gf_id,
+                job_id=image_job["id"],
+                status="failed",
+                progress_message="Identity generation failed",
+                error=str(exc),
+                metadata={"phase": "failed"},
+            )
+
+    threading.Thread(target=_run_identity_generation_async, daemon=True).start()
+    return OnboardingCompleteResponse(
+        girlfriend=GirlfriendResponse(**saved),
+        image_job_id=image_job["id"],
+        image_job={
+            "status": image_job["status"],
+            "type": image_job.get("type"),
+            "girlfriend_id": gf_id,
+            "progress_message": image_job.get("progress_message"),
+        },
+        identity_package=None,
+    )
