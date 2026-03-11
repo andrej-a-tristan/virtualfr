@@ -36,14 +36,28 @@ export default function GirlfriendReveal() {
     try {
       const res = await signup(data.email, data.password, data.display_name)
       setUser({ ...res.user, has_girlfriend: true })
-      await postAgeGate()
+      try {
+        await postAgeGate()
+      } catch {
+        // Age gate may fail if backend down - continue anyway
+      }
       await queryClient.invalidateQueries({ queryKey: ["me"] })
       await queryClient.invalidateQueries({ queryKey: ["girlfriendsList"] })
       navigate("/onboarding/subscribe", { replace: true })
     } catch (e) {
-      // If signup fails due to backend, still allow proceeding
+      // If signup fails due to backend being down or network error, allow proceeding
       const msg = e instanceof Error ? e.message : "Sign up failed"
-      if (msg.includes("ECONNREFUSED") || msg.includes("fetch")) {
+      const isNetworkError = 
+        msg.includes("Failed to fetch") ||
+        msg.includes("NetworkError") ||
+        msg.includes("ECONNREFUSED") ||
+        msg.includes("Network request failed") ||
+        msg.includes("Cannot reach backend") ||
+        msg.includes("Backend not reachable") ||
+        msg.toLowerCase().includes("fetch") ||
+        msg.toLowerCase().includes("network")
+      
+      if (isNetworkError) {
         // Backend down - continue to subscription anyway
         navigate("/onboarding/subscribe", { replace: true })
       } else {
