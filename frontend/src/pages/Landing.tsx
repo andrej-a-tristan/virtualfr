@@ -294,36 +294,42 @@ export default function Landing() {
 
   useEffect(() => {
     let cancelled = false
+    
+    // Set a timeout to show the landing page even if the API is slow/down
+    const timeout = setTimeout(() => {
+      if (!cancelled) {
+        setIsLoading(false)
+      }
+    }, 2000)
+    
     async function checkSession() {
       try {
         // Check if the user already has a valid session with a working girlfriend
-        try {
-          const existingUser = await getMe()
-          if (!cancelled && existingUser?.has_girlfriend && existingUser?.age_gate_passed) {
-            // Verify the girlfriend actually exists before redirecting to app
-            const gf = await getCurrentGirlfriend()
-            if (!cancelled && gf) {
-              setUser(existingUser)
-              setGirlfriend(gf)
-              navigate("/app/girl", { replace: true })
-              return
-            }
+        const existingUser = await getMe()
+        if (!cancelled && existingUser?.has_girlfriend && existingUser?.age_gate_passed) {
+          // Verify the girlfriend actually exists before redirecting to app
+          const gf = await getCurrentGirlfriend()
+          if (!cancelled && gf) {
+            setUser(existingUser)
+            setGirlfriend(gf)
+            navigate("/app/girl", { replace: true })
+            return
           }
-        } catch {
-          // No valid session — show landing page
         }
-        
-        if (!cancelled) {
-          setIsLoading(false)
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setIsLoading(false)
-        }
+      } catch {
+        // No valid session or backend not available — show landing page
+      }
+      
+      if (!cancelled) {
+        clearTimeout(timeout)
+        setIsLoading(false)
       }
     }
     checkSession()
-    return () => { cancelled = true }
+    return () => { 
+      cancelled = true 
+      clearTimeout(timeout)
+    }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleGetStarted = async () => {
