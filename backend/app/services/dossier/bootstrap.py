@@ -142,6 +142,87 @@ _HOBBY_ALTS = ["pottery", "surfing", "rock climbing", "photography", "woodworkin
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# ORIGIN / LOCATION DETAIL TEMPLATES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_ORIGIN_DETAIL_TEMPLATES: dict[str, list[dict[str, Any]]] = {
+    "Warm Slavic": [
+        {
+            "origin_city": "Kraków",
+            "origin_country": "Poland",
+            "neighborhood_vibe": "narrow old streets and cozy cafés",
+            "current_city": "Kraków",
+            "current_routine_spots": ["a tiny café near the square", "the riverbank path"],
+            "family_context": "grew up in a close but sometimes intense family",
+        },
+        {
+            "origin_city": "Ljubljana",
+            "origin_country": "Slovenia",
+            "neighborhood_vibe": "quiet streets with lots of trees",
+            "current_city": "Ljubljana",
+            "current_routine_spots": ["a bookstore by the river", "a small park above the city"],
+            "family_context": "parents still live not far from the city",
+        },
+    ],
+    "Calm Central European": [
+        {
+            "origin_city": "Vienna",
+            "origin_country": "Austria",
+            "neighborhood_vibe": "calm streets with old buildings and coffee houses",
+            "current_city": "Vienna",
+            "current_routine_spots": ["her regular coffee place", "a quiet park bench she likes"],
+            "family_context": "grew up in a fairly traditional but supportive family",
+        },
+        {
+            "origin_city": "Munich",
+            "origin_country": "Germany",
+            "neighborhood_vibe": "residential area with trees and bikes",
+            "current_city": "Munich",
+            "current_routine_spots": ["a lakeside spot she visits to think", "a small bakery on her street"],
+            "family_context": "has a relatively calm relationship with her parents and a sibling",
+        },
+    ],
+    "Passionate Balkan": [
+        {
+            "origin_city": "Belgrade",
+            "origin_country": "Serbia",
+            "neighborhood_vibe": "busy streets, late-night cafés, and river views",
+            "current_city": "Belgrade",
+            "current_routine_spots": ["a favorite riverside bar", "a noisy café where she people-watches"],
+            "family_context": "big extended family, lots of opinions and loud dinners",
+        },
+        {
+            "origin_city": "Split",
+            "origin_country": "Croatia",
+            "neighborhood_vibe": "old stone streets near the sea",
+            "current_city": "Split",
+            "current_routine_spots": ["a bench facing the sea", "a tiny espresso bar in an alley"],
+            "family_context": "grew up near the coast with relatives always dropping by",
+        },
+    ],
+    "default": [
+        {
+            "origin_city": "a small city",
+            "origin_country": "somewhere in Europe",
+            "neighborhood_vibe": "quiet streets and familiar cafés",
+            "current_city": "a nearby bigger city",
+            "current_routine_spots": ["a local café", "a park bench she likes"],
+            "family_context": "family is close but not overbearing",
+        }
+    ],
+}
+
+
+def _derive_origin_details(rng: random.Random, origin_vibe: str) -> dict[str, Any]:
+    """Derive concrete origin/current-location details from a higher-level origin_vibe."""
+    vibe = origin_vibe or ""
+    templates = _ORIGIN_DETAIL_TEMPLATES.get(vibe) or _ORIGIN_DETAIL_TEMPLATES["default"]
+    choice = rng.choice(templates)
+    # Return a shallow copy so callers can mutate safely.
+    return dict(choice)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # BOOTSTRAP PIPELINE
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -156,6 +237,7 @@ def _build_core_profile(
     traits: dict,
     identity: dict,
     identity_canon: dict,
+    origin_details: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build core_profile from onboarding data."""
     comm = traits.get("communication_style", "Soft")
@@ -180,6 +262,9 @@ def _build_core_profile(
     routine = identity_canon.get("daily_routine", "")
     favorites = identity_canon.get("favorites", {})
 
+    if origin_details is None:
+        origin_details = _derive_origin_details(rng, identity.get("origin_vibe", ""))
+
     json_profile = {
         "name": name,
         "backstory": backstory,
@@ -191,6 +276,19 @@ def _build_core_profile(
         "emotional_style": emotional,
         "cultural_personality": cultural,
     }
+
+    if origin_details:
+        json_profile["origin"] = {
+            "city": origin_details.get("origin_city"),
+            "country": origin_details.get("origin_country"),
+            "neighborhood_vibe": origin_details.get("neighborhood_vibe"),
+        }
+        json_profile["current_location"] = {
+            "city": origin_details.get("current_city"),
+            "routine_spots": origin_details.get("current_routine_spots", []),
+        }
+        if origin_details.get("family_context"):
+            json_profile["family_context"] = origin_details["family_context"]
 
     return {
         "voice_style": voice_style,
@@ -210,6 +308,7 @@ def _build_life_graph(
     identity: dict,
     identity_canon: dict,
     traits: dict,
+    origin_details: dict[str, Any] | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """Build life graph nodes + edges from onboarding."""
     nodes: list[dict] = []
@@ -230,11 +329,58 @@ def _build_life_graph(
         nodes.append({"node_type": "hobby", "node_key": key, "label": hobby, "attributes": {}, "confidence": 85})
         edges.append({"from_node_key": "self", "edge_type": "enjoys", "to_node_key": key})
 
-    # Origin node
-    origin = identity.get("origin_vibe", "")
-    if origin:
-        nodes.append({"node_type": "place", "node_key": "origin", "label": f"From {origin} background", "attributes": {"vibe": origin}, "confidence": 90})
+    # Origin + current city nodes
+    origin_vibe = identity.get("origin_vibe", "")
+    if origin_details is None:
+        origin_details = _derive_origin_details(rng, origin_vibe)
+
+    if origin_vibe or origin_details:
+        city = origin_details.get("origin_city")
+        country = origin_details.get("origin_country")
+        label_parts: list[str] = []
+        if city:
+            label_parts.append(city)
+        if country:
+            label_parts.append(country)
+        label = ", ".join(label_parts) if label_parts else (origin_vibe or "her hometown")
+        attributes = {
+            "vibe": origin_vibe,
+            "city": city,
+            "country": country,
+            "neighborhood_vibe": origin_details.get("neighborhood_vibe"),
+        }
+        nodes.append(
+            {
+                "node_type": "place",
+                "node_key": "origin",
+                "label": label,
+                "attributes": attributes,
+                "confidence": 90,
+            }
+        )
         edges.append({"from_node_key": "self", "edge_type": "from", "to_node_key": "origin"})
+
+    current_city = (origin_details or {}).get("current_city")
+    if current_city:
+        nodes.append(
+            {
+                "node_type": "place",
+                "node_key": "place.current_city",
+                "label": current_city,
+                "attributes": {
+                    "role": "current_city",
+                    "routine_spots": origin_details.get("current_routine_spots", []),
+                },
+                "confidence": 85,
+            }
+        )
+        edges.append(
+            {
+                "from_node_key": "self",
+                "edge_type": "lives_in",
+                "to_node_key": "place.current_city",
+            }
+        )
 
     # Generated social connections (deterministic from seed)
     friend_names = ["Nina", "Maja", "Elena", "Sophie", "Lena", "Anja", "Katya", "Mia"]
@@ -316,6 +462,7 @@ def _build_self_memory(
     traits: dict,
     core_profile: dict,
     life_nodes: list[dict],
+    origin_details: dict[str, Any] | None = None,
 ) -> list[dict]:
     """Seed self_memory from canon facts. Immutable facts marked as such."""
     memories: list[dict] = []
@@ -323,9 +470,59 @@ def _build_self_memory(
     # Immutable identity facts
     memories.append({"memory_key": "name", "memory_value": name, "confidence": 100, "salience": 100, "is_immutable": True, "source": "onboarding"})
 
-    origin = identity.get("origin_vibe", "")
-    if origin:
-        memories.append({"memory_key": "origin", "memory_value": origin, "confidence": 100, "salience": 90, "is_immutable": True, "source": "onboarding"})
+    origin_vibe = identity.get("origin_vibe", "")
+    if origin_vibe:
+        memories.append(
+            {
+                "memory_key": "origin.vibe",
+                "memory_value": origin_vibe,
+                "confidence": 100,
+                "salience": 90,
+                "is_immutable": True,
+                "source": "onboarding",
+            }
+        )
+
+    if origin_details is None:
+        tmp_rng = random.Random(0)
+        origin_details = _derive_origin_details(tmp_rng, origin_vibe)
+
+    if origin_details:
+        city = origin_details.get("origin_city")
+        country = origin_details.get("origin_country")
+        if city and country:
+            memories.append(
+                {
+                    "memory_key": "origin.city_country",
+                    "memory_value": f"{city}, {country}",
+                    "confidence": 100,
+                    "salience": 95,
+                    "is_immutable": True,
+                    "source": "bootstrap",
+                }
+            )
+        if origin_details.get("neighborhood_vibe"):
+            memories.append(
+                {
+                    "memory_key": "origin.neighborhood",
+                    "memory_value": origin_details["neighborhood_vibe"],
+                    "confidence": 95,
+                    "salience": 85,
+                    "is_immutable": True,
+                    "source": "bootstrap",
+                }
+            )
+        if origin_details.get("current_city"):
+            memories.append(
+                {
+                    "memory_key": "current_city",
+                    "memory_value": origin_details["current_city"],
+                    "confidence": 95,
+                    "salience": 80,
+                    "is_immutable": False,
+                    "source": "bootstrap",
+                }
+            )
 
     job = identity.get("job_vibe", "")
     if job:
@@ -388,6 +585,7 @@ def bootstrap_dossier_from_onboarding(
     identity_canon = girlfriend_data.get("identity_canon") or {}
 
     rng = _seed_rng(gf_id_str)
+    origin_details = _derive_origin_details(rng, identity.get("origin_vibe", ""))
 
     # ── Try LLM-powered generation first, fall back to templates ──────────
     from app.services.dossier.llm_generator import (
@@ -398,7 +596,7 @@ def bootstrap_dossier_from_onboarding(
 
     # 1. Core Profile — LLM → fallback
     llm_core = generate_core_profile_llm(name, traits, identity, identity_canon)
-    core = _build_core_profile(rng, name, traits, identity, identity_canon)
+    core = _build_core_profile(rng, name, traits, identity, identity_canon, origin_details=origin_details)
     if llm_core:
         logger.info("Dossier: using LLM-generated core profile")
         core["worldview"] = llm_core.get("worldview") or core["worldview"]
@@ -411,7 +609,7 @@ def bootstrap_dossier_from_onboarding(
 
     # 2. Life Graph — LLM → fallback
     llm_graph = generate_life_graph_llm(name, identity, identity_canon, traits)
-    life_nodes, life_edges = _build_life_graph(rng, name, identity, identity_canon, traits)
+    life_nodes, life_edges = _build_life_graph(rng, name, identity, identity_canon, traits, origin_details=origin_details)
     if llm_graph:
         logger.info("Dossier: using LLM-generated life graph")
         # Merge LLM people/places/routines into life graph
@@ -464,7 +662,7 @@ def bootstrap_dossier_from_onboarding(
     current = _build_current_state(rng)
 
     # 5. Self Memory
-    self_mems = _build_self_memory(name, identity, identity_canon, traits, core, life_nodes)
+    self_mems = _build_self_memory(name, identity, identity_canon, traits, core, life_nodes, origin_details=origin_details)
 
     # ── Persist ───────────────────────────────────────────────────────────
     counts = {"core_profile": 0, "life_nodes": 0, "life_edges": 0, "stories": 0, "self_memories": 0, "current_state": 0}

@@ -30,7 +30,7 @@ class BehaviorContract:
     cadence: str = "balanced"                    # short | balanced | expansive
     answer_style: str = "natural"                # answer_first | empathy_first | bridge | natural
     sentence_target: int = 2                     # preferred sentence count
-    max_words: int = 60                          # soft cap for normal turns
+    max_words: int = 80                          # soft cap for normal turns
 
     # ── Anti-interview guards ─────────────────────────────────────────────
     suppress_question_ending: bool = False        # Force no question at end
@@ -41,6 +41,8 @@ class BehaviorContract:
     blacklisted_phrases: list[str] = field(default_factory=list)
     blacklisted_openings: list[str] = field(default_factory=list)
     suggested_pattern: str = "statement"          # statement | question | reflection | callback | tease
+    # Additional natural-language guidance for special cases (e.g. early conversation stage).
+    extra_instructions: list[str] = field(default_factory=list)
 
     def to_prompt_section(self) -> str:
         """Convert contract to prompt instructions for the LLM."""
@@ -93,6 +95,10 @@ class BehaviorContract:
             phrases = ", ".join(f'"{p}"' for p in self.blacklisted_phrases[:5])
             lines.append(f"- Avoid these phrases: {phrases}")
 
+        # Any extra per-turn instructions
+        if self.extra_instructions:
+            lines.extend(self.extra_instructions)
+
         return "\n".join(lines)
 
 
@@ -143,8 +149,11 @@ def build_behavior_contract(
     q_ratio = mode.get("question_ratio_10", 0.0)
     consec_q = mode.get("consecutive_questions", 0)
     disclosure_ratio = mode.get("self_disclosure_ratio_10", 0.0)
+    generic_count = int(mode.get("generic_response_count", 0) or 0)
     last_cadences = mode.get("last_cadences", [])
     story_ids_recent = mode.get("story_ids_used_recently", [])
+    previous_turns = len(mode.get("last_intents") or [])
+    early_conversation = relationship_level <= 10 and previous_turns < 8
 
     contract = BehaviorContract()
 
@@ -160,7 +169,10 @@ def build_behavior_contract(
         contract.max_questions = 1
     max_sent = int(pacing.get("max_default_sentences", 3) or 3)
     contract.sentence_target = max(1, min(4, max_sent))
-    contract.max_words = 40 if contract.cadence == "short" else 60 if contract.cadence == "balanced" else 90
+    # Allow more breathing room so thoughts complete naturally.
+    contract.max_words = (
+        60 if contract.cadence == "short" else 90 if contract.cadence == "balanced" else 130
+    )
 
     # ── Intent-driven base policy ─────────────────────────────────────────
 
@@ -172,10 +184,16 @@ def build_behavior_contract(
         contract.answer_style = "answer_first"
         contract.require_self_share = True
         contract.sentence_target = max(contract.sentence_target, 2)
-        contract.max_words = min(contract.max_words, 45)
+        # Slightly higher cap so she can give a concrete self-answer without clipping.
+        contract.max_words = max(contract.max_words, 90)
         # Suggest a story topic based on detected conversation topics
         if intent.detected_topics:
             contract.story_bank_hint = intent.detected_topics[0]
+        # Origin-specific policy: be concrete about where she's from.
+        if "origin" in intent.detected_topics:
+            contract.extra_instructions.append(
+                "- He is asking where you are from: clearly state your city and country, then add 1–2 vivid details about what it is like there (streets, vibe, or what you did growing up)."
+            )
 
     elif intent.primary == "ask_about_user":
         contract.must_answer_user_question = False
@@ -191,6 +209,10 @@ def build_behavior_contract(
         contract.callback_target = "both"
         contract.answer_style = "bridge"
         contract.require_self_share = True
+        if "origin" in intent.detected_topics:
+            contract.extra_instructions.append(
+                "- Part of his message is about your background. Answer with your city and country and a couple of concrete details about your hometown before asking anything back."
+            )
 
     elif intent.primary == "support":
         contract.must_answer_user_question = False
@@ -200,7 +222,8 @@ def build_behavior_contract(
         contract.answer_style = "empathy_first"
         contract.require_self_share = False
         contract.sentence_target = 3
-        contract.max_words = 90
+        # Support replies often need more room; keep them generous.
+        contract.max_words = max(contract.max_words, 130)
 
     elif intent.primary == "banter":
         contract.must_answer_user_question = False
@@ -248,6 +271,36 @@ def build_behavior_contract(
     if disclosure_ratio < 0.2 and intent.primary != "support":
         contract.require_self_share = True
         contract.min_self_disclosure_depth = max(contract.min_self_disclosure_depth, 2)
+
+    # If we've recently been generic too often, push towards more specific, grounded replies.
+    if generic_count >= 5:
+        contract.require_self_share = True
+        contract.min_self_disclosure_depth = max(contract.min_self_disclosure_depth, 2)
+        contract.extra_instructions.append(
+            "- Recent replies have sounded a bit generic. Make this one feel personal and specific: mention real details from your life or his instead of vague helper phrases."
+        )
+
+    # ── Early-conversation policy (first few turns) ───────────────────────
+    if early_conversation:
+        # Make sure early turns feel like genuine getting-to-know-you, not generic small talk.
+        contract.require_self_share = True
+        contract.min_self_disclosure_depth = max(contract.min_self_disclosure_depth, 2)
+        contract.sentence_target = max(contract.sentence_target, 2)
+        # Encourage talking about herself and asking about him as a person, not \"what are you doing today\" small talk.
+        contract.extra_instructions.append(
+            "- You are just getting to know him: share 1–2 concrete details about your own life (where you live, your background, daily life, or hobbies) and, if you ask a question, make it about who he IS (where he's from, what he cares about, what he likes) instead of small talk like \"what are you doing today?\""
+        )
+        # Early generic small-talk phrases to avoid.
+        early_blacklisted_phrases = [
+            "how's it going",
+            "how is it going",
+            "how are you doing today",
+            "how's your day going",
+            "what are you doing today",
+        ]
+        for p in early_blacklisted_phrases:
+            if p not in contract.blacklisted_phrases:
+                contract.blacklisted_phrases.append(p)
 
     # ── Anti-repetition from fingerprints ─────────────────────────────────
     if recent_fingerprints:

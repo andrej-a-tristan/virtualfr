@@ -23,6 +23,9 @@ from typing import Any, Optional
 from uuid import UUID
 
 from app.services.bond_engine.memory_scoring import compute_memory_score
+from app.core.config import get_settings
+from app.services.embedding import embed_text
+from app.services.vector_memory_store import search_memory, VectorSearchResult
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +117,7 @@ def _score_and_rank(
             is_resolved=item.get("is_resolved", True),
             is_conflicted=item.get("is_conflicted", False),
             conflict_count=item.get("conflict_count", 0),
+            semantic_boost=item.get("semantic_boost", 0.0),
         )
         scored.append((score, item))
     scored.sort(key=lambda x: x[0], reverse=True)
@@ -304,14 +308,64 @@ def build_memory_bundle(
       - 0-1 pattern callback
       - Hard diversity constraint (no same callback in N turns)
     """
+    settings = get_settings()
+
     # Get recently used memory IDs for diversity
     avoid_ids = get_recently_used_memory_ids(sb, user_id, girlfriend_id)
 
-    # Fetch raw candidates
+    # Fetch raw candidates from structured memory
     raw_facts = _fetch_factual(sb, user_id, girlfriend_id)
     raw_emotions = _fetch_emotional(sb, user_id, girlfriend_id)
     raw_episodes = _fetch_episodic(sb, user_id, girlfriend_id)
     raw_patterns = _fetch_patterns(sb, user_id, girlfriend_id)
+
+    # ── Optional: semantic retrieval via Pinecone ──────────────────────────
+    # We run this in hybrid mode: vector candidates can augment or slightly
+    # reorder the default scoring, but on any error we silently fall back.
+    try:
+        if not settings.vector_memory_enabled or not sb:
+            logger.debug("Vector memory search skipped (enabled=%s, sb=%s)", settings.vector_memory_enabled, bool(sb))
+        elif settings.vector_memory_enabled and sb:
+            # Build a retrieval query from the current message (can be expanded
+            # later to include a small window).
+            query_text = (current_message or "").strip()
+            if not query_text:
+                logger.debug("Vector memory search skipped (empty current_message)")
+            else:
+                logger.info("Vector memory search running (query_len=%d, user_id=%s, gf_id=%s)", len(query_text), str(user_id), str(girlfriend_id))
+                embedding = embed_text(query_text)
+                vec_results = search_memory(
+                    query_embedding=embedding,
+                    user_id=str(user_id),
+                    girlfriend_id=str(girlfriend_id),
+                    top_k=16,
+                )
+                logger.info("Vector memory search done (hits=%d)", len(vec_results))
+                # Hybrid re-ranking: attach scores back onto structured items
+                # where possible, using a simple boost without breaking the
+                # existing compute_memory_score logic.
+                boost_map: dict[str, float] = {}
+                for r in vec_results:
+                    meta = r.metadata or {}
+                    src_type = meta.get("source_type")
+                    src_id = meta.get("source_id")
+                    if not src_type or not src_id:
+                        continue
+                    key = f"{src_type}:{src_id}"
+                    boost_map[key] = max(boost_map.get(key, 0.0), float(r.score or 0.0))
+
+                def _attach_boost(items: list[dict], src_type: str) -> None:
+                    for item in items:
+                        mid = str(item.get("id", ""))
+                        key = f"{src_type}:{mid}"
+                        if key in boost_map:
+                            item["semantic_boost"] = boost_map[key]
+
+                _attach_boost(raw_facts, "factual")
+                _attach_boost(raw_emotions, "emotional")
+                _attach_boost(raw_episodes, "episode")
+    except Exception as e:
+        logger.debug("Semantic vector retrieval failed (fallback to heuristic): %s", e)
 
     # Score and rank with diversity constraints
     facts_top = _score_and_rank(raw_facts, current_message, avoid_ids, max_items=MAX_FACTS)

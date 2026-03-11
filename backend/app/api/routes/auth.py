@@ -40,24 +40,80 @@ def _user_response_from_session(sid: str, fallback_id: str, fallback_email: str,
     )
 
 
+def _local_signup_fallback(
+    body: SignupRequest,
+    request: Request,
+    response: Response,
+    old_sid: str | None,
+    sid: str,
+):
+    """Create a local (non-Supabase) account so dev environments still work
+    even if Supabase auth is unreachable or misconfigured.
+    """
+    gf = get_girlfriend(old_sid) if old_sid else None
+    user_id = f"user-{body.email.split('@')[0]}"
+    set_session_user(
+        sid,
+        {
+            "id": user_id,
+            "email": str(body.email),
+            "display_name": body.display_name,
+            "plan": "free",
+            "age_gate_passed": True,
+            "has_girlfriend": bool(gf),
+            "current_girlfriend_id": None,
+        },
+    )
+    if gf:
+        from app.api.store import set_girlfriend as store_set_girlfriend
+
+        store_set_girlfriend(sid, gf)
+    if old_sid:
+        clear_session(old_sid)
+    _set_cookie(response, sid)
+    return {
+        "ok": True,
+        "user": _user_response_from_session(
+            sid, user_id, str(body.email), body.display_name
+        ),
+    }
+
+
 @router.post("/signup")
 def signup(body: SignupRequest, request: Request, response: Response):
     """Create user and persist a DB-backed session when Supabase is configured.
     
-    If the request has an existing guest session, the girlfriend created during
-    onboarding is transferred to the new real account.
+    If Supabase auth is unreachable (e.g. bad URL, offline), gracefully fall
+    back to a local session so development still works.
     """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
     supabase = get_supabase()
     old_sid = request.cookies.get(SESSION_COOKIE)  # guest session if present
     sid = _new_session_id()
 
     if supabase:
         try:
-            auth_res = supabase.auth.sign_up({"email": str(body.email), "password": body.password})
+            auth_res = supabase.auth.sign_up(
+                {"email": str(body.email), "password": body.password}
+            )
         except Exception as exc:
             detail = str(exc)
-            if "already registered" in detail.lower():
-                raise HTTPException(status_code=409, detail="An account with this email already exists. Please log in.")
+            lower = detail.lower()
+            if "already registered" in lower:
+                raise HTTPException(
+                    status_code=409,
+                    detail="An account with this email already exists. Please log in.",
+                )
+            # DNS / network errors (e.g. "[Errno 8] nodename nor servname provided")
+            if "nodename nor servname" in lower or "name or service not known" in lower:
+                logger.warning(
+                    "Supabase signup unreachable (%s); falling back to local session auth.",
+                    detail,
+                )
+                return _local_signup_fallback(body, request, response, old_sid, sid)
             raise HTTPException(status_code=400, detail=detail)
 
         user = getattr(auth_res, "user", None)
@@ -132,24 +188,7 @@ def signup(body: SignupRequest, request: Request, response: Response):
         return {"ok": True, "user": _user_response_from_session(sid, user_id, str(body.email), body.display_name)}
 
     # Fallback (non-Supabase): still create unique session id.
-    gf = get_girlfriend(old_sid) if old_sid else None
-    user_id = f"user-{body.email.split('@')[0]}"
-    set_session_user(sid, {
-        "id": user_id,
-        "email": str(body.email),
-        "display_name": body.display_name,
-        "plan": "free",
-        "age_gate_passed": True,
-        "has_girlfriend": bool(gf),
-        "current_girlfriend_id": None,
-    })
-    if gf:
-        from app.api.store import set_girlfriend as store_set_girlfriend
-        store_set_girlfriend(sid, gf)
-    if old_sid:
-        clear_session(old_sid)
-    _set_cookie(response, sid)
-    return {"ok": True, "user": _user_response_from_session(sid, user_id, str(body.email), body.display_name)}
+    return _local_signup_fallback(body, request, response, old_sid, sid)
 
 
 @router.post("/login")

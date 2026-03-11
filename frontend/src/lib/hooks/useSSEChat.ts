@@ -2,18 +2,31 @@
  * Stream chat from the internal `/api/chat/send` endpoint and parse SSE.
  * Uses the full relationship/behavior pipeline (bond engine, dossier, achievements, etc.).
  * Stream format: event: token / data: {"token":"..."}, plus richer events for gains/achievements.
+ * Sending a new message while streaming aborts the current stream and commits partial reply.
  */
 import { flushSync } from "react-dom"
 import { useChatStore } from "@/lib/store/useChatStore"
 import { useAppStore } from "@/lib/store/useAppStore"
 import { getChatSendStreamUrl } from "@/lib/api/endpoints"
 
+let currentAbortController: AbortController | null = null
+
 export async function sendChatMessage(message: string): Promise<void> {
   const { appendMessage, setStreamingContent, setIsStreaming } = useChatStore.getState()
   const girlfriendId = useAppStore.getState().currentGirlfriendId
 
+  // Abort any in-flight stream so the new message gets a fresh reply
+  if (currentAbortController) {
+    currentAbortController.abort()
+    currentAbortController = null
+  }
+  currentAbortController = new AbortController()
+  const signal = currentAbortController.signal
+
   setStreamingContent("")
   setIsStreaming(true)
+  let fullContent = ""
+  let streamDone = false
   try {
     // Backend already knows full history from persistence; send only this turn.
     const body = {
@@ -27,6 +40,7 @@ export async function sendChatMessage(message: string): Promise<void> {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
+      signal,
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({})) as { error?: string; message?: string; detail?: string | unknown }
@@ -45,9 +59,7 @@ export async function sendChatMessage(message: string): Promise<void> {
     const reader = res.body?.getReader()
     const decoder = new TextDecoder()
     let buffer = ""
-    let fullContent = ""
     let lastEvent = ""
-    let streamDone = false
     while (reader && !streamDone) {
       const { done, value } = await reader.read()
       if (done) break
@@ -214,7 +226,24 @@ export async function sendChatMessage(message: string): Promise<void> {
         created_at: new Date().toISOString(),
       })
     }
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") {
+      if (fullContent) {
+        appendMessage({
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          content: fullContent,
+          image_url: null,
+          event_type: null,
+          created_at: new Date().toISOString(),
+        })
+      }
+      setStreamingContent("")
+    } else {
+      throw e
+    }
   } finally {
+    currentAbortController = null
     useChatStore.getState().setIsStreaming(false)
     useChatStore.getState().setStreamingContent("")
   }

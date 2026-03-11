@@ -354,4 +354,18 @@ def ingest_user_turn(
         except Exception as e:
             logger.debug("Pattern memory update failed: %s", e)
 
+    # ── 6. Enqueue semantic vector docs (best-effort, non-blocking) ──────
+    try:
+        from app.services.vector_memory_ingest import enqueue_vector_docs_for_turn
+
+        enqueue_vector_docs_for_turn(
+            sb=sb,
+            user_id=user_id,
+            girlfriend_id=girlfriend_id,
+            turn_id=turn_id,
+            raw_text=text,
+        )
+    except Exception as e:
+        logger.debug("Vector memory enqueue failed (non-blocking): %s", e)
+
     return result

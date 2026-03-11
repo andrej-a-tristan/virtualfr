@@ -19,11 +19,11 @@ export default function Composer() {
   const girlfriend = useAppStore((s) => s.girlfriend)
   const { data: billing } = useQuery({ queryKey: ["billingStatus"], queryFn: getBillingStatus })
 
-  const canSend = text.trim().length > 0 && !isStreaming
+  const canSend = text.trim().length > 0
 
   const handleSend = async () => {
     const msg = text.trim()
-    if (!msg || isStreaming) return
+    if (!msg) return
     setText("")
     appendMessage({
       id: `user-${Date.now()}`,
@@ -66,7 +66,6 @@ export default function Composer() {
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
-          disabled={isStreaming}
           className="flex-1 rounded-xl"
         />
         <Button

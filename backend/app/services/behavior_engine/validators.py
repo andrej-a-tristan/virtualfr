@@ -74,6 +74,11 @@ _GENERIC_PHRASES = [
     "i'd love to hear more",
     "how can i help",
     "i'm here to help",
+    # Small-talk style lines that feel generic and assistant-like.
+    "how's it going",
+    "how is it going",
+    "how's your day going",
+    "what are you doing today",
 ]
 
 

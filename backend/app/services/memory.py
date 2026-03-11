@@ -464,6 +464,20 @@ def write_memories_from_message(
         except Exception as e:
             logger.warning("Failed to write emotional memory: %s", e)
 
+    # Optional: enqueue semantic vector docs for this turn (legacy path).
+    try:
+        from app.services.vector_memory_ingest import enqueue_vector_docs_for_turn
+
+        enqueue_vector_docs_for_turn(
+            sb=sb,
+            user_id=user_id,
+            girlfriend_id=girlfriend_id,
+            turn_id=message_id,
+            raw_text=text,
+        )
+    except Exception as e:
+        logger.debug("Vector memory enqueue (legacy) failed: %s", e)
+
 
 # -----------------------------------------------------------------------------
 # Utility Functions

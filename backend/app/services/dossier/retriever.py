@@ -244,9 +244,14 @@ def build_dossier_context(
 
     # 2. Life graph (select relevant node types based on topics)
     type_map = {
-        "work": ["work"], "family": ["person"], "hobbies": ["hobby"],
-        "food": ["hobby", "routine"], "daily": ["routine"],
-        "past": ["period", "place"], "relationship": ["person"],
+        "work": ["work"],
+        "family": ["person"],
+        "hobbies": ["hobby"],
+        "food": ["hobby", "routine"],
+        "daily": ["routine"],
+        "past": ["period", "place"],
+        "relationship": ["person"],
+        "origin": ["place"],
     }
     node_types = []
     if intent_topics:
@@ -257,8 +262,15 @@ def build_dossier_context(
         node_types = ["person", "work", "hobby", "place"]
 
     nodes = _fetch_life_graph_nodes(sb, user_id, girlfriend_id, relevant_types=list(set(node_types)))
+    # When the user asks about her origin/background, prioritize origin + current city nodes.
+    if intent_topics and "origin" in intent_topics and nodes:
+        priority_keys = {"origin", "place.current_city", "place.favorite"}
+        prioritized = [n for n in nodes if n.get("node_key") in priority_keys]
+        others = [n for n in nodes if n.get("node_key") not in priority_keys]
+        nodes = prioritized + others
     ctx.life_facts = []
-    for node in nodes[:2]:
+    max_facts = 4 if intent_topics and "origin" in intent_topics else 2
+    for node in nodes[:max_facts]:
         attrs = node.get("attributes", {})
         detail = attrs.get("description") or attrs.get("relationship") or attrs.get("vibe") or ""
         label = node.get("label", "")

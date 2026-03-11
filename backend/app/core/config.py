@@ -44,6 +44,15 @@ class Settings(BaseSettings):
     stripe_success_url: str = "http://localhost:5173/app/chat?gift_success=1"
     stripe_cancel_url: str = "http://localhost:5173/app/chat?gift_cancel=1"
 
+    # Vector / semantic memory (optional Pinecone + embeddings)
+    pinecone_api_key: str = ""
+    pinecone_environment: str = ""
+    pinecone_index_name: str = ""
+    pinecone_namespace_prefix: str = "virtualfr-semantic-mem"
+    vector_memory_enabled: bool = False
+    vector_embedding_model: str = "text-embedding-3-small"
+    vector_schema_version: str = "v1"
+
     @property
     def is_production(self) -> bool:
         return self.env.lower() == "production"
