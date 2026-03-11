@@ -1,7 +1,7 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
-import { getOnboardingPromptImages } from "@/lib/api/endpoints"
+import { getOnboardingPromptImages, guestSession } from "@/lib/api/endpoints"
 import { useAppStore } from "@/lib/store/useAppStore"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -14,7 +14,20 @@ export default function OnboardingAppearance() {
   const navigate = useNavigate()
   const appearance = useAppStore((s) => s.onboardingAppearance)
   const setOnboardingAppearance = useAppStore((s) => s.setOnboardingAppearance)
+  const user = useAppStore((s) => s.user)
+  const setUser = useAppStore((s) => s.setUser)
   const [selected, setSelected] = useState<VibeOption | "">(appearance?.vibe ?? "")
+
+  // Ensure we have a guest session when landing on this page
+  useEffect(() => {
+    if (!user) {
+      guestSession()
+        .then(({ user }) => setUser(user))
+        .catch(() => {
+          // Backend might be down - continue anyway, store state locally
+        })
+    }
+  }, [user, setUser])
 
   const { data: promptImages } = useQuery({
     queryKey: ["onboardingPromptImages"],

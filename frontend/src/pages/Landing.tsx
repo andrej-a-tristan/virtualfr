@@ -374,12 +374,20 @@ export default function Landing() {
       reset()
       queryClient.clear()
       try { await apiLogout() } catch { /* ignore */ }
-      const { user } = await guestSession()
-      setUser(user)
+      
+      // Try to create a guest session, but navigate anyway even if it fails
+      try {
+        const { user } = await guestSession()
+        setUser(user)
+      } catch {
+        // Backend might be down - continue to onboarding anyway
+        // The onboarding pages will handle auth when backend is available
+      }
+      
       navigate("/onboarding/appearance", { replace: true })
-    } catch (e) {
-      setStatus(`Error: ${e instanceof Error ? e.message : String(e)}`)
-      setIsLoading(false)
+    } catch {
+      // Even if everything fails, still try to navigate
+      navigate("/onboarding/appearance", { replace: true })
     }
   }
 
