@@ -178,6 +178,8 @@ export const useAppStore = create<AppState>()(
         onboardingAppearance: s.onboardingAppearance,
         onboardingContentPrefs: s.onboardingContentPrefs,
         onboardingIdentity: s.onboardingIdentity,
+        // Persist user state so it survives page navigations (for guards)
+        user: s.user,
         // Persist multi-girl state so it survives page navigations
         girlfriends: s.girlfriends,
         currentGirlfriendId: s.currentGirlfriendId,

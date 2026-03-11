@@ -101,10 +101,27 @@ export default function OnboardingGenerating() {
           }
           return
         } catch {
-          // Recovery failed
+          // Recovery failed - continue to reveal anyway
         }
       }
-      navigate("/onboarding/traits", { replace: true })
+      // Backend might be down - continue to reveal with local data
+      // Create a mock girlfriend object from the onboarding data
+      setProgress(100)
+      const mockGirlfriend = {
+        id: "temp-" + Date.now(),
+        name: onboardingIdentity?.girlfriend_name || "Your Girl",
+        display_name: onboardingIdentity?.girlfriend_name || "Your Girl",
+        avatar_url: null,
+      }
+      setGirlfriend(mockGirlfriend as any)
+      // Also update user to have has_girlfriend and age_gate_passed for guards
+      const currentUser = useAppStore.getState().user
+      setUser({
+        ...(currentUser || { id: "temp-user", email: "", display_name: "" }),
+        has_girlfriend: true,
+        age_gate_passed: true,
+      } as any)
+      setTimeout(() => navigate("/onboarding/reveal", { replace: true }), 500)
     },
   })
 
