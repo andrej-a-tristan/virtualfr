@@ -11,6 +11,7 @@ from collections import defaultdict
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 import logging
+import httpx
 
 # ── Daily message cap for free-plan users ────────────────────────────────────
 FREE_DAILY_MESSAGE_CAP = 20
@@ -40,6 +41,7 @@ from app.api.store import (
 )
 from app.api.request_context import get_current_user
 from app.core.supabase_client import get_supabase_admin
+from app.core import get_settings
 from app.api import supabase_store as sb
 from app.utils.sse import sse_event
 from app.services.relationship_state import (
@@ -333,6 +335,83 @@ def _generate_mock_response(system_prompt: str, traits: dict, relationship_state
     return prefix + response + suffix
 
 
+def _fetch_runpod_vllm_response(llm_messages: list[dict]) -> str:
+    """Call RunPod vLLM chat completions endpoint and return assistant text."""
+    settings = get_settings()
+    base_url = (settings.runpod_vllm_base_url or "").rstrip("/")
+    model = settings.runpod_vllm_model
+    if not base_url:
+        raise RuntimeError("RUNPOD_VLLM_BASE_URL is not configured")
+    if not model:
+        raise RuntimeError("RUNPOD_VLLM_MODEL is not configured")
+
+    url = f"{base_url}/v1/chat/completions"
+    headers = {"Content-Type": "application/json"}
+    if settings.runpod_vllm_api_key:
+        headers["Authorization"] = f"Bearer {settings.runpod_vllm_api_key}"
+
+    payload = {
+        "model": model,
+        "messages": llm_messages,
+        "stream": False,
+    }
+
+    timeout = httpx.Timeout(
+        float(settings.runpod_vllm_timeout_seconds),
+        connect=min(30.0, float(settings.runpod_vllm_timeout_seconds)),
+    )
+    def _messages_to_prompt(messages: list[dict]) -> str:
+        prompt_lines: list[str] = []
+        for m in messages:
+            role = (m.get("role") or "user").strip().lower()
+            content = str(m.get("content") or "").strip()
+            if not content:
+                continue
+            if role == "system":
+                prompt_lines.append(f"System: {content}")
+            elif role == "assistant":
+                prompt_lines.append(f"Assistant: {content}")
+            else:
+                prompt_lines.append(f"User: {content}")
+        prompt_lines.append("Assistant:")
+        return "\n\n".join(prompt_lines)
+
+    with httpx.Client(timeout=timeout) as client:
+        response = client.post(url, json=payload, headers=headers)
+        if response.status_code == 400:
+            # Some vLLM deployments require /v1/completions for base models without chat template.
+            response_text = response.text or ""
+            if "chat template" in response_text.lower():
+                fallback_url = f"{base_url}/v1/completions"
+                fallback_payload = {
+                    "model": model,
+                    "prompt": _messages_to_prompt(llm_messages),
+                    "stream": False,
+                    "max_tokens": 400,
+                    "temperature": 0.85,
+                }
+                logger.warning("RunPod chat/completions unavailable; falling back to /v1/completions")
+                fallback_resp = client.post(fallback_url, json=fallback_payload, headers=headers)
+                fallback_resp.raise_for_status()
+                fallback_data = fallback_resp.json()
+                raw_text = ((fallback_data.get("choices") or [{}])[0]).get("text", "")
+                if not isinstance(raw_text, str) or not raw_text.strip():
+                    raise ValueError("Invalid RunPod completions response: missing choices[0].text")
+                # Trim model continuation if it starts generating the next user turn.
+                cleaned = raw_text.split("\nUser:", 1)[0].strip()
+                return cleaned or raw_text.strip()
+        response.raise_for_status()
+        data = response.json()
+
+    try:
+        content = data["choices"][0]["message"]["content"]
+    except (TypeError, KeyError, IndexError) as exc:
+        raise ValueError("Invalid RunPod vLLM response shape: missing choices[0].message.content") from exc
+    if not isinstance(content, str):
+        raise ValueError("Invalid RunPod vLLM response shape: content is not a string")
+    return content
+
+
 def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_for_context, gf_display_name, traits, relationship_state=None, habit_profile=None, memory_context=None, girlfriend_id=None, image_decision_event=None, blurred_surprise_event=None, relationship_gain_events=None, achievement_events=None, intimacy_unlock_events=None, intimacy_photo_events=None, system_prompt=None, bond_outcome=None, bond_turn_ctx=None):
     """Stream response and save assistant message. Yields SSE events.
     
@@ -356,47 +435,36 @@ def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_f
         llm_messages.append({"role": m["role"], "content": (m.get("content") or "")[:2000]})
     logger.debug("LLM message count: %d (system prompt: %d chars)", len(llm_messages), len(system_prompt or ""))
 
-    # ── Real OpenAI streaming or mock fallback ───────────────────────────
-    from app.core import get_api_key
-    api_key = get_api_key()
     response_text = ""
-
-    if api_key and llm_messages:
-        # Real OpenAI streaming
-        try:
-            from openai import OpenAI
-            client = OpenAI(api_key=api_key)
-            stream = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=llm_messages,
-                stream=True,
-                max_tokens=400,
-                temperature=0.85,
-            )
-            for chunk in stream:
-                delta = chunk.choices[0].delta if chunk.choices else None
-                if delta and delta.content:
-                    token = delta.content
-                    response_text += token
-                    yield sse_event({"type": "token", "token": token})
-            logger.info("OpenAI response: %d chars", len(response_text))
-        except Exception as e:
-            logger.error("OpenAI streaming failed: %s", e)
-            # Fall back to mock on error
-            response_text = _generate_mock_response(
-                system_prompt or "", traits, relationship_state, memory_context, last_user_msg
-            )
-            tokens = response_text.split()
-            for t in tokens:
-                yield sse_event({"type": "token", "token": t + " "})
-    else:
-        # Mock fallback (no API key)
-        response_text = _generate_mock_response(
-            system_prompt or "", traits, relationship_state, memory_context, last_user_msg
-        )
-        tokens = response_text.split()
-        for t in tokens:
+    try:
+        response_text = _fetch_runpod_vllm_response(llm_messages).strip()
+        if not response_text:
+            raise ValueError("RunPod vLLM returned empty assistant content")
+        for t in response_text.split():
             yield sse_event({"type": "token", "token": t + " "})
+        logger.info("RunPod vLLM response: %d chars", len(response_text))
+    except httpx.HTTPStatusError as e:
+        status = e.response.status_code if e.response is not None else "unknown"
+        details = (e.response.text[:500] if e.response is not None else str(e)) if hasattr(e, "response") else str(e)
+        logger.error("RunPod vLLM HTTP error (%s): %s", status, details)
+        yield sse_event({"type": "error", "error": f"RunPod chat request failed with status {status}."})
+        yield sse_event({"type": "done"})
+        return
+    except httpx.RequestError as e:
+        logger.error("RunPod vLLM unreachable: %s", e)
+        yield sse_event({"type": "error", "error": "RunPod chat service is unreachable. Please try again."})
+        yield sse_event({"type": "done"})
+        return
+    except ValueError as e:
+        logger.error("RunPod vLLM invalid response: %s", e)
+        yield sse_event({"type": "error", "error": "RunPod chat returned an invalid response format."})
+        yield sse_event({"type": "done"})
+        return
+    except Exception as e:
+        logger.error("RunPod vLLM unexpected error: %s", e)
+        yield sse_event({"type": "error", "error": "Unexpected RunPod chat error."})
+        yield sse_event({"type": "done"})
+        return
     
     # Send milestone message if any
     if milestone_message:

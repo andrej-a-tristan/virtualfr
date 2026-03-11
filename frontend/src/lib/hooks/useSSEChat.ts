@@ -27,6 +27,7 @@ export async function sendChatMessage(message: string): Promise<void> {
   setIsStreaming(true)
   let fullContent = ""
   let streamDone = false
+  let streamError: string | null = null
   try {
     // Backend already knows full history from persistence; send only this turn.
     const body = {
@@ -184,14 +185,7 @@ export async function sendChatMessage(message: string): Promise<void> {
               fullContent += data.token
               flushSync(() => setStreamingContent(fullContent))
             } else if ((lastEvent === "error" || data.type === "error") && data.error) {
-              appendMessage({
-                id: `assistant-${Date.now()}`,
-                role: "assistant",
-                content: `Error: ${data.error}`,
-                image_url: null,
-                event_type: null,
-                created_at: new Date().toISOString(),
-              })
+              streamError = String(data.error)
               streamDone = true
               break
             } else if (data.finish_reason || data.type === "done") {
@@ -226,6 +220,7 @@ export async function sendChatMessage(message: string): Promise<void> {
         created_at: new Date().toISOString(),
       })
     }
+    if (streamError) throw new Error(streamError)
   } catch (e) {
     if (e instanceof Error && e.name === "AbortError") {
       if (fullContent) {

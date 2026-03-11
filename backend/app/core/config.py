@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     internal_llm_path: str = "/v1/chat/completions"
     internal_llm_model: str = "gpt-4o-mini"
 
+    # RunPod vLLM (OpenAI-compatible chat completions)
+    runpod_vllm_base_url: str = ""
+    runpod_vllm_model: str = "/workspace/models/llama-3.1-8b-instruct"
+    runpod_vllm_api_key: str = ""
+    runpod_vllm_timeout_seconds: int = 90
+
     # Stripe
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""
