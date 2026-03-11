@@ -1,111 +1,129 @@
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { useAppStore } from "@/lib/store/useAppStore"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Shield, AlertTriangle } from "lucide-react"
-import OnboardingSignIn from "@/components/onboarding/OnboardingSignIn"
+import { ChevronRight, ChevronLeft, Lock } from "lucide-react"
+import { cn } from "@/lib/utils"
 
 export default function OnboardingPreferences() {
   const navigate = useNavigate()
   const setOnboardingContentPrefs = useAppStore((s) => s.setOnboardingContentPrefs)
-  const [confirmedOver18, setConfirmedOver18] = useState<boolean | null>(null)
-
-  const canContinue = confirmedOver18 === true
-
-  const handleContinue = () => {
-    if (!canContinue) return
-    // Since user confirmed 18+, always enable spicy photos
-    setOnboardingContentPrefs({ wants_spicy_photos: true })
-    navigate("/onboarding/identity", { replace: true })
-  }
+  const [confirmed, setConfirmed] = useState<boolean | null>(null)
 
   const handleBack = () => {
     navigate("/onboarding/traits", { replace: true })
   }
 
-  return (
-    <div className="min-h-screen bg-background flex items-center justify-center">
-      <div className="mx-auto max-w-lg space-y-8 px-4 py-8">
-        <OnboardingSignIn />
-        <div className="text-center space-y-4">
-          <p className="text-primary text-sm font-medium tracking-[0.2em] uppercase">
-            Step 3 of 5
-          </p>
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 border border-primary/20">
-            <Shield className="h-7 w-7 text-primary" />
-          </div>
-          <h1 className="text-3xl font-serif font-medium">
-            Before we continue...
-          </h1>
-          <p className="text-muted-foreground">
-            This experience contains mature content. Please confirm you're 18+.
-          </p>
-        </div>
+  const handleContinue = () => {
+    if (confirmed !== true) return
+    setOnboardingContentPrefs({ wants_spicy_photos: true })
+    navigate("/onboarding/identity", { replace: true })
+  }
 
-      <Card className="overflow-hidden rounded-2xl border-border/50 bg-card/40 backdrop-blur-sm">
-        <CardHeader className="text-center pb-2">
-          <CardTitle className="text-lg font-serif">Confirm your age</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Warning */}
-          <div className="flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              This experience contains mature themes. By continuing, you confirm you are of legal age in your jurisdiction.
+  return (
+    <div className="min-h-screen bg-background flex flex-col">
+      {/* Progress bar */}
+      <div className="fixed top-0 inset-x-0 z-50">
+        <div className="h-1 bg-muted">
+          <div className="h-full bg-primary w-[50%]" />
+        </div>
+      </div>
+
+      {/* Main content */}
+      <div className="flex-1 flex flex-col items-center justify-center px-4 py-16">
+        <div className="w-full max-w-md">
+          {/* Back button */}
+          <button 
+            onClick={handleBack}
+            className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors mb-8"
+          >
+            <ChevronLeft className="w-4 h-4" />
+            <span className="text-sm">Back</span>
+          </button>
+
+          {/* Icon */}
+          <div className="flex justify-center mb-8">
+            <div className="w-16 h-16 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center">
+              <Lock className="w-7 h-7 text-primary" />
+            </div>
+          </div>
+
+          {/* Content */}
+          <div className="text-center mb-10">
+            <h1 className="text-3xl md:text-4xl font-serif text-foreground mb-3">
+              One quick thing
+            </h1>
+            <p className="text-muted-foreground leading-relaxed">
+              This experience is designed for adults and includes mature themes. 
+              Please confirm you meet the age requirement.
             </p>
           </div>
 
-          <div className="grid gap-3">
+          {/* Options */}
+          <div className="space-y-3 mb-8">
             <button
-              type="button"
-              className={`rounded-xl border px-4 py-5 text-center text-sm font-medium transition-all duration-200 ${
-                confirmedOver18 === true
-                  ? "border-primary bg-primary/10 text-primary ring-1 ring-primary/30"
+              onClick={() => setConfirmed(true)}
+              className={cn(
+                "w-full flex items-center justify-center gap-3 p-5 rounded-xl border transition-all duration-200",
+                confirmed === true
+                  ? "border-primary bg-primary/5"
                   : "border-border/50 hover:border-primary/50"
-              }`}
-              onClick={() => setConfirmedOver18(true)}
+              )}
             >
-              Yes, I'm 18 or older
+              <span className={cn(
+                "font-medium",
+                confirmed === true ? "text-primary" : "text-foreground"
+              )}>
+                I'm 18 or older
+              </span>
+              {confirmed === true && (
+                <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center">
+                  <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+              )}
             </button>
+
             <button
-              type="button"
-              className={`rounded-xl border px-4 py-4 text-center text-sm transition-all duration-200 ${
-                confirmedOver18 === false
-                  ? "border-destructive/50 bg-destructive/10 text-destructive"
+              onClick={() => setConfirmed(false)}
+              className={cn(
+                "w-full flex items-center justify-center p-4 rounded-xl border transition-all duration-200",
+                confirmed === false
+                  ? "border-destructive/50 bg-destructive/5 text-destructive"
                   : "border-border/30 text-muted-foreground hover:border-border/50"
-              }`}
-              onClick={() => setConfirmedOver18(false)}
+              )}
             >
-              No, I'm under 18
+              <span className="text-sm">I'm under 18</span>
             </button>
           </div>
 
-          {confirmedOver18 === false && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-4 text-center">
+          {/* Error state */}
+          {confirmed === false && (
+            <div className="text-center mb-8 p-4 rounded-xl bg-destructive/5 border border-destructive/20">
               <p className="text-sm text-destructive">
-                This experience is only available to adults.
+                This experience is only available to adults. Please close this page.
               </p>
             </div>
           )}
-        </CardContent>
-      </Card>
 
-      <div className="flex flex-col items-center gap-4 pt-2">
-        <div className="flex gap-4">
-          <Button variant="outline" size="lg" onClick={handleBack} className="rounded-lg px-6">
-            Back
-          </Button>
-          <Button
-            size="lg"
-            disabled={!canContinue}
-            onClick={handleContinue}
-            className="rounded-lg bg-primary hover:bg-primary/90 px-8"
-          >
-            Continue
-          </Button>
+          {/* Continue */}
+          {confirmed === true && (
+            <div className="flex justify-center">
+              <button
+                onClick={handleContinue}
+                className="group flex items-center gap-2 px-8 py-4 rounded-full bg-primary text-white font-medium hover:bg-primary/90 transition-all duration-300 hover:gap-3"
+              >
+                Continue
+                <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+              </button>
+            </div>
+          )}
+
+          {/* Privacy note */}
+          <p className="text-center text-xs text-muted-foreground/60 mt-8">
+            Your privacy matters. All conversations are encrypted and never shared.
+          </p>
         </div>
-      </div>
       </div>
     </div>
   )

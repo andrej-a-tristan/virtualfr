@@ -1,9 +1,8 @@
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { useAppStore } from "@/lib/store/useAppStore"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { ChevronRight, ChevronLeft, Sparkles } from "lucide-react"
+import { cn } from "@/lib/utils"
 import {
   JOB_VIBES,
   HOBBIES,
@@ -11,40 +10,48 @@ import {
   isValidName,
   getRandomName,
 } from "@/lib/constants/identity"
-import { Sparkles } from "lucide-react"
-import OnboardingSignIn from "@/components/onboarding/OnboardingSignIn"
 
 export default function OnboardingIdentity() {
   const navigate = useNavigate()
   const onboardingIdentity = useAppStore((s) => s.onboardingIdentity)
 
-  // Local state for form fields
   const [name, setName] = useState(onboardingIdentity?.girlfriend_name ?? "")
-  const [jobVibe, setJobVibeLocal] = useState(onboardingIdentity?.job_vibe ?? "")
+  const [jobVibe, setJobVibe] = useState(onboardingIdentity?.job_vibe ?? "")
   const [hobbies, setHobbies] = useState<string[]>(onboardingIdentity?.hobbies ?? [])
-  const [originVibe, setOriginVibeLocal] = useState(onboardingIdentity?.origin_vibe ?? "")
+  const [originVibe, setOriginVibe] = useState(onboardingIdentity?.origin_vibe ?? "")
+  const [step, setStep] = useState(0) // 0: name, 1: vibe, 2: hobbies, 3: origin
 
   const nameValid = isValidName(name)
   const canContinue = nameValid && jobVibe && hobbies.length === 3 && originVibe
 
   const handleSurpriseMe = () => {
-    const randomName = getRandomName()
-    setName(randomName)
+    setName(getRandomName())
   }
 
   const handleToggleHobby = (hobby: string) => {
     setHobbies((prev) => {
-      if (prev.includes(hobby)) {
-        return prev.filter((h) => h !== hobby)
-      }
+      if (prev.includes(hobby)) return prev.filter((h) => h !== hobby)
       if (prev.length >= 3) return prev
       return [...prev, hobby]
     })
   }
 
-  const handleContinue = () => {
+  const handleBack = () => {
+    if (step > 0) {
+      setStep(step - 1)
+    } else {
+      navigate("/onboarding/preferences", { replace: true })
+    }
+  }
+
+  const handleNext = () => {
+    if (step < 3) {
+      setStep(step + 1)
+    }
+  }
+
+  const handleCreate = () => {
     if (!canContinue) return
-    // Save all identity data to store at once (single setState to avoid race)
     useAppStore.setState({
       onboardingIdentity: {
         girlfriend_name: name.trim(),
@@ -56,174 +63,243 @@ export default function OnboardingIdentity() {
     navigate("/onboarding/generating", { replace: true })
   }
 
-  const handleBack = () => {
-    navigate("/onboarding/preferences", { replace: true })
-  }
+  const stepValid = 
+    step === 0 ? nameValid :
+    step === 1 ? !!jobVibe :
+    step === 2 ? hobbies.length === 3 :
+    !!originVibe
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="mx-auto max-w-4xl space-y-8 px-4 py-10">
-        <OnboardingSignIn />
-        <div className="text-center space-y-4">
-          <p className="text-primary text-sm font-medium tracking-[0.2em] uppercase">
-            Step 4 of 5
-          </p>
-          <h1 className="text-3xl font-serif font-medium md:text-4xl lg:text-5xl">
-            Give her an <span className="text-primary">identity</span>.
-          </h1>
-          <p className="text-muted-foreground max-w-md mx-auto">
-            A name, a story, a life. Make her uniquely yours.
-          </p>
+    <div className="min-h-screen bg-background flex flex-col">
+      {/* Progress bar */}
+      <div className="fixed top-0 inset-x-0 z-50">
+        <div className="h-1 bg-muted">
+          <div 
+            className="h-full bg-primary transition-all duration-500"
+            style={{ width: `${75 + (step / 3) * 25}%` }}
+          />
         </div>
-
-      {/* Name Section */}
-      <Card className="overflow-hidden rounded-2xl border-border/50 bg-card/40 backdrop-blur-sm">
-        <CardHeader>
-          <CardTitle className="text-lg font-serif">What's her name?</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex gap-3">
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Enter a name..."
-              maxLength={20}
-              className="flex-1"
-            />
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleSurpriseMe}
-              className="gap-2"
-            >
-              <Sparkles className="h-4 w-4" />
-              Surprise me
-            </Button>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Letters, spaces, hyphens, and apostrophes allowed. 1–20 characters.
-          </p>
-          {name && !nameValid && (
-            <p className="text-xs text-destructive">
-              Please enter a valid name (1-20 characters, letters only).
-            </p>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Job Vibe Section */}
-      <Card className="overflow-hidden rounded-2xl border-border/50 bg-card/40 backdrop-blur-sm">
-        <CardHeader>
-          <CardTitle className="text-lg font-serif">What's her vibe?</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {JOB_VIBES.map((job) => {
-              const isSelected = jobVibe === job.id
-              return (
-                <button
-                  key={job.id}
-                  type="button"
-                  className={`rounded-xl border px-4 py-4 text-left transition-all duration-200 ${
-                    isSelected
-                      ? "border-primary bg-primary/10 ring-1 ring-primary/30"
-                      : "border-border/50 hover:border-primary/50"
-                  }`}
-                  onClick={() => setJobVibeLocal(job.id)}
-                >
-                  <div className="font-medium text-sm">{job.title}</div>
-                  <div className="text-xs text-muted-foreground mt-1">{job.subtitle}</div>
-                </button>
-              )
-            })}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Hobbies Section */}
-      <Card className="overflow-hidden rounded-2xl border-border/50 bg-card/40 backdrop-blur-sm">
-        <CardHeader>
-          <CardTitle className="text-lg font-serif flex items-baseline gap-2">
-            What are her hobbies?
-            <span className="text-sm font-normal text-muted-foreground">
-              ({hobbies.length}/3 selected)
-            </span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-2">
-            {HOBBIES.map((hobby) => {
-              const selected = hobbies.includes(hobby)
-              const disabled = !selected && hobbies.length >= 3
-              return (
-                <button
-                  key={hobby}
-                  type="button"
-                  disabled={disabled}
-                  className={`rounded-full border px-4 py-2 text-sm transition-all duration-200 ${
-                    selected
-                      ? "border-primary bg-primary/10 text-primary"
-                      : disabled
-                        ? "border-border/30 text-muted-foreground/40 cursor-not-allowed"
-                        : "border-border/50 hover:border-primary/50"
-                  }`}
-                  onClick={() => handleToggleHobby(hobby)}
-                >
-                  {hobby}
-                </button>
-              )
-            })}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* City/Region Vibe Section */}
-      <Card className="overflow-hidden rounded-2xl border-border/50 bg-card/40 backdrop-blur-sm">
-        <CardHeader>
-          <CardTitle className="text-lg font-serif">Where is she from?</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {CITY_VIBES.map((city) => {
-              const isSelected = originVibe === city.id
-              return (
-                <button
-                  key={city.id}
-                  type="button"
-                  className={`rounded-xl border px-4 py-4 text-center transition-all duration-200 ${
-                    isSelected
-                      ? "border-primary bg-primary/10 ring-1 ring-primary/30"
-                      : "border-border/50 hover:border-primary/50"
-                  }`}
-                  onClick={() => setOriginVibeLocal(city.id)}
-                >
-                  <div className="font-medium text-sm">{city.title}</div>
-                </button>
-              )
-            })}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Navigation Buttons */}
-      <div className="flex flex-col items-center gap-4 pt-4">
-        <div className="flex gap-4">
-          <Button variant="outline" size="lg" onClick={handleBack} className="rounded-lg px-6">
-            Back
-          </Button>
-          <Button 
-            size="lg" 
-            disabled={!canContinue} 
-            onClick={handleContinue}
-            className="rounded-lg bg-primary hover:bg-primary/90 px-8"
-          >
-            Create Her
-          </Button>
-        </div>
-        <p className="text-sm text-muted-foreground">
-          Almost there. One more step to meet her.
-        </p>
       </div>
+
+      {/* Main content */}
+      <div className="flex-1 flex flex-col items-center justify-center px-4 py-16">
+        <div className="w-full max-w-lg">
+          {/* Back button */}
+          <button 
+            onClick={handleBack}
+            className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors mb-8"
+          >
+            <ChevronLeft className="w-4 h-4" />
+            <span className="text-sm">Back</span>
+          </button>
+
+          {/* Step 0: Name */}
+          {step === 0 && (
+            <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+              <div className="text-center mb-10">
+                <h1 className="text-3xl md:text-4xl font-serif text-foreground mb-3">
+                  What's her name?
+                </h1>
+                <p className="text-muted-foreground">
+                  Give her an identity that feels right
+                </p>
+              </div>
+
+              <div className="space-y-4 mb-10">
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Enter a name..."
+                  maxLength={20}
+                  className="w-full px-5 py-4 rounded-xl border border-border/50 bg-card/50 text-foreground text-center text-xl font-medium placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary transition-colors"
+                />
+                
+                <button
+                  onClick={handleSurpriseMe}
+                  className="w-full flex items-center justify-center gap-2 py-3 text-primary hover:text-primary/80 transition-colors"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span className="text-sm font-medium">Surprise me</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 1: Job Vibe */}
+          {step === 1 && (
+            <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+              <div className="text-center mb-10">
+                <h1 className="text-3xl md:text-4xl font-serif text-foreground mb-3">
+                  What's her vibe?
+                </h1>
+                <p className="text-muted-foreground">
+                  Her lifestyle and energy
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 mb-10">
+                {JOB_VIBES.map((job) => {
+                  const isSelected = jobVibe === job.id
+                  return (
+                    <button
+                      key={job.id}
+                      onClick={() => setJobVibe(job.id)}
+                      className={cn(
+                        "p-4 rounded-xl border text-left transition-all duration-200",
+                        isSelected
+                          ? "border-primary bg-primary/5"
+                          : "border-border/50 hover:border-primary/50"
+                      )}
+                    >
+                      <div className={cn(
+                        "font-medium text-sm",
+                        isSelected ? "text-primary" : "text-foreground"
+                      )}>
+                        {job.title}
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        {job.subtitle}
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: Hobbies */}
+          {step === 2 && (
+            <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+              <div className="text-center mb-10">
+                <h1 className="text-3xl md:text-4xl font-serif text-foreground mb-3">
+                  Her interests?
+                </h1>
+                <p className="text-muted-foreground">
+                  Pick 3 hobbies she loves
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-2 justify-center mb-6">
+                {HOBBIES.map((hobby) => {
+                  const selected = hobbies.includes(hobby)
+                  const disabled = !selected && hobbies.length >= 3
+                  return (
+                    <button
+                      key={hobby}
+                      onClick={() => handleToggleHobby(hobby)}
+                      disabled={disabled}
+                      className={cn(
+                        "px-4 py-2 rounded-full border text-sm transition-all duration-200",
+                        selected
+                          ? "border-primary bg-primary/10 text-primary"
+                          : disabled
+                            ? "border-border/30 text-muted-foreground/40 cursor-not-allowed"
+                            : "border-border/50 hover:border-primary/50"
+                      )}
+                    >
+                      {hobby}
+                    </button>
+                  )
+                })}
+              </div>
+
+              <p className="text-center text-sm text-muted-foreground mb-10">
+                {hobbies.length}/3 selected
+              </p>
+            </div>
+          )}
+
+          {/* Step 3: Origin */}
+          {step === 3 && (
+            <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+              <div className="text-center mb-10">
+                <h1 className="text-3xl md:text-4xl font-serif text-foreground mb-3">
+                  Where is she from?
+                </h1>
+                <p className="text-muted-foreground">
+                  Her cultural background
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 mb-10">
+                {CITY_VIBES.map((city) => {
+                  const isSelected = originVibe === city.id
+                  return (
+                    <button
+                      key={city.id}
+                      onClick={() => setOriginVibe(city.id)}
+                      className={cn(
+                        "p-4 rounded-xl border text-center transition-all duration-200",
+                        isSelected
+                          ? "border-primary bg-primary/5"
+                          : "border-border/50 hover:border-primary/50"
+                      )}
+                    >
+                      <span className={cn(
+                        "font-medium text-sm",
+                        isSelected ? "text-primary" : "text-foreground"
+                      )}>
+                        {city.title}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Progress dots */}
+          <div className="flex items-center justify-center gap-2 mb-8">
+            {[0, 1, 2, 3].map((i) => (
+              <button
+                key={i}
+                onClick={() => setStep(i)}
+                className={cn(
+                  "w-2 h-2 rounded-full transition-all duration-300",
+                  i === step 
+                    ? "bg-primary w-6" 
+                    : i < step 
+                      ? "bg-primary/50" 
+                      : "bg-muted"
+                )}
+              />
+            ))}
+          </div>
+
+          {/* Continue button */}
+          <div className="flex justify-center">
+            {step < 3 ? (
+              <button
+                onClick={handleNext}
+                disabled={!stepValid}
+                className={cn(
+                  "group flex items-center gap-2 px-8 py-4 rounded-full font-medium transition-all duration-300",
+                  stepValid
+                    ? "bg-primary text-white hover:bg-primary/90 hover:gap-3"
+                    : "bg-muted text-muted-foreground cursor-not-allowed"
+                )}
+              >
+                Next
+                <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+              </button>
+            ) : (
+              <button
+                onClick={handleCreate}
+                disabled={!canContinue}
+                className={cn(
+                  "group flex items-center gap-2 px-8 py-4 rounded-full font-medium transition-all duration-300",
+                  canContinue
+                    ? "bg-primary text-white hover:bg-primary/90 hover:gap-3"
+                    : "bg-muted text-muted-foreground cursor-not-allowed"
+                )}
+              >
+                Create {name || "Her"}
+                <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+              </button>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   )

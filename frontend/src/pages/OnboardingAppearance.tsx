@@ -3,12 +3,20 @@ import { useNavigate } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import { getOnboardingPromptImages, guestSession } from "@/lib/api/endpoints"
 import { useAppStore } from "@/lib/store/useAppStore"
-import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import OnboardingSignIn from "@/components/onboarding/OnboardingSignIn"
+import { ChevronRight } from "lucide-react"
 
 const VIBE_OPTIONS = ["cute", "elegant", "sporty", "goth", "girl-next-door", "model"] as const
 type VibeOption = (typeof VIBE_OPTIONS)[number]
+
+const VIBE_DESCRIPTIONS: Record<VibeOption, string> = {
+  "cute": "Sweet, playful, and irresistibly charming",
+  "elegant": "Sophisticated, graceful, and refined",
+  "sporty": "Active, energetic, and adventurous", 
+  "goth": "Mysterious, artistic, and uniquely beautiful",
+  "girl-next-door": "Warm, approachable, and genuine",
+  "model": "Stunning, confident, and captivating"
+}
 
 export default function OnboardingAppearance() {
   const navigate = useNavigate()
@@ -18,14 +26,11 @@ export default function OnboardingAppearance() {
   const setUser = useAppStore((s) => s.setUser)
   const [selected, setSelected] = useState<VibeOption | "">(appearance?.vibe ?? "")
 
-  // Ensure we have a guest session when landing on this page
   useEffect(() => {
     if (!user) {
       guestSession()
         .then(({ user }) => setUser(user))
-        .catch(() => {
-          // Backend might be down - continue anyway, store state locally
-        })
+        .catch(() => {})
     }
   }, [user, setUser])
 
@@ -37,28 +42,35 @@ export default function OnboardingAppearance() {
   const handleContinue = () => {
     if (!selected) return
     setOnboardingAppearance({ ...appearance, vibe: selected as VibeOption })
+    // Go to detailed appearance flow or directly to traits
     navigate("/onboarding/appearance/age", { replace: true })
   }
 
+  const handleSelect = (value: VibeOption) => {
+    setSelected(value)
+  }
+
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4 py-8">
-      <OnboardingSignIn />
-      <div className="w-full max-w-3xl space-y-10">
-        {/* Premium hero title */}
-        <div className="text-center space-y-4">
-          <p className="text-primary text-sm font-medium tracking-[0.2em] uppercase">
-            Step 1 of 5
+    <div className="min-h-screen bg-background">
+      {/* Subtle top gradient */}
+      <div className="absolute inset-x-0 top-0 h-[400px] bg-gradient-to-b from-primary/5 to-transparent pointer-events-none" />
+      
+      <div className="relative max-w-6xl mx-auto px-4 py-12 md:py-20">
+        {/* Header */}
+        <div className="text-center mb-12 md:mb-16">
+          <p className="text-primary/80 text-xs font-medium tracking-[0.3em] uppercase mb-4">
+            Step 1
           </p>
-          <h1 className="text-4xl font-serif font-medium text-foreground md:text-5xl lg:text-6xl">
-            Choose her <span className="text-primary">vibe</span>.
+          <h1 className="text-4xl md:text-5xl lg:text-6xl font-serif text-foreground mb-4">
+            Who catches your eye?
           </h1>
-          <p className="text-lg text-muted-foreground max-w-md mx-auto">
-            This sets the foundation for her look and personality.
+          <p className="text-muted-foreground text-lg max-w-md mx-auto">
+            Choose a style that speaks to you. This shapes her overall aesthetic.
           </p>
         </div>
 
-        {/* Vibe selection grid */}
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        {/* Selection Grid */}
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 md:gap-6 mb-12">
           {VIBE_OPTIONS.map((value) => {
             const optionImageUrl = promptImages?.[`appearance_vibe_${value}`]
             const isSelected = selected === value
@@ -66,66 +78,88 @@ export default function OnboardingAppearance() {
               <button
                 key={value}
                 type="button"
+                onClick={() => handleSelect(value)}
                 className={cn(
-                  "group relative flex flex-col overflow-hidden rounded-2xl border text-left transition-all duration-300",
-                  isSelected
-                    ? "border-primary ring-2 ring-primary/30 scale-[1.02]"
-                    : "border-border/50 hover:border-primary/50 hover:scale-[1.01]"
+                  "group relative aspect-[3/4] overflow-hidden rounded-2xl transition-all duration-300",
+                  isSelected 
+                    ? "ring-2 ring-primary ring-offset-2 ring-offset-background scale-[1.02]" 
+                    : "hover:scale-[1.01]"
                 )}
-                onClick={() => setSelected(value)}
               >
-                <div className="aspect-[4/5] w-full overflow-hidden bg-muted relative">
+                {/* Image */}
+                <div className="absolute inset-0 bg-muted">
                   {optionImageUrl ? (
                     <img
                       src={optionImageUrl}
                       alt={value}
                       className={cn(
-                        "h-full w-full object-cover transition-transform duration-500",
-                        "group-hover:scale-105"
+                        "w-full h-full object-cover transition-transform duration-700",
+                        "group-hover:scale-110",
+                        isSelected && "scale-110"
                       )}
                     />
                   ) : (
-                    <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
-                      Image
-                    </div>
-                  )}
-                  {/* Gradient overlay */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
-                  {/* Selected check */}
-                  {isSelected && (
-                    <div className="absolute top-3 right-3 w-6 h-6 rounded-full bg-primary flex items-center justify-center">
-                      <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                    </div>
+                    <div className="w-full h-full bg-gradient-to-br from-muted to-muted/50" />
                   )}
                 </div>
-                <div className="px-4 py-3 bg-card/80">
-                  <span className="text-base font-medium capitalize">
+                
+                {/* Gradient overlay */}
+                <div className={cn(
+                  "absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent transition-opacity duration-300",
+                  isSelected ? "opacity-90" : "opacity-70 group-hover:opacity-80"
+                )} />
+                
+                {/* Content */}
+                <div className="absolute inset-x-0 bottom-0 p-4 md:p-5">
+                  <h3 className="text-white font-medium text-lg md:text-xl capitalize mb-1">
                     {value.replace(/-/g, " ")}
-                  </span>
+                  </h3>
+                  <p className={cn(
+                    "text-white/70 text-sm transition-opacity duration-300",
+                    isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                  )}>
+                    {VIBE_DESCRIPTIONS[value]}
+                  </p>
                 </div>
+
+                {/* Selection indicator */}
+                {isSelected && (
+                  <div className="absolute top-3 right-3 w-6 h-6 rounded-full bg-primary flex items-center justify-center">
+                    <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                )}
               </button>
             )
           })}
         </div>
 
-        {/* Continue button */}
-        <div className="flex justify-center pt-4">
-          <Button
-            size="lg"
-            className="min-w-[200px] rounded-lg text-base bg-primary hover:bg-primary/90 px-8 py-6"
-            disabled={!selected}
+        {/* Continue Button */}
+        <div className="flex flex-col items-center gap-4">
+          <button
             onClick={handleContinue}
+            disabled={!selected}
+            className={cn(
+              "group flex items-center gap-2 px-8 py-4 rounded-full font-medium text-base transition-all duration-300",
+              selected
+                ? "bg-primary text-white hover:bg-primary/90 hover:gap-3"
+                : "bg-muted text-muted-foreground cursor-not-allowed"
+            )}
           >
             Continue
-          </Button>
+            <ChevronRight className={cn(
+              "w-4 h-4 transition-transform duration-300",
+              selected && "group-hover:translate-x-1"
+            )} />
+          </button>
+          
+          {!selected && (
+            <p className="text-muted-foreground/60 text-sm">
+              Select a style to continue
+            </p>
+          )}
         </div>
-        
-        {/* Progress hint */}
-        <p className="text-center text-sm text-muted-foreground">
-          Your companion is just a few steps away.
-        </p>
       </div>
     </div>
   )
