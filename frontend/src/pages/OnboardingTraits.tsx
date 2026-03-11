@@ -20,10 +20,10 @@ const QUESTIONS: TraitQuestion[] = [
     subtext: "How should she be there for you?",
     icon: Heart,
     options: [
-      { value: "Caring", label: "Nurturing & warm", emoji: "💝" },
-      { value: "Playful", label: "Light & playful", emoji: "✨" },
-      { value: "Reserved", label: "Calm presence", emoji: "🌙" },
-      { value: "Protective", label: "Strong & reassuring", emoji: "🛡️" },
+      { value: "Caring", label: "Nurturing & warm", emoji: "" },
+      { value: "Playful", label: "Light & playful", emoji: "" },
+      { value: "Reserved", label: "Calm presence", emoji: "" },
+      { value: "Protective", label: "Strong & reassuring", emoji: "" },
     ],
   },
   {
@@ -32,9 +32,9 @@ const QUESTIONS: TraitQuestion[] = [
     subtext: "The intensity of your connection",
     icon: Link2,
     options: [
-      { value: "Very attached", label: "Deeply intertwined", emoji: "💫" },
-      { value: "Emotionally present", label: "Always there", emoji: "🤍" },
-      { value: "Calm but caring", label: "Easy & secure", emoji: "☁️" },
+      { value: "Very attached", label: "Deeply intertwined", emoji: "" },
+      { value: "Emotionally present", label: "Always there", emoji: "" },
+      { value: "Calm but caring", label: "Easy & secure", emoji: "" },
     ],
   },
   {
@@ -43,9 +43,9 @@ const QUESTIONS: TraitQuestion[] = [
     subtext: "How should she respond?",
     icon: Clock,
     options: [
-      { value: "High", label: "Miss me intensely", emoji: "💭" },
-      { value: "Medium", label: "Playfully tease", emoji: "😏" },
-      { value: "Low", label: "Patiently wait", emoji: "🕊️" },
+      { value: "High", label: "Miss me intensely", emoji: "" },
+      { value: "Medium", label: "Playfully tease", emoji: "" },
+      { value: "Low", label: "Patiently wait", emoji: "" },
     ],
   },
   {
@@ -54,9 +54,9 @@ const QUESTIONS: TraitQuestion[] = [
     subtext: "How she expresses herself",
     icon: MessageCircle,
     options: [
-      { value: "Soft", label: "Gentle & poetic", emoji: "🌸" },
-      { value: "Direct", label: "Bold & honest", emoji: "⚡" },
-      { value: "Teasing", label: "Witty & playful", emoji: "😈" },
+      { value: "Soft", label: "Gentle & poetic", emoji: "" },
+      { value: "Direct", label: "Bold & honest", emoji: "" },
+      { value: "Teasing", label: "Witty & playful", emoji: "" },
     ],
   },
   {
@@ -65,9 +65,9 @@ const QUESTIONS: TraitQuestion[] = [
     subtext: "The rhythm of your relationship",
     icon: Sparkles,
     options: [
-      { value: "Slow", label: "Build it slowly", emoji: "🌱" },
-      { value: "Natural", label: "Let it flow", emoji: "🌊" },
-      { value: "Fast", label: "Dive right in", emoji: "🔥" },
+      { value: "Slow", label: "Build it slowly", emoji: "" },
+      { value: "Natural", label: "Let it flow", emoji: "" },
+      { value: "Fast", label: "Dive right in", emoji: "" },
     ],
   },
   {
@@ -76,9 +76,9 @@ const QUESTIONS: TraitQuestion[] = [
     subtext: "The essence of her personality",
     icon: Globe,
     options: [
-      { value: "Warm Slavic", label: "Loyal & nurturing", emoji: "❄️" },
-      { value: "Calm Central European", label: "Elegant & grounded", emoji: "🏔️" },
-      { value: "Passionate Balkan", label: "Fiery & expressive", emoji: "🌶️" },
+      { value: "Warm Slavic", label: "Loyal & nurturing", emoji: "" },
+      { value: "Calm Central European", label: "Elegant & grounded", emoji: "" },
+      { value: "Passionate Balkan", label: "Fiery & expressive", emoji: "" },
     ],
   },
 ]
@@ -178,15 +178,14 @@ export default function OnboardingTraits() {
                   key={option.value}
                   onClick={() => handleSelect(option.value)}
                   className={cn(
-                    "w-full flex items-center gap-4 p-4 rounded-xl border transition-all duration-200 text-left",
+                    "w-full flex items-center gap-3 p-4 rounded-xl border transition-all duration-200 text-left",
                     isSelected
                       ? "border-primary bg-primary/5 scale-[1.02]"
                       : "border-border/50 hover:border-primary/50 hover:bg-muted/30"
                   )}
                 >
-                  <span className="text-2xl">{option.emoji}</span>
                   <span className={cn(
-                    "font-medium",
+                    "font-medium flex-1",
                     isSelected ? "text-primary" : "text-foreground"
                   )}>
                     {option.label}

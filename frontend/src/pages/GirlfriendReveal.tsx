@@ -74,7 +74,6 @@ export default function GirlfriendReveal() {
           {/* Success message */}
           <div className="text-center space-y-3">
             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-sm">
-              <Sparkles className="w-4 h-4" />
               <span>She's ready</span>
             </div>
             <h1 className="text-3xl md:text-4xl font-serif text-foreground">
