@@ -61,19 +61,25 @@ export default function OnboardingIdentity() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-8 px-4 py-8">
-      <OnboardingSignIn />
-      <div className="text-center">
-        <h1 className="text-3xl font-bold tracking-tight">Choose her identity</h1>
-        <p className="mt-2 text-muted-foreground">
-          Give her a name, a vibe, and a story.
-        </p>
-      </div>
+    <div className="min-h-screen bg-background">
+      <div className="mx-auto max-w-4xl space-y-8 px-4 py-10">
+        <OnboardingSignIn />
+        <div className="text-center space-y-4">
+          <p className="text-primary text-sm font-medium tracking-[0.2em] uppercase">
+            Step 4 of 5
+          </p>
+          <h1 className="text-3xl font-serif font-medium md:text-4xl lg:text-5xl">
+            Give her an <span className="text-primary">identity</span>.
+          </h1>
+          <p className="text-muted-foreground max-w-md mx-auto">
+            A name, a story, a life. Make her uniquely yours.
+          </p>
+        </div>
 
       {/* Name Section */}
-      <Card className="overflow-hidden rounded-2xl border-white/10 bg-card/80">
+      <Card className="overflow-hidden rounded-2xl border-border/50 bg-card/40 backdrop-blur-sm">
         <CardHeader>
-          <CardTitle className="text-base font-semibold">What&apos;s her name?</CardTitle>
+          <CardTitle className="text-lg font-serif">What's her name?</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex gap-3">
@@ -106,38 +112,41 @@ export default function OnboardingIdentity() {
       </Card>
 
       {/* Job Vibe Section */}
-      <Card className="overflow-hidden rounded-2xl border-white/10 bg-card/80">
+      <Card className="overflow-hidden rounded-2xl border-border/50 bg-card/40 backdrop-blur-sm">
         <CardHeader>
-          <CardTitle className="text-base font-semibold">What&apos;s her job vibe?</CardTitle>
+          <CardTitle className="text-lg font-serif">What's her vibe?</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {JOB_VIBES.map((job) => (
-              <button
-                key={job.id}
-                type="button"
-                className={`rounded-xl border-2 px-4 py-3 text-left transition-colors ${
-                  jobVibe === job.id
-                    ? "border-primary bg-primary/10"
-                    : "border-white/10 hover:border-white/20"
-                }`}
-                onClick={() => setJobVibeLocal(job.id)}
-              >
-                <div className="font-medium text-sm">{job.title}</div>
-                <div className="text-xs text-muted-foreground">{job.subtitle}</div>
-              </button>
-            ))}
+            {JOB_VIBES.map((job) => {
+              const isSelected = jobVibe === job.id
+              return (
+                <button
+                  key={job.id}
+                  type="button"
+                  className={`rounded-xl border px-4 py-4 text-left transition-all duration-200 ${
+                    isSelected
+                      ? "border-primary bg-primary/10 ring-1 ring-primary/30"
+                      : "border-border/50 hover:border-primary/50"
+                  }`}
+                  onClick={() => setJobVibeLocal(job.id)}
+                >
+                  <div className="font-medium text-sm">{job.title}</div>
+                  <div className="text-xs text-muted-foreground mt-1">{job.subtitle}</div>
+                </button>
+              )
+            })}
           </div>
         </CardContent>
       </Card>
 
       {/* Hobbies Section */}
-      <Card className="overflow-hidden rounded-2xl border-white/10 bg-card/80">
+      <Card className="overflow-hidden rounded-2xl border-border/50 bg-card/40 backdrop-blur-sm">
         <CardHeader>
-          <CardTitle className="text-base font-semibold">
-            What are her hobbies?{" "}
-            <span className="font-normal text-muted-foreground">
-              (Pick 3 — {hobbies.length}/3)
+          <CardTitle className="text-lg font-serif flex items-baseline gap-2">
+            What are her hobbies?
+            <span className="text-sm font-normal text-muted-foreground">
+              ({hobbies.length}/3 selected)
             </span>
           </CardTitle>
         </CardHeader>
@@ -151,12 +160,12 @@ export default function OnboardingIdentity() {
                   key={hobby}
                   type="button"
                   disabled={disabled}
-                  className={`rounded-full border-2 px-4 py-2 text-sm transition-colors ${
+                  className={`rounded-full border px-4 py-2 text-sm transition-all duration-200 ${
                     selected
-                      ? "border-primary bg-primary/10"
+                      ? "border-primary bg-primary/10 text-primary"
                       : disabled
-                        ? "border-white/5 text-muted-foreground/50 cursor-not-allowed"
-                        : "border-white/10 hover:border-white/20"
+                        ? "border-border/30 text-muted-foreground/40 cursor-not-allowed"
+                        : "border-border/50 hover:border-primary/50"
                   }`}
                   onClick={() => handleToggleHobby(hobby)}
                 >
@@ -169,38 +178,52 @@ export default function OnboardingIdentity() {
       </Card>
 
       {/* City/Region Vibe Section */}
-      <Card className="overflow-hidden rounded-2xl border-white/10 bg-card/80">
+      <Card className="overflow-hidden rounded-2xl border-border/50 bg-card/40 backdrop-blur-sm">
         <CardHeader>
-          <CardTitle className="text-base font-semibold">Where does she vibe?</CardTitle>
+          <CardTitle className="text-lg font-serif">Where is she from?</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {CITY_VIBES.map((city) => (
-              <button
-                key={city.id}
-                type="button"
-                className={`rounded-xl border-2 px-4 py-3 text-center transition-colors ${
-                  originVibe === city.id
-                    ? "border-primary bg-primary/10"
-                    : "border-white/10 hover:border-white/20"
-                }`}
-                onClick={() => setOriginVibeLocal(city.id)}
-              >
-                <div className="font-medium text-sm">{city.title}</div>
-              </button>
-            ))}
+            {CITY_VIBES.map((city) => {
+              const isSelected = originVibe === city.id
+              return (
+                <button
+                  key={city.id}
+                  type="button"
+                  className={`rounded-xl border px-4 py-4 text-center transition-all duration-200 ${
+                    isSelected
+                      ? "border-primary bg-primary/10 ring-1 ring-primary/30"
+                      : "border-border/50 hover:border-primary/50"
+                  }`}
+                  onClick={() => setOriginVibeLocal(city.id)}
+                >
+                  <div className="font-medium text-sm">{city.title}</div>
+                </button>
+              )
+            })}
           </div>
         </CardContent>
       </Card>
 
       {/* Navigation Buttons */}
-      <div className="flex justify-center gap-4 pt-2">
-        <Button variant="outline" size="lg" onClick={handleBack}>
-          Back
-        </Button>
-        <Button size="lg" disabled={!canContinue} onClick={handleContinue}>
-          Continue
-        </Button>
+      <div className="flex flex-col items-center gap-4 pt-4">
+        <div className="flex gap-4">
+          <Button variant="outline" size="lg" onClick={handleBack} className="rounded-lg px-6">
+            Back
+          </Button>
+          <Button 
+            size="lg" 
+            disabled={!canContinue} 
+            onClick={handleContinue}
+            className="rounded-lg bg-primary hover:bg-primary/90 px-8"
+          >
+            Create Her
+          </Button>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Almost there. One more step to meet her.
+        </p>
+      </div>
       </div>
     </div>
   )

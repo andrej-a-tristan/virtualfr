@@ -25,83 +25,87 @@ export default function OnboardingPreferences() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-8 px-4 py-8">
-      <OnboardingSignIn />
-      <div className="text-center">
-        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-amber-500/10">
-          <Shield className="h-8 w-8 text-amber-500" />
+    <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="mx-auto max-w-lg space-y-8 px-4 py-8">
+        <OnboardingSignIn />
+        <div className="text-center space-y-4">
+          <p className="text-primary text-sm font-medium tracking-[0.2em] uppercase">
+            Step 3 of 5
+          </p>
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 border border-primary/20">
+            <Shield className="h-7 w-7 text-primary" />
+          </div>
+          <h1 className="text-3xl font-serif font-medium">
+            Before we continue...
+          </h1>
+          <p className="text-muted-foreground">
+            This experience contains mature content. Please confirm you're 18+.
+          </p>
         </div>
-        <h1 className="text-3xl font-bold tracking-tight">Age Verification</h1>
-        <p className="mt-2 text-muted-foreground">
-          This app contains sexual and adult content. You must be 18 or older to continue.
-        </p>
-      </div>
 
-      <Card className="overflow-hidden rounded-2xl border-white/10 bg-card/80">
-        <CardHeader>
-          <CardTitle className="text-base font-semibold">Are you 18 years or older?</CardTitle>
+      <Card className="overflow-hidden rounded-2xl border-border/50 bg-card/40 backdrop-blur-sm">
+        <CardHeader className="text-center pb-2">
+          <CardTitle className="text-lg font-serif">Confirm your age</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-5">
+        <CardContent className="space-y-6">
           {/* Warning */}
-          <div className="flex items-start gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-            <p className="text-xs leading-relaxed text-white/60">
-              This application contains explicit sexual content including nudity and intimate scenarios.
-              By confirming you are 18+, you consent to viewing this content.
-              If you are under 18, you are <span className="font-semibold text-white/80">not permitted</span> to use this service.
+          <div className="flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              This experience contains mature themes. By continuing, you confirm you are of legal age in your jurisdiction.
             </p>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3">
             <button
               type="button"
-              className={`rounded-xl border-2 px-4 py-4 text-center text-sm font-semibold transition-all ${
+              className={`rounded-xl border px-4 py-5 text-center text-sm font-medium transition-all duration-200 ${
                 confirmedOver18 === true
-                  ? "border-emerald-500 bg-emerald-500/10 text-emerald-400"
-                  : "border-white/10 hover:border-white/20"
+                  ? "border-primary bg-primary/10 text-primary ring-1 ring-primary/30"
+                  : "border-border/50 hover:border-primary/50"
               }`}
               onClick={() => setConfirmedOver18(true)}
             >
-              Yes, I am 18 or older
+              Yes, I'm 18 or older
             </button>
             <button
               type="button"
-              className={`rounded-xl border-2 px-4 py-4 text-center text-sm font-semibold transition-all ${
+              className={`rounded-xl border px-4 py-4 text-center text-sm transition-all duration-200 ${
                 confirmedOver18 === false
-                  ? "border-red-500 bg-red-500/10 text-red-400"
-                  : "border-white/10 hover:border-white/20"
+                  ? "border-destructive/50 bg-destructive/10 text-destructive"
+                  : "border-border/30 text-muted-foreground hover:border-border/50"
               }`}
               onClick={() => setConfirmedOver18(false)}
             >
-              No, I am under 18
+              No, I'm under 18
             </button>
           </div>
 
           {confirmedOver18 === false && (
-            <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-4 text-center">
-              <p className="text-sm font-semibold text-red-400">
-                You cannot use this app.
-              </p>
-              <p className="mt-1 text-xs text-red-400/70">
-                This service is only available to users aged 18 and over. Please close this page.
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-4 text-center">
+              <p className="text-sm text-destructive">
+                This experience is only available to adults.
               </p>
             </div>
           )}
         </CardContent>
       </Card>
 
-      <div className="flex justify-center gap-4 pt-2">
-        <Button variant="outline" size="lg" onClick={handleBack}>
-          Back
-        </Button>
-        <Button
-          size="lg"
-          disabled={!canContinue}
-          onClick={handleContinue}
-          className="min-w-[140px]"
-        >
-          Continue
-        </Button>
+      <div className="flex flex-col items-center gap-4 pt-2">
+        <div className="flex gap-4">
+          <Button variant="outline" size="lg" onClick={handleBack} className="rounded-lg px-6">
+            Back
+          </Button>
+          <Button
+            size="lg"
+            disabled={!canContinue}
+            onClick={handleContinue}
+            className="rounded-lg bg-primary hover:bg-primary/90 px-8"
+          >
+            Continue
+          </Button>
+        </div>
+      </div>
       </div>
     </div>
   )

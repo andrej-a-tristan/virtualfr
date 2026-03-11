@@ -20,18 +20,23 @@ export default function TraitCard({ option, selected, onClick, className }: Trai
       role="button"
       tabIndex={0}
       className={cn(
-        "cursor-pointer rounded-2xl border-2 p-4 text-left transition-all hover:border-white/25",
+        "cursor-pointer rounded-xl border p-4 text-left transition-all duration-200",
         selected
-          ? "border-primary bg-primary/15 shadow-[0_0_20px_-5px_rgba(139,92,246,0.3)]"
-          : "border-white/10 bg-card/60",
+          ? "border-primary bg-primary/10 ring-1 ring-primary/30"
+          : "border-border/50 bg-card/40 hover:border-primary/50",
         className
       )}
       onClick={onClick}
       onKeyDown={(e) => e.key === "Enter" && onClick()}
     >
       <CardContent className="p-0">
-        <p className="font-medium text-foreground">{option.label}</p>
-        <p className="mt-1.5 text-sm text-muted-foreground">{option.description}</p>
+        <p className={cn(
+          "font-medium",
+          selected ? "text-primary" : "text-foreground"
+        )}>
+          {option.label}
+        </p>
+        <p className="mt-1.5 text-sm text-muted-foreground leading-relaxed">{option.description}</p>
       </CardContent>
     </Card>
   )

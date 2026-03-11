@@ -22,16 +22,16 @@ interface TraitSelectorProps {
 export default function TraitSelector({ config, value, onChange, className }: TraitSelectorProps) {
   const Icon = config.icon
   return (
-    <section className={cn("space-y-4", className)} aria-labelledby={`trait-${config.key}`}>
-      <div className="flex items-center gap-2">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
-          <Icon className="h-4 w-4" />
+    <section className={cn("space-y-5", className)} aria-labelledby={`trait-${config.key}`}>
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 border border-primary/20 text-primary">
+          <Icon className="h-5 w-5" />
         </div>
-        <h2 id={`trait-${config.key}`} className="text-base font-semibold text-foreground">
+        <h2 id={`trait-${config.key}`} className="text-base font-medium text-foreground leading-relaxed pt-2">
           {config.question}
         </h2>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 pl-0 lg:pl-13">
         {config.options.map((opt) => (
           <TraitCard
             key={opt.value}

@@ -202,15 +202,18 @@ export default function OnboardingTraits() {
   }, [currentStep])
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-background to-background/95">
+    <div className="min-h-screen bg-background">
       <OnboardingSignIn />
-      <div className="mx-auto max-w-6xl px-4 py-6 md:py-8">
-        <div className="mb-6 text-center">
-          <h1 className="text-2xl font-bold tracking-tight text-foreground md:text-3xl">
-            Design your girlfriend
+      <div className="mx-auto max-w-6xl px-4 py-8 md:py-12">
+        <div className="mb-10 text-center">
+          <p className="text-primary text-sm font-medium tracking-[0.2em] uppercase mb-3">
+            Step 2 of 5
+          </p>
+          <h1 className="text-3xl font-serif font-medium text-foreground md:text-4xl lg:text-5xl">
+            Shape her <span className="text-primary">personality</span>.
           </h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Answer a few questions. All choices still care — only the style changes.
+          <p className="mt-4 text-muted-foreground max-w-lg mx-auto">
+            Answer a few questions to define how she connects with you. Every choice shapes her unique character.
           </p>
         </div>
 
@@ -219,16 +222,16 @@ export default function OnboardingTraits() {
           completedCount={completedCount}
           currentIndex={currentStep}
           onStepClick={setCurrentStep}
-          className="mb-8"
+          className="mb-10"
         />
 
         <div className="grid gap-8 lg:grid-cols-[1fr_360px]">
           {/* Left: wizard */}
-          <Card className="rounded-2xl border-white/10 bg-card/60">
-            <CardHeader className="space-y-4">
-              <CardTitle className="text-lg">Personality</CardTitle>
-              <CardDescription>
-                Pick one option per question. Her personality stays consistent, but she opens up more as you get closer.
+          <Card className="rounded-2xl border-border/50 bg-card/40 backdrop-blur-sm">
+            <CardHeader className="space-y-4 border-b border-border/30 pb-6">
+              <CardTitle className="text-xl font-serif">Her Personality</CardTitle>
+              <CardDescription className="text-muted-foreground">
+                Each question reveals a different side of her. Pick what resonates with you.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-10">
@@ -245,9 +248,9 @@ export default function OnboardingTraits() {
 
           {/* Right: sticky preview (desktop) / collapsible (mobile) */}
           <div className="lg:sticky lg:top-24 lg:self-start">
-            <div className="lg:rounded-2xl lg:border lg:border-white/10 lg:bg-card/40 lg:p-4">
-              <p className="mb-3 hidden text-xs font-medium uppercase tracking-wider text-muted-foreground lg:block">
-                Live preview
+            <div className="lg:rounded-2xl lg:border lg:border-border/50 lg:bg-card/40 lg:backdrop-blur-sm lg:p-5">
+              <p className="mb-4 hidden text-xs font-medium uppercase tracking-[0.15em] text-primary lg:block">
+                Live Preview
               </p>
               <PersonaPreviewCard
                 displayName="Your Girl"
@@ -263,15 +266,18 @@ export default function OnboardingTraits() {
           <p className="mt-4 text-center text-sm text-destructive">{error}</p>
         )}
 
-        <div className="mt-8 flex justify-center">
+        <div className="mt-10 flex flex-col items-center gap-4">
           <Button
             size="lg"
-            className="min-w-[180px] rounded-xl"
+            className="min-w-[200px] rounded-lg bg-primary hover:bg-primary/90 px-8 py-6 text-base"
             disabled={!isComplete || loading}
             onClick={handleSubmit}
           >
-            {loading ? "Saving…" : "Continue"}
+            {loading ? "Saving..." : "Continue"}
           </Button>
+          <p className="text-sm text-muted-foreground">
+            {completedCount} of {TRAIT_CONFIGS.length} traits selected
+          </p>
         </div>
       </div>
     </div>
