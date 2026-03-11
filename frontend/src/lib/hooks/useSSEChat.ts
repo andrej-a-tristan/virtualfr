@@ -1,30 +1,46 @@
 /**
- * POST /api/chat/send — full engine pipeline (bond engine, behavior engine,
- * prompt builder, memory, personality, OpenAI streaming).
- *
- * Stream format: event: token / data: {"type":"token","token":"..."},
- *                event: done  / data: {"type":"done"}
- * Use flushSync so each token paints immediately (React 18 would otherwise batch updates).
+ * Stream chat from the internal `/api/chat/send` endpoint and parse SSE.
+ * Uses the full relationship/behavior pipeline (bond engine, dossier, achievements, etc.).
+ * Stream format: event: token / data: {"token":"..."}, plus richer events for gains/achievements.
+ * Sending a new message while streaming aborts the current stream and commits partial reply.
  */
 import { flushSync } from "react-dom"
 import { useChatStore } from "@/lib/store/useChatStore"
 import { useAppStore } from "@/lib/store/useAppStore"
+import { getChatSendStreamUrl } from "@/lib/api/endpoints"
+
+let currentAbortController: AbortController | null = null
 
 export async function sendChatMessage(message: string): Promise<void> {
   const { appendMessage, setStreamingContent, setIsStreaming } = useChatStore.getState()
   const girlfriendId = useAppStore.getState().currentGirlfriendId
 
+  // Abort any in-flight stream so the new message gets a fresh reply
+  if (currentAbortController) {
+    currentAbortController.abort()
+    currentAbortController = null
+  }
+  currentAbortController = new AbortController()
+  const signal = currentAbortController.signal
+
   setStreamingContent("")
   setIsStreaming(true)
+  let fullContent = ""
+  let streamDone = false
   try {
-    const res = await fetch("/api/chat/send", {
+    // Backend already knows full history from persistence; send only this turn.
+    const body = {
+      message,
+      girlfriend_id: girlfriendId,
+    }
+    const res = await fetch(getChatSendStreamUrl(), {
       method: "POST",
       credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message,
-        girlfriend_id: girlfriendId ?? undefined,
-      }),
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal,
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({})) as { error?: string; message?: string; detail?: string | unknown }
@@ -43,9 +59,7 @@ export async function sendChatMessage(message: string): Promise<void> {
     const reader = res.body?.getReader()
     const decoder = new TextDecoder()
     let buffer = ""
-    let fullContent = ""
     let lastEvent = ""
-    let streamDone = false
     while (reader && !streamDone) {
       const { done, value } = await reader.read()
       if (done) break
@@ -60,7 +74,7 @@ export async function sendChatMessage(message: string): Promise<void> {
         }
         if (trimmed.startsWith("data:")) {
           const payload = trimmed.slice(5).trim()
-          if (payload === "[DONE]" || lastEvent === "done" || (payload.includes('"type":"done"') || payload.includes('"type": "done"'))) {
+          if (payload === "[DONE]" || lastEvent === "done") {
             if (fullContent) {
               appendMessage({
                 id: `assistant-${Date.now()}`,
@@ -166,21 +180,6 @@ export async function sendChatMessage(message: string): Promise<void> {
               } as Parameters<typeof appendMessage>[0])
               continue
             }
-            // Handle 'message' event: the server-saved assistant message (has proper DB id)
-            if ((lastEvent === "message" || data.type === "message") && data.message) {
-              const msg = data.message as Record<string, string | null>
-              appendMessage({
-                id: msg.id || `assistant-${Date.now()}`,
-                role: "assistant",
-                content: (msg.content as string) || fullContent,
-                image_url: (msg.image_url as string) || null,
-                event_type: (msg.event_type as string) || null,
-                created_at: (msg.created_at as string) || new Date().toISOString(),
-              })
-              setStreamingContent("")
-              fullContent = "" // Clear so 'done' doesn't duplicate
-              continue
-            }
             if ((lastEvent === "token" || data.type === "token") && data.token) {
               fullContent += data.token
               flushSync(() => setStreamingContent(fullContent))
@@ -227,7 +226,24 @@ export async function sendChatMessage(message: string): Promise<void> {
         created_at: new Date().toISOString(),
       })
     }
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") {
+      if (fullContent) {
+        appendMessage({
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          content: fullContent,
+          image_url: null,
+          event_type: null,
+          created_at: new Date().toISOString(),
+        })
+      }
+      setStreamingContent("")
+    } else {
+      throw e
+    }
   } finally {
+    currentAbortController = null
     useChatStore.getState().setIsStreaming(false)
     useChatStore.getState().setStreamingContent("")
   }

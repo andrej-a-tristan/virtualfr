@@ -99,6 +99,7 @@ def compute_memory_score(
     is_resolved: bool = True,
     is_conflicted: bool = False,
     conflict_count: int = 0,
+    semantic_boost: float = 0.0,
 ) -> float:
     """Compute composite memory score [0, 1].
     
@@ -117,6 +118,10 @@ def compute_memory_score(
         + EMOTIONAL_WEIGHT * emo
         - CONFLICT_PENALTY * pen
     )
+    # Semantic boost (from vector search) is in the same [0,1] range; treat it
+    # as an additional soft factor with modest influence.
+    if semantic_boost > 0.0:
+        score += 0.15 * max(0.0, min(1.0, semantic_boost))
     # Multiply by confidence as a gating factor
     score *= confidence_score(confidence)
     return max(0.0, min(1.0, score))

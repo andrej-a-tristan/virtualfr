@@ -60,6 +60,15 @@ class Settings(BaseSettings):
     runpod_api_key: str = ""
     runpod_timeout_seconds: int = 120
 
+    # Vector / semantic memory (optional Pinecone + embeddings)
+    pinecone_api_key: str = ""
+    pinecone_environment: str = ""
+    pinecone_index_name: str = ""
+    pinecone_namespace_prefix: str = "virtualfr-semantic-mem"
+    vector_memory_enabled: bool = False
+    vector_embedding_model: str = "text-embedding-3-small"
+    vector_schema_version: str = "v1"
+
     @property
     def is_production(self) -> bool:
         return self.env.lower() == "production"

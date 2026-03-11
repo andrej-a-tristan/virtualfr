@@ -94,9 +94,19 @@ _TOPIC_KEYWORDS = {
     "food": ["food", "eat", "cook", "restaurant", "recipe", "meal", "dinner", "lunch", "breakfast", "coffee", "tea"],
     "feelings": ["feel", "feeling", "emotion", "mood", "happy", "sad", "excited", "nervous", "anxious"],
     "future": ["future", "plan", "dream", "goal", "wish", "hope", "someday", "eventually"],
-    "past": ["remember", "childhood", "grew up", "used to", "back then", "years ago", "when I was"],
+    "past": ["remember", "childhood", "grew up", "used to", "back then", "years ago", "when i was"],
     "relationship": ["us", "together", "relationship", "dating", "couple", "partner"],
     "daily": ["today", "yesterday", "tomorrow", "morning", "evening", "night", "weekend"],
+    # Explicit origin / background questions about where she is from.
+    "origin": [
+        "where are you from",
+        "where're you from",
+        "where are u from",
+        "what city are you from",
+        "what country are you from",
+        "hometown",
+        "where did you grow up",
+    ],
 }
 
 

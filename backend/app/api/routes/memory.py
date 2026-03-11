@@ -26,6 +26,8 @@ from app.services.bond_engine.memory_fabric import (
     get_pending_promises,
     get_recent_wins,
 )
+from app.services.embedding import embed_text
+from app.services.vector_memory_store import search_memory
 from app.services.bond_engine.memory_patterns import get_patterns
 from app.services.bond_engine.memory_conflict_resolution import get_unresolved_conflicts
 
@@ -337,4 +339,103 @@ def rebuild_memory_index(
         }
     except Exception as e:
         logger.exception("Memory rebuild failed: %s", e)
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.get("/vector/search")
+def vector_memory_search(
+    request: Request,
+    girlfriendId: Optional[str] = Query(None, description="Girlfriend ID"),
+    q: str = Query(..., description="Search query text"),
+    k: int = Query(8, ge=1, le=32, description="Top-k vector matches"),
+):
+    """
+    Debug endpoint: run a semantic memory search for the current girlfriend.
+    Returns raw vector hits plus source metadata.
+    """
+    sid, user, user_id, gf_id = get_current_user(request)
+    if not sid or not user or not user_id:
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+
+    gf_uuid = _parse_girlfriend_id(girlfriendId) if girlfriendId else gf_id
+    if not gf_uuid:
+        gf = sb_store.get_current_girlfriend(user_id)
+        if gf:
+            gf_uuid = UUID(str(gf["id"]))
+    if not gf_uuid:
+        return JSONResponse(status_code=400, content={"error": "no_girlfriend_id"})
+
+    sb = _get_sb()
+    if not sb:
+        return JSONResponse(status_code=503, content={"error": "database_unavailable"})
+
+    try:
+        embedding = embed_text(q)
+        results = search_memory(
+            query_embedding=embedding,
+            user_id=str(user_id),
+            girlfriend_id=str(gf_uuid),
+            top_k=k,
+        )
+
+        # Attach source rows where possible for easier inspection
+        enriched = []
+        for r in results:
+            meta = r.metadata or {}
+            source_type = meta.get("source_type")
+            source_id = meta.get("source_id")
+            source_row = None
+            try:
+                if source_type == "factual":
+                    src_res = (
+                        sb.table("factual_memory")
+                        .select("*")
+                        .eq("id", source_id)
+                        .maybe_single()
+                        .execute()
+                    )
+                    source_row = src_res.data if src_res and src_res.data else None
+                elif source_type == "emotional":
+                    src_res = (
+                        sb.table("emotional_memory")
+                        .select("*")
+                        .eq("id", source_id)
+                        .maybe_single()
+                        .execute()
+                    )
+                    source_row = src_res.data if src_res and src_res.data else None
+                elif source_type == "episode":
+                    src_res = (
+                        sb.table("memory_episodes")
+                        .select("*")
+                        .eq("id", source_id)
+                        .maybe_single()
+                        .execute()
+                    )
+                    source_row = src_res.data if src_res and src_res.data else None
+                elif source_type == "chat_chunk":
+                    # For chat chunks, fetch the message and a tiny neighborhood.
+                    msg_res = (
+                        sb.table("messages")
+                        .select("*")
+                        .eq("id", source_id)
+                        .maybe_single()
+                        .execute()
+                    )
+                    source_row = msg_res.data if msg_res and msg_res.data else None
+            except Exception:
+                source_row = None
+
+            enriched.append(
+                {
+                    "document_id": r.document_id,
+                    "score": r.score,
+                    "metadata": meta,
+                    "source": source_row,
+                }
+            )
+
+        return {"results": enriched}
+    except Exception as e:
+        logger.exception("Vector memory search failed: %s", e)
         return JSONResponse(status_code=500, content={"error": str(e)})
