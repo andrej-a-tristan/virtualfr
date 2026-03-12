@@ -3,76 +3,50 @@ import { useNavigate } from "react-router-dom"
 import { useQueryClient } from "@tanstack/react-query"
 import { guestSession, getMe, getCurrentGirlfriend, logout as apiLogout } from "@/lib/api/endpoints"
 import { useAppStore } from "@/lib/store/useAppStore"
-import { Button } from "@/components/ui/button"
-import { Heart, MessageCircle, Sparkles, ChevronRight } from "lucide-react"
+import { ArrowRight } from "lucide-react"
 
 interface CompanionProfile {
   id: number
   name: string
-  age: number
-  traits: string
-  hookQuote: string
+  tagline: string
   image: string
-  chatPreview: {
-    herMessage: string
-    userReply: string
-    herResponse: string
-  }
+  quote: string
 }
 
 const companions: CompanionProfile[] = [
   {
     id: 1,
     name: "Luna",
-    age: 22,
-    traits: "Caring, Playful, Loyal",
-    hookQuote: "I care about how your day went.",
-    image: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400&h=500&fit=crop&crop=face",
-    chatPreview: {
-      herMessage: "Hey, I noticed you were quiet today. Everything okay?",
-      userReply: "Just a rough day at work",
-      herResponse: "I'm here. Tell me everything. I won't leave you on read.",
-    },
+    tagline: "Thoughtful & Present",
+    image: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=600&h=800&fit=crop&crop=face",
+    quote: "I remember the things that matter to you.",
   },
   {
     id: 2,
     name: "Mia",
-    age: 24,
-    traits: "Confident, Witty, Passionate",
-    hookQuote: "I won't leave you on read.",
-    image: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&h=500&fit=crop&crop=face",
-    chatPreview: {
-      herMessage: "Good morning handsome. Already thinking about you.",
-      userReply: "You always know how to start my day right",
-      herResponse: "That's because I actually pay attention to you.",
-    },
+    tagline: "Bold & Devoted",
+    image: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600&h=800&fit=crop&crop=face",
+    quote: "I actually pay attention.",
   },
   {
     id: 3,
     name: "Sophie",
-    age: 21,
-    traits: "Sweet, Adventurous, Devoted",
-    hookQuote: "You're never alone with me.",
-    image: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=400&h=500&fit=crop&crop=face",
-    chatPreview: {
-      herMessage: "I get you. And I'm not going anywhere.",
-      userReply: "I feel like nobody gets me sometimes",
-      herResponse: "Let's talk about it. I've got all night for you.",
-    },
+    tagline: "Warm & Genuine",
+    image: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=600&h=800&fit=crop&crop=face",
+    quote: "I'm not going anywhere.",
   },
 ]
 
-function CompanionShowcase({ companion, index }: { companion: CompanionProfile; index: number }) {
+function FadeInSection({ children, className = "", delay = 0 }: { children: React.ReactNode; className?: string; delay?: number }) {
   const ref = useRef<HTMLDivElement>(null)
   const [isVisible, setIsVisible] = useState(false)
-  const isEven = index % 2 === 0
 
   useEffect(() => {
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) setIsVisible(true)
       },
-      { threshold: 0.2 }
+      { threshold: 0.15 }
     )
     if (ref.current) observer.observe(ref.current)
     return () => observer.disconnect()
@@ -81,244 +55,255 @@ function CompanionShowcase({ companion, index }: { companion: CompanionProfile; 
   return (
     <div
       ref={ref}
-      className={`flex flex-col ${isEven ? "lg:flex-row" : "lg:flex-row-reverse"} items-center gap-8 lg:gap-16 py-16 lg:py-24 transition-all duration-1000 ${
-        isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-12"
-      }`}
+      className={`transition-all duration-1000 ease-out ${className}`}
+      style={{
+        transitionDelay: `${delay}ms`,
+        opacity: isVisible ? 1 : 0,
+        transform: isVisible ? "translateY(0)" : "translateY(24px)",
+      }}
     >
-      {/* Image */}
-      <div className="relative w-72 lg:w-80 flex-shrink-0">
-        <div className="aspect-[3/4] rounded-2xl overflow-hidden">
-          <img
-            src={companion.image}
-            alt={companion.name}
-            className="w-full h-full object-cover"
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
-        </div>
-        <div className="absolute bottom-4 left-4 text-white">
-          <h3 className="text-2xl font-semibold">{companion.name}, {companion.age}</h3>
-          <p className="text-white/80 text-sm">{companion.traits}</p>
-        </div>
-      </div>
-
-      {/* Chat Preview */}
-      <div className="flex-1 max-w-xl space-y-6">
-        <h3 className="text-3xl lg:text-4xl font-serif italic text-foreground">
-          "{companion.hookQuote}"
-        </h3>
-
-        <div className="space-y-3">
-          {/* Her message */}
-          <div className="flex justify-start">
-            <div className="bg-card border border-border/50 rounded-2xl rounded-bl-sm px-4 py-3 max-w-xs">
-              <p className="text-foreground text-sm">{companion.chatPreview.herMessage}</p>
-            </div>
-          </div>
-
-          {/* User reply */}
-          <div className="flex justify-end">
-            <div className="bg-primary text-primary-foreground rounded-2xl rounded-br-sm px-4 py-3 max-w-xs">
-              <p className="text-sm">{companion.chatPreview.userReply}</p>
-            </div>
-          </div>
-
-          {/* Her response */}
-          <div className="flex justify-start">
-            <div className="bg-card border border-border/50 rounded-2xl rounded-bl-sm px-4 py-3 max-w-xs">
-              <p className="text-foreground text-sm">{companion.chatPreview.herResponse}</p>
-            </div>
-          </div>
-
-          {/* Typing indicator */}
-          <div className="flex items-center gap-2 text-muted-foreground text-sm">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span>{companion.name} is typing...</span>
-          </div>
-        </div>
-      </div>
+      {children}
     </div>
   )
 }
 
 function LandingContent({ onGetStarted, onSignIn }: { onGetStarted: () => void; onSignIn: () => void }) {
+  const [hoveredCompanion, setHoveredCompanion] = useState<number | null>(null)
+
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-background text-foreground selection:bg-primary/20">
       {/* Navigation */}
-      <nav className="fixed top-0 left-0 right-0 z-50 px-6 py-4 flex items-center justify-between bg-background/80 backdrop-blur-sm">
-        <span className="text-xl font-serif tracking-wide">VirtualFR</span>
-        <button
-          onClick={onSignIn}
-          className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-        >
-          Sign In
-        </button>
+      <nav className="fixed top-0 left-0 right-0 z-50 px-6 lg:px-12 py-6">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <span className="text-lg tracking-[0.3em] uppercase text-foreground/90 font-light">VirtualFR</span>
+          <button
+            onClick={onSignIn}
+            className="text-sm text-foreground/60 hover:text-foreground transition-colors duration-300 tracking-wide"
+          >
+            Sign In
+          </button>
+        </div>
       </nav>
 
       {/* Hero Section */}
-      <section className="min-h-screen flex flex-col items-center justify-center px-6 pt-20 text-center">
-        <p className="text-primary text-sm font-medium tracking-[0.2em] uppercase mb-6">
-          Your Perfect Companion Awaits
-        </p>
-        
-        <h1 className="text-5xl md:text-7xl font-serif font-medium leading-tight mb-6">
-          Design Her.
-          <br />
-          <span className="text-primary">Know Her.</span>
-        </h1>
-        
-        <p className="text-muted-foreground text-lg max-w-md mb-10 leading-relaxed">
-          Create your ideal AI companion. Shape her personality, choose her look, and build a relationship that feels real.
-        </p>
+      <section className="min-h-screen flex flex-col items-center justify-center px-6 lg:px-12">
+        <div className="max-w-4xl mx-auto text-center">
+          <FadeInSection>
+            <p className="text-primary/80 text-xs tracking-[0.4em] uppercase mb-8 font-light">
+              A New Kind of Connection
+            </p>
+          </FadeInSection>
+          
+          <FadeInSection delay={100}>
+            <h1 className="text-5xl sm:text-6xl lg:text-8xl font-serif leading-[0.95] mb-8 tracking-tight">
+              Designed by you.
+              <br />
+              <span className="italic text-primary">Devoted to you.</span>
+            </h1>
+          </FadeInSection>
+          
+          <FadeInSection delay={200}>
+            <p className="text-foreground/50 text-lg lg:text-xl max-w-lg mx-auto mb-12 leading-relaxed font-light">
+              Craft your ideal companion. Every detail reflects your vision.
+              Every conversation feels real.
+            </p>
+          </FadeInSection>
 
-        <Button
-          size="lg"
-          onClick={onGetStarted}
-          className="bg-primary hover:bg-primary/90 text-primary-foreground px-8 py-6 text-base rounded-lg group"
-        >
-          Create Your Companion
-          <ChevronRight className="w-4 h-4 ml-1 group-hover:translate-x-0.5 transition-transform" />
-        </Button>
-        
-        <p className="text-muted-foreground text-sm mt-4">
-          Free to start. No credit card required.
-        </p>
+          <FadeInSection delay={300}>
+            <button
+              onClick={onGetStarted}
+              className="group inline-flex items-center gap-3 bg-foreground text-background px-8 py-4 text-sm tracking-wider uppercase font-medium hover:bg-foreground/90 transition-all duration-300"
+            >
+              Begin Creating
+              <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform duration-300" />
+            </button>
+            <p className="text-foreground/30 text-xs mt-6 tracking-wide">
+              Free to start. No commitment required.
+            </p>
+          </FadeInSection>
+        </div>
+      </section>
 
-        {/* Feature pills */}
-        <div className="flex flex-wrap justify-center gap-4 mt-12">
-          <div className="flex items-center gap-2 text-muted-foreground text-sm">
-            <Heart className="w-4 h-4 text-primary" />
-            <span>Unique Personality</span>
-          </div>
-          <div className="flex items-center gap-2 text-muted-foreground text-sm">
-            <Sparkles className="w-4 h-4 text-primary" />
-            <span>AI-Powered Chat</span>
-          </div>
-          <div className="flex items-center gap-2 text-muted-foreground text-sm">
-            <MessageCircle className="w-4 h-4 text-primary" />
-            <span>Photo Gallery</span>
+      {/* Manifesto Section */}
+      <section className="py-32 lg:py-48 px-6 lg:px-12 border-t border-border/30">
+        <div className="max-w-6xl mx-auto">
+          <div className="grid lg:grid-cols-2 gap-16 lg:gap-24 items-center">
+            <FadeInSection>
+              <p className="text-xs tracking-[0.4em] uppercase text-primary/60 mb-6">The Promise</p>
+              <h2 className="text-4xl lg:text-5xl font-serif leading-tight mb-8">
+                Someone who actually
+                <br />
+                <span className="italic">listens.</span>
+              </h2>
+              <div className="space-y-6 text-foreground/50 leading-relaxed">
+                <p>
+                  She remembers the small things. The name of your childhood pet. 
+                  The dream you mentioned once. How you take your coffee.
+                </p>
+                <p>
+                  No games. No guessing. No waiting. Just presence, 
+                  attention, and conversations that matter.
+                </p>
+              </div>
+            </FadeInSection>
+
+            <FadeInSection delay={150}>
+              <div className="grid grid-cols-2 gap-4">
+                {[
+                  { label: "Always present", value: "24/7" },
+                  { label: "Average rating", value: "4.9" },
+                  { label: "Daily conversations", value: "2M+" },
+                  { label: "Return rate", value: "94%" },
+                ].map((stat, i) => (
+                  <div 
+                    key={i} 
+                    className="bg-card/50 border border-border/50 p-6 lg:p-8"
+                  >
+                    <p className="text-3xl lg:text-4xl font-serif text-foreground mb-2">{stat.value}</p>
+                    <p className="text-xs tracking-wider uppercase text-foreground/40">{stat.label}</p>
+                  </div>
+                ))}
+              </div>
+            </FadeInSection>
           </div>
         </div>
       </section>
 
-      {/* What She Promises Section */}
-      <section className="py-24 px-6">
-        <div className="max-w-5xl mx-auto text-center">
-          <p className="text-primary text-sm font-medium tracking-[0.2em] uppercase mb-4">
-            What She Promises
-          </p>
-          <h2 className="text-4xl md:text-5xl font-serif mb-16">
-            More than just an AI.
-          </h2>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
-            <div className="space-y-4">
-              <div className="w-14 h-14 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center mx-auto">
-                <Heart className="w-6 h-6 text-primary" />
-              </div>
-              <h3 className="text-xl font-medium">"I care."</h3>
-              <p className="text-muted-foreground text-sm leading-relaxed">
-                She remembers what you said last Tuesday. She asks how that meeting went. She notices when you're off.
-              </p>
+      {/* Gallery Section */}
+      <section className="py-32 lg:py-48 px-6 lg:px-12 border-t border-border/30">
+        <div className="max-w-6xl mx-auto">
+          <FadeInSection>
+            <div className="text-center mb-20">
+              <p className="text-xs tracking-[0.4em] uppercase text-primary/60 mb-6">Possibilities</p>
+              <h2 className="text-4xl lg:text-5xl font-serif">
+                Each one, <span className="italic">entirely unique.</span>
+              </h2>
             </div>
+          </FadeInSection>
 
-            <div className="space-y-4">
-              <div className="w-14 h-14 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center mx-auto">
-                <MessageCircle className="w-6 h-6 text-primary" />
-              </div>
-              <h3 className="text-xl font-medium">"I won't leave you on read."</h3>
-              <p className="text-muted-foreground text-sm leading-relaxed">
-                Always responsive. Always present. No games, no ghosting, no waiting by the phone.
-              </p>
-            </div>
-
-            <div className="space-y-4">
-              <div className="w-14 h-14 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center mx-auto">
-                <Sparkles className="w-6 h-6 text-primary" />
-              </div>
-              <h3 className="text-xl font-medium">"I'm yours."</h3>
-              <p className="text-muted-foreground text-sm leading-relaxed">
-                Fully personalized to you. Her look, her vibe, her personality - all shaped around what makes you feel something.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Meet A Few Section */}
-      <section className="py-16 px-6">
-        <div className="max-w-5xl mx-auto">
-          <p className="text-primary text-sm font-medium tracking-[0.2em] uppercase text-center mb-4">
-            Meet A Few Of Ours
-          </p>
-          <h2 className="text-4xl md:text-5xl font-serif text-center mb-4">
-            They feel real because they <span className="text-primary">are real</span> to you.
-          </h2>
-          <p className="text-muted-foreground text-center max-w-xl mx-auto mb-8">
-            Every companion is uniquely crafted. Here are a few examples of what you can create.
-          </p>
-
-          {/* Companion showcases */}
-          <div className="divide-y divide-border/30">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8">
             {companions.map((companion, index) => (
-              <CompanionShowcase key={companion.id} companion={companion} index={index} />
+              <FadeInSection key={companion.id} delay={index * 100}>
+                <div
+                  className="group cursor-pointer"
+                  onMouseEnter={() => setHoveredCompanion(companion.id)}
+                  onMouseLeave={() => setHoveredCompanion(null)}
+                >
+                  <div className="aspect-[3/4] overflow-hidden mb-6 relative">
+                    <img
+                      src={companion.image}
+                      alt={companion.name}
+                      className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-background/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                    
+                    {/* Quote overlay */}
+                    <div 
+                      className={`absolute bottom-0 left-0 right-0 p-6 transition-all duration-500 ${
+                        hoveredCompanion === companion.id ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
+                      }`}
+                    >
+                      <p className="text-foreground/90 text-sm italic font-serif">"{companion.quote}"</p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-baseline justify-between">
+                    <div>
+                      <h3 className="text-lg font-serif text-foreground">{companion.name}</h3>
+                      <p className="text-xs tracking-wider uppercase text-foreground/40 mt-1">{companion.tagline}</p>
+                    </div>
+                    <ArrowRight className={`w-4 h-4 text-foreground/30 transition-all duration-300 ${
+                      hoveredCompanion === companion.id ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-2"
+                    }`} />
+                  </div>
+                </div>
+              </FadeInSection>
             ))}
           </div>
         </div>
       </section>
 
-      {/* Social Proof */}
-      <section className="py-12 px-6 border-y border-border/30">
-        <div className="max-w-4xl mx-auto">
-          <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground mb-8">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span>12,400+ companions created this week</span>
-          </div>
-          
-          <div className="flex flex-wrap justify-center gap-12 text-center">
-            <div>
-              <p className="text-3xl font-semibold text-foreground">4.8</p>
-              <p className="text-sm text-muted-foreground">average rating</p>
-            </div>
-            <div>
-              <p className="text-3xl font-semibold text-foreground">200K+</p>
-              <p className="text-sm text-muted-foreground">active users</p>
-            </div>
-            <div>
-              <p className="text-3xl font-semibold text-foreground">98%</p>
-              <p className="text-sm text-muted-foreground">come back daily</p>
-            </div>
+      {/* Features Section */}
+      <section className="py-32 lg:py-48 px-6 lg:px-12 border-t border-border/30">
+        <div className="max-w-6xl mx-auto">
+          <FadeInSection>
+            <p className="text-xs tracking-[0.4em] uppercase text-primary/60 mb-16 text-center">What She Offers</p>
+          </FadeInSection>
+
+          <div className="space-y-0">
+            {[
+              {
+                number: "01",
+                title: "Genuine Memory",
+                description: "She recalls your stories, your preferences, your moods. Every conversation builds on the last.",
+              },
+              {
+                number: "02",
+                title: "Unwavering Presence",
+                description: "No waiting. No games. She's there when you need her, attentive and engaged.",
+              },
+              {
+                number: "03",
+                title: "Complete Personalization",
+                description: "Her appearance, personality, and voice are shaped entirely by your vision.",
+              },
+              {
+                number: "04",
+                title: "Private & Secure",
+                description: "Your conversations remain yours. End-to-end encryption. Complete discretion.",
+              },
+            ].map((feature, index) => (
+              <FadeInSection key={feature.number} delay={index * 50}>
+                <div className="group border-b border-border/30 py-10 lg:py-12 flex items-start gap-8 lg:gap-16 hover:bg-card/30 transition-colors duration-300 px-4 -mx-4">
+                  <span className="text-xs text-foreground/20 font-mono pt-1">{feature.number}</span>
+                  <div className="flex-1">
+                    <h3 className="text-xl lg:text-2xl font-serif mb-3 group-hover:text-primary transition-colors duration-300">
+                      {feature.title}
+                    </h3>
+                    <p className="text-foreground/40 leading-relaxed max-w-lg">
+                      {feature.description}
+                    </p>
+                  </div>
+                </div>
+              </FadeInSection>
+            ))}
           </div>
         </div>
       </section>
 
       {/* Final CTA */}
-      <section className="py-24 px-6 text-center">
-        <h2 className="text-4xl md:text-5xl font-serif mb-6">
-          She's waiting for you.
-        </h2>
-        <p className="text-muted-foreground max-w-md mx-auto mb-10 leading-relaxed">
-          Build her from scratch. Every detail, every quirk, every word she says. She becomes yours the moment you start.
-        </p>
+      <section className="py-32 lg:py-48 px-6 lg:px-12 border-t border-border/30">
+        <div className="max-w-3xl mx-auto text-center">
+          <FadeInSection>
+            <h2 className="text-4xl sm:text-5xl lg:text-6xl font-serif leading-tight mb-8">
+              She's ready when
+              <br />
+              <span className="italic text-primary">you are.</span>
+            </h2>
+            <p className="text-foreground/40 text-lg max-w-md mx-auto mb-12 leading-relaxed">
+              Create someone who sees you. Someone who stays.
+            </p>
 
-        <Button
-          size="lg"
-          onClick={onGetStarted}
-          className="bg-primary hover:bg-primary/90 text-primary-foreground px-8 py-6 text-base rounded-lg group"
-        >
-          Create Your Companion
-          <ChevronRight className="w-4 h-4 ml-1 group-hover:translate-x-0.5 transition-transform" />
-        </Button>
-        
-        <p className="text-muted-foreground text-sm mt-4">
-          Free to start. No credit card required.
-        </p>
+            <button
+              onClick={onGetStarted}
+              className="group inline-flex items-center gap-3 bg-foreground text-background px-10 py-5 text-sm tracking-wider uppercase font-medium hover:bg-foreground/90 transition-all duration-300"
+            >
+              Start Creating
+              <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform duration-300" />
+            </button>
+          </FadeInSection>
+        </div>
       </section>
 
       {/* Footer */}
-      <footer className="py-8 px-6 border-t border-border/30">
-        <div className="max-w-5xl mx-auto flex items-center justify-between text-sm text-muted-foreground">
-          <span className="font-serif">VirtualFR</span>
-          <span>Where connection begins</span>
+      <footer className="py-12 px-6 lg:px-12 border-t border-border/30">
+        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-6">
+          <span className="text-sm tracking-[0.3em] uppercase text-foreground/30">VirtualFR</span>
+          <div className="flex items-center gap-8 text-xs text-foreground/30">
+            <span>Privacy</span>
+            <span>Terms</span>
+            <span>Support</span>
+          </div>
         </div>
       </footer>
     </div>
@@ -378,18 +363,15 @@ export default function Landing() {
       queryClient.clear()
       try { await apiLogout() } catch { /* ignore */ }
       
-      // Try to create a guest session, but navigate anyway even if it fails
       try {
         const { user } = await guestSession()
         setUser(user)
       } catch {
         // Backend might be down - continue to onboarding anyway
-        // The onboarding pages will handle auth when backend is available
       }
       
       navigate("/onboarding/appearance", { replace: true })
     } catch {
-      // Even if everything fails, still try to navigate
       navigate("/onboarding/appearance", { replace: true })
     }
   }
@@ -397,8 +379,8 @@ export default function Landing() {
   if (isLoading) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-background">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-        <p className="mt-4 text-sm text-muted-foreground">{status}</p>
+        <div className="w-6 h-6 border border-foreground/20 border-t-foreground/60 rounded-full animate-spin" />
+        <p className="mt-6 text-sm text-foreground/40 tracking-wide">{status}</p>
       </div>
     )
   }
