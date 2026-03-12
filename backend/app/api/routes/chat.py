@@ -10,7 +10,6 @@ from collections import defaultdict
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 import logging
-import httpx
 
 # ── Daily message cap for free-plan users ────────────────────────────────────
 FREE_DAILY_MESSAGE_CAP = 20
@@ -40,7 +39,6 @@ from app.api.store import (
 )
 from app.api.request_context import get_current_user
 from app.core.supabase_client import get_supabase_admin
-from app.core import get_settings
 from app.api import supabase_store as sb
 from app.utils.sse import sse_event
 from app.services.relationship_state import (
@@ -443,6 +441,45 @@ def _stream_response_and_save(
         memory_context,
         last_user_msg,
     )
+
+    # ── Hard quality enforcement before token emission ────────────────────
+    validation = None
+    _beh_res = behavior_result
+    try:
+        from app.services.behavior_engine.behavior_orchestrator import (
+            BehaviorTurnResult,
+            validate_behavior_response,
+        )
+        if _beh_res is None:
+            _beh_res = BehaviorTurnResult()
+        validation = validate_behavior_response(
+            response_text,
+            _beh_res,
+            recent_responses=[
+                m.get("content", "") for m in (messages_for_context or [])[-6:]
+                if m.get("role") == "assistant" and m.get("content")
+            ],
+        )
+    except Exception as e:
+        logger.debug("Behavior validation unavailable: %s", e)
+
+    try:
+        from app.services.behavior_engine.repair import apply_contract_hard_limits
+        fallback_fact = None
+        if _beh_res is not None and getattr(_beh_res, "dossier", None) and getattr(_beh_res.dossier, "self_facts", None):
+            fallback_fact = str(_beh_res.dossier.self_facts[0]).split(":", 1)[-1].strip()
+        user_asked_about_her = False
+        if _beh_res is not None and getattr(_beh_res, "intent", None):
+            user_asked_about_her = bool(_beh_res.intent.requires_self_answer())
+        contract = _beh_res.contract if _beh_res is not None else None
+        response_text = apply_contract_hard_limits(
+            response_text,
+            contract,
+            user_asked_about_her=user_asked_about_her,
+            fallback_self_fact=fallback_fact,
+        )
+    except Exception as e:
+        logger.warning("Hard response repair failed: %s", e)
 
     for t in response_text.split():
         yield sse_event({"type": "token", "token": t + " "})
