@@ -10,6 +10,7 @@ from collections import defaultdict
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 import logging
+import httpx
 
 # ── Daily message cap for free-plan users ────────────────────────────────────
 FREE_DAILY_MESSAGE_CAP = 20
@@ -39,6 +40,7 @@ from app.api.store import (
 )
 from app.api.request_context import get_current_user
 from app.core.supabase_client import get_supabase_admin
+from app.core import get_settings
 from app.api import supabase_store as sb
 from app.utils.sse import sse_event
 from app.services.relationship_state import (
@@ -392,6 +394,121 @@ def _generate_mock_response(system_prompt: str, traits: dict, relationship_state
     return prefix + response + suffix
 
 
+def _fetch_runpod_vllm_response(
+    llm_messages: list[dict],
+    max_tokens: int,
+    temperature: float,
+) -> str:
+    """Call RunPod vLLM chat endpoint and return assistant text.
+
+    This never calls OpenAI directly; it uses the internal RunPod deployment
+    configured via RUNPOD_VLLM_* settings.
+    """
+    settings = get_settings()
+    base_url = (settings.runpod_vllm_base_url or "").rstrip("/")
+    model = settings.runpod_vllm_model
+    if not base_url:
+        raise RuntimeError("RUNPOD_VLLM_BASE_URL is not configured")
+    if not model:
+        raise RuntimeError("RUNPOD_VLLM_MODEL is not configured")
+
+    url = f"{base_url}/v1/chat/completions"
+    headers = {"Content-Type": "application/json"}
+    if settings.runpod_vllm_api_key:
+        headers["Authorization"] = f"Bearer {settings.runpod_vllm_api_key}"
+
+    payload = {
+        "model": model,
+        "messages": llm_messages,
+        "stream": False,
+        "max_tokens": max_tokens,
+        "temperature": float(temperature),
+    }
+
+    timeout = httpx.Timeout(
+        float(settings.runpod_vllm_timeout_seconds),
+        connect=min(30.0, float(settings.runpod_vllm_timeout_seconds)),
+    )
+
+    def _messages_to_prompt(messages: list[dict]) -> str:
+        prompt_lines: list[str] = []
+        for m in messages:
+            role = (m.get("role") or "user").strip().lower()
+            content = str(m.get("content") or "").strip()
+            if not content:
+                continue
+            if role == "system":
+                prompt_lines.append(f"System: {content}")
+            elif role == "assistant":
+                prompt_lines.append(f"Assistant: {content}")
+            else:
+                prompt_lines.append(f"User: {content}")
+        prompt_lines.append("Assistant:")
+        return "\n\n".join(prompt_lines)
+
+    with httpx.Client(timeout=timeout) as client:
+        response = client.post(url, json=payload, headers=headers)
+        if response.status_code != 200:
+            # This deployment does not offer an OpenAI-style /v1/chat/completions
+            # endpoint (404 or 400 chat-template errors). Fall back to /v1/completions
+            # which we have verified returns OpenAI-like {choices[0].text}.
+            response_text = response.text or ""
+            logger.warning(
+                "RunPod chat/completions unavailable (status=%s, body_preview=%r); falling back to /v1/completions",
+                response.status_code,
+                response_text[:200],
+            )
+            fallback_url = f"{base_url}/v1/completions"
+            fallback_payload = {
+                "model": model,
+                "prompt": _messages_to_prompt(llm_messages),
+                "stream": False,
+                "max_tokens": max_tokens,
+                "temperature": float(temperature),
+            }
+            fallback_resp = client.post(fallback_url, json=fallback_payload, headers=headers)
+            fallback_resp.raise_for_status()
+            try:
+                fallback_data = fallback_resp.json()
+            except ValueError:
+                raw_text = (fallback_resp.text or "").strip()
+                if not raw_text:
+                    raise
+                cleaned = raw_text.split("\nUser:", 1)[0].strip()
+                return cleaned or raw_text
+            raw_text = ((fallback_data.get("choices") or [{}])[0]).get("text", "")
+            if not isinstance(raw_text, str) or not raw_text.strip():
+                raise ValueError("Invalid RunPod completions response: missing choices[0].text")
+            # Trim model continuation if it starts generating the next user turn.
+            cleaned = raw_text.split("\nUser:", 1)[0].strip()
+            return cleaned or raw_text.strip()
+
+        response.raise_for_status()
+
+        # Try JSON first (OpenAI-compatible). If that fails, fall back to raw text.
+        try:
+            data = response.json()
+        except ValueError:
+            raw = (response.text or "").strip()
+            if not raw:
+                raise
+            return raw
+
+    try:
+        content = data["choices"][0]["message"]["content"]
+    except (TypeError, KeyError, IndexError) as exc:
+        # If the response isn't OpenAI-shaped, but has a top-level "text" or "response", use that.
+        if isinstance(data, dict):
+            for key in ("text", "response", "output"):
+                maybe = data.get(key)
+                if isinstance(maybe, str) and maybe.strip():
+                    return maybe.strip()
+        raise ValueError("Invalid RunPod vLLM response shape: missing choices[0].message.content") from exc
+    if not isinstance(content, str):
+        raise ValueError("Invalid RunPod vLLM response shape: content is not a string")
+    return content.strip()
+
+
 def _stream_response_and_save(
     sid,
     user_id,
@@ -419,9 +536,9 @@ def _stream_response_and_save(
 ):
     """Stream response and save assistant message. Yields SSE events.
     
-    Main-branch behavior: use the personality-aware mock response generator only.
-    The real LLM integration (Runpod or OpenAI) is handled via the /v1/chat/stream
-    gateway in app.routers.chat, not from this endpoint.
+    Main-branch behavior: call the configured RunPod vLLM deployment for
+    real text generation, and fall back to the personality-aware mock
+    generator if RunPod is unavailable.
     """
     # Get the last user message for context
     last_user_msg = ""
@@ -430,17 +547,29 @@ def _stream_response_and_save(
             last_user_msg = m["content"]
             break
 
-    response_text = ""
+    # Build messages list for LLM (system + last 20 turns)
+    llm_messages: list[dict] = []
+    if system_prompt:
+        llm_messages.append({"role": "system", "content": system_prompt})
+    for m in messages_for_context[-20:]:
+        llm_messages.append({"role": m["role"], "content": (m.get("content") or "")[:2000]})
+    logger.debug("LLM message count: %d (system prompt: %d chars)", len(llm_messages), len(system_prompt or ""))
 
-    # Main branch: always use the mock, personality-aware response generator.
-    # All real LLM calls (Runpod, OpenAI, etc.) are confined to the chat gateway.
-    response_text = _generate_mock_response(
-        system_prompt or "",
-        traits,
-        relationship_state,
-        memory_context,
-        last_user_msg,
-    )
+    # ── RunPod vLLM or mock fallback ──────────────────────────────────────
+    try:
+        response_text = _fetch_runpod_vllm_response(llm_messages, max_tokens=max_tokens, temperature=temperature).strip()
+        if not response_text:
+            raise ValueError("RunPod vLLM returned empty assistant content")
+        logger.info("RunPod vLLM response: %d chars; preview=%r", len(response_text), response_text[:160])
+    except Exception as e:
+        logger.error("RunPod vLLM failed, falling back to mock: %s", e)
+        response_text = _generate_mock_response(
+            system_prompt or "",
+            traits,
+            relationship_state,
+            memory_context,
+            last_user_msg,
+        )
 
     # ── Hard quality enforcement before token emission ────────────────────
     validation = None
