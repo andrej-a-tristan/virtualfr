@@ -1,12 +1,9 @@
 {
   "name": "virtualfr-root",
   "private": true,
-  "workspaces": [
-    "frontend"
-  ],
   "scripts": {
-    "dev": "cd frontend && npm run dev",
-    "build": "cd frontend && npm run build",
-    "preview": "cd frontend && npm run preview"
+    "dev": "cd frontend && pnpm install && pnpm run dev",
+    "build": "cd frontend && pnpm install && pnpm run build",
+    "preview": "cd frontend && pnpm run preview"
   }
 }
