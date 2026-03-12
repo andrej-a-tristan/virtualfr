@@ -1,8 +1,7 @@
 """Chat: history, state, send (SSE), app_open (initiation + jealousy).
 
-This version includes full memory and personality integration with OpenAI streaming.
-Uses the /v1/chat/stream gateway or direct OpenAI API when API_KEY is set.
-Falls back to mock responses if no API key is configured.
+This version includes full memory and personality integration with mock LLM responses.
+To enable real AI, set API_KEY in .env or connect to the /v1/chat/stream gateway.
 """
 import uuid as uuid_mod
 from uuid import UUID
@@ -117,6 +116,69 @@ ATTACHMENT_INTENSITY = {"Very attached": "high", "Emotionally present": "medium"
 JEALOUSY_LEVEL = {"High": "high", "Medium": "medium", "Low": "low"}
 
 
+def _compute_generation_controls(
+    user_text: str,
+    intent: str | None,
+    persona_vector: dict | None = None,
+) -> tuple[int, float]:
+    """Compute max_tokens/temperature for concise, natural replies."""
+    text = (user_text or "").strip()
+    wc = len(text.split())
+    intent_key = (intent or "").strip().lower()
+
+    max_tokens = 170
+    temperature = 0.74
+
+    if intent_key in ("greeting", "banter"):
+        max_tokens = 90 if wc <= 8 else 120
+        temperature = 0.78
+    elif intent_key in ("ask_about_her", "mixed"):
+        max_tokens = 160
+        temperature = 0.72
+    elif intent_key == "support":
+        max_tokens = 220
+        temperature = 0.7
+    elif intent_key == "intimate":
+        max_tokens = 190
+        temperature = 0.76
+
+    if wc <= 4:
+        max_tokens = min(max_tokens, 80)
+    elif wc <= 8:
+        max_tokens = min(max_tokens, 110)
+
+    pacing = (persona_vector or {}).get("pacing", {})
+    brevity_bias = float(pacing.get("brevity_bias", 0.55))
+    if brevity_bias >= 0.7:
+        max_tokens = int(max_tokens * 0.82)
+    elif brevity_bias <= 0.3:
+        max_tokens = int(max_tokens * 1.08)
+
+    return max_tokens, temperature
+
+
+def _build_concise_style_guardrail(user_text: str, intent: str | None) -> str:
+    wc = len((user_text or "").split())
+    intent_key = (intent or "").strip().lower()
+    if wc <= 8 or intent_key in ("greeting", "banter"):
+        return (
+            "RESPONSE LENGTH POLICY:\n"
+            "- Keep this reply to one sentence, max 20 words.\n"
+            "- No long paragraph and no list formatting."
+        )
+    if intent_key == "support":
+        return (
+            "RESPONSE LENGTH POLICY:\n"
+            "- Keep this supportive reply concise: 2-4 sentences.\n"
+            "- Avoid rambling; cap around 90 words unless user asks for depth."
+        )
+    return (
+        "RESPONSE LENGTH POLICY:\n"
+        "- Keep this reply concise: 1-3 sentences, usually under 60 words.\n"
+        "- Avoid monologues unless user explicitly asks for a long answer."
+    )
+
+
 def _state_to_schema(state: dict) -> RelationshipStateSchema:
     level = clamp_level(state.get("level", 0) if isinstance(state.get("level"), int) else 0)
     region = get_region_for_level(level)
@@ -140,6 +202,7 @@ def _progress_to_schema(prog: RelationshipProgressState, ti_state=None, mileston
     level = clamp_level(prog.level)
     region = get_region_for_level(level)
     from app.services.relationship_milestones import get_region_index
+    # Prefer unified trust/intimacy state if available, else derive from level
     if ti_state:
         trust = ti_state.trust
         intimacy = ti_state.intimacy
@@ -158,6 +221,7 @@ def _progress_to_schema(prog: RelationshipProgressState, ti_state=None, mileston
         milestones_reached=milestones or [],
         current_region_index=get_region_index(region.key),
     )
+    # Add bank/cap fields when unified state is available
     if ti_state:
         schema.trust_visible = ti_state.trust_visible
         schema.trust_bank = ti_state.trust_bank
@@ -208,11 +272,6 @@ def chat_history(request: Request, girlfriend_id: str | None = None):
     else:
         # Pass explicit girlfriend_id so messages are per-girl
         messages = get_messages(sid, resolved_gf_id)
-    if not messages:
-        messages = [
-            {"id": "m1", "role": "user", "content": "Hey, how are you?", "image_url": None, "event_type": None, "event_key": None, "created_at": "2025-01-01T12:00:00Z"},
-            {"id": "m2", "role": "assistant", "content": "I'm doing great! Thanks for asking.", "image_url": None, "event_type": None, "event_key": None, "created_at": "2025-01-01T12:00:01Z"},
-        ]
     return {"messages": [_msg_to_schema(m) for m in messages]}
 
 
@@ -335,89 +394,36 @@ def _generate_mock_response(system_prompt: str, traits: dict, relationship_state
     return prefix + response + suffix
 
 
-def _fetch_runpod_vllm_response(llm_messages: list[dict]) -> str:
-    """Call RunPod vLLM chat completions endpoint and return assistant text."""
-    settings = get_settings()
-    base_url = (settings.runpod_vllm_base_url or "").rstrip("/")
-    model = settings.runpod_vllm_model
-    if not base_url:
-        raise RuntimeError("RUNPOD_VLLM_BASE_URL is not configured")
-    if not model:
-        raise RuntimeError("RUNPOD_VLLM_MODEL is not configured")
-
-    url = f"{base_url}/v1/chat/completions"
-    headers = {"Content-Type": "application/json"}
-    if settings.runpod_vllm_api_key:
-        headers["Authorization"] = f"Bearer {settings.runpod_vllm_api_key}"
-
-    payload = {
-        "model": model,
-        "messages": llm_messages,
-        "stream": False,
-    }
-
-    timeout = httpx.Timeout(
-        float(settings.runpod_vllm_timeout_seconds),
-        connect=min(30.0, float(settings.runpod_vllm_timeout_seconds)),
-    )
-    def _messages_to_prompt(messages: list[dict]) -> str:
-        prompt_lines: list[str] = []
-        for m in messages:
-            role = (m.get("role") or "user").strip().lower()
-            content = str(m.get("content") or "").strip()
-            if not content:
-                continue
-            if role == "system":
-                prompt_lines.append(f"System: {content}")
-            elif role == "assistant":
-                prompt_lines.append(f"Assistant: {content}")
-            else:
-                prompt_lines.append(f"User: {content}")
-        prompt_lines.append("Assistant:")
-        return "\n\n".join(prompt_lines)
-
-    with httpx.Client(timeout=timeout) as client:
-        response = client.post(url, json=payload, headers=headers)
-        if response.status_code == 400:
-            # Some vLLM deployments require /v1/completions for base models without chat template.
-            response_text = response.text or ""
-            if "chat template" in response_text.lower():
-                fallback_url = f"{base_url}/v1/completions"
-                fallback_payload = {
-                    "model": model,
-                    "prompt": _messages_to_prompt(llm_messages),
-                    "stream": False,
-                    "max_tokens": 400,
-                    "temperature": 0.85,
-                }
-                logger.warning("RunPod chat/completions unavailable; falling back to /v1/completions")
-                fallback_resp = client.post(fallback_url, json=fallback_payload, headers=headers)
-                fallback_resp.raise_for_status()
-                fallback_data = fallback_resp.json()
-                raw_text = ((fallback_data.get("choices") or [{}])[0]).get("text", "")
-                if not isinstance(raw_text, str) or not raw_text.strip():
-                    raise ValueError("Invalid RunPod completions response: missing choices[0].text")
-                # Trim model continuation if it starts generating the next user turn.
-                cleaned = raw_text.split("\nUser:", 1)[0].strip()
-                return cleaned or raw_text.strip()
-        response.raise_for_status()
-        data = response.json()
-
-    try:
-        content = data["choices"][0]["message"]["content"]
-    except (TypeError, KeyError, IndexError) as exc:
-        raise ValueError("Invalid RunPod vLLM response shape: missing choices[0].message.content") from exc
-    if not isinstance(content, str):
-        raise ValueError("Invalid RunPod vLLM response shape: content is not a string")
-    return content
-
-
-def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_for_context, gf_display_name, traits, relationship_state=None, habit_profile=None, memory_context=None, girlfriend_id=None, image_decision_event=None, blurred_surprise_event=None, relationship_gain_events=None, achievement_events=None, intimacy_unlock_events=None, intimacy_photo_events=None, system_prompt=None, bond_outcome=None, bond_turn_ctx=None):
+def _stream_response_and_save(
+    sid,
+    user_id,
+    gf_id,
+    milestone_message,
+    messages_for_context,
+    gf_display_name,
+    traits,
+    relationship_state=None,
+    habit_profile=None,
+    memory_context=None,
+    girlfriend_id=None,
+    image_decision_event=None,
+    blurred_surprise_event=None,
+    relationship_gain_events=None,
+    achievement_events=None,
+    intimacy_unlock_events=None,
+    intimacy_photo_events=None,
+    system_prompt=None,
+    bond_outcome=None,
+    bond_turn_ctx=None,
+    behavior_result=None,
+    max_tokens: int = 170,
+    temperature: float = 0.74,
+):
     """Stream response and save assistant message. Yields SSE events.
     
-    Uses OpenAI ChatGPT API for real streaming responses when API_KEY is set.
-    Falls back to mock responses if API_KEY is unavailable.
-    The system_prompt contains the full personality, memory, bond engine context.
+    Main-branch behavior: use the personality-aware mock response generator only.
+    The real LLM integration (Runpod or OpenAI) is handled via the /v1/chat/stream
+    gateway in app.routers.chat, not from this endpoint.
     """
     # Get the last user message for context
     last_user_msg = ""
@@ -426,45 +432,20 @@ def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_f
             last_user_msg = m["content"]
             break
 
-    # Build messages list for LLM
-    llm_messages = []
-    if system_prompt:
-        llm_messages.append({"role": "system", "content": system_prompt})
-    # Add short-term context (last 20 messages)
-    for m in messages_for_context[-20:]:
-        llm_messages.append({"role": m["role"], "content": (m.get("content") or "")[:2000]})
-    logger.debug("LLM message count: %d (system prompt: %d chars)", len(llm_messages), len(system_prompt or ""))
-
     response_text = ""
-    try:
-        response_text = _fetch_runpod_vllm_response(llm_messages).strip()
-        if not response_text:
-            raise ValueError("RunPod vLLM returned empty assistant content")
-        for t in response_text.split():
-            yield sse_event({"type": "token", "token": t + " "})
-        logger.info("RunPod vLLM response: %d chars", len(response_text))
-    except httpx.HTTPStatusError as e:
-        status = e.response.status_code if e.response is not None else "unknown"
-        details = (e.response.text[:500] if e.response is not None else str(e)) if hasattr(e, "response") else str(e)
-        logger.error("RunPod vLLM HTTP error (%s): %s", status, details)
-        yield sse_event({"type": "error", "error": f"RunPod chat request failed with status {status}."})
-        yield sse_event({"type": "done"})
-        return
-    except httpx.RequestError as e:
-        logger.error("RunPod vLLM unreachable: %s", e)
-        yield sse_event({"type": "error", "error": "RunPod chat service is unreachable. Please try again."})
-        yield sse_event({"type": "done"})
-        return
-    except ValueError as e:
-        logger.error("RunPod vLLM invalid response: %s", e)
-        yield sse_event({"type": "error", "error": "RunPod chat returned an invalid response format."})
-        yield sse_event({"type": "done"})
-        return
-    except Exception as e:
-        logger.error("RunPod vLLM unexpected error: %s", e)
-        yield sse_event({"type": "error", "error": "Unexpected RunPod chat error."})
-        yield sse_event({"type": "done"})
-        return
+
+    # Main branch: always use the mock, personality-aware response generator.
+    # All real LLM calls (Runpod, OpenAI, etc.) are confined to the chat gateway.
+    response_text = _generate_mock_response(
+        system_prompt or "",
+        traits,
+        relationship_state,
+        memory_context,
+        last_user_msg,
+    )
+
+    for t in response_text.split():
+        yield sse_event({"type": "token", "token": t + " "})
     
     # Send milestone message if any
     if milestone_message:
@@ -482,12 +463,12 @@ def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_f
         else:
             store_append_message(sid, milestone_msg, girlfriend_id=girlfriend_id)
         yield sse_event({"type": "message", "message": milestone_msg})
-
+    
     # Save and send the response message
     msg = {
         "id": str(uuid_mod.uuid4()),
         "role": "assistant",
-        "content": response_text.strip() if response_text else "I'm here for you.",
+        "content": response_text,
         "image_url": None,
         "event_type": None,
         "event_key": None,
@@ -523,6 +504,22 @@ def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_f
     # Emit relationship gain events (trust/intimacy changes)
     if relationship_gain_events:
         for gain_evt in relationship_gain_events:
+            # Persist as a chat message so gains survive refresh, including full gain payload
+            gain_msg = {
+                "id": str(uuid_mod.uuid4()),
+                "role": "assistant",
+                "content": "",
+                "image_url": None,
+                "event_type": "relationship_gain",
+                "event_key": gain_evt.get("reason", "conversation"),
+                "created_at": now_iso(),
+                "gain_data": gain_evt,
+            }
+            if user_id and gf_id:
+                sb.append_message(user_id, gf_id, gain_msg)
+            else:
+                store_append_message(sid, gain_msg, girlfriend_id=girlfriend_id)
+
             yield sse_event({
                 "type": "relationship_gain",
                 "gain": gain_evt,
@@ -531,6 +528,22 @@ def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_f
     # Emit achievement unlock events
     if achievement_events:
         for ach_evt in achievement_events:
+            # Persist as a chat message card with full achievement payload
+            ach_msg = {
+                "id": str(uuid_mod.uuid4()),
+                "role": "assistant",
+                "content": "",
+                "image_url": None,
+                "event_type": "relationship_achievement",
+                "event_key": ach_evt.get("id", ""),
+                "created_at": now_iso(),
+                "achievement": ach_evt,
+            }
+            if user_id and gf_id:
+                sb.append_message(user_id, gf_id, ach_msg)
+            else:
+                store_append_message(sid, ach_msg, girlfriend_id=girlfriend_id)
+
             yield sse_event({
                 "type": "relationship_achievement",
                 "achievement": ach_evt,
@@ -539,6 +552,22 @@ def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_f
     # Emit intimacy achievement unlock events
     if intimacy_unlock_events:
         for iu_evt in intimacy_unlock_events:
+            # Persist as a simple assistant bubble describing the unlock, including achievement payload
+            ia_msg = {
+                "id": str(uuid_mod.uuid4()),
+                "role": "assistant",
+                "content": f"{iu_evt.get('icon', '🔥')} **{iu_evt.get('title', 'Achievement')}** unlocked — {iu_evt.get('subtitle', '')}",
+                "image_url": None,
+                "event_type": "intimacy_achievement",
+                "event_key": iu_evt.get("id", ""),
+                "created_at": now_iso(),
+                "achievement": iu_evt,
+            }
+            if user_id and gf_id:
+                sb.append_message(user_id, gf_id, ia_msg)
+            else:
+                store_append_message(sid, ia_msg, girlfriend_id=girlfriend_id)
+
             yield sse_event({
                 "type": "intimacy_achievement",
                 "achievement": iu_evt,
@@ -547,6 +576,7 @@ def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_f
     # Emit intimacy photo ready events
     if intimacy_photo_events:
         for ip_evt in intimacy_photo_events:
+            # Also append as a chat message with image and structured photo payload
             photo_msg = {
                 "id": str(uuid_mod.uuid4()),
                 "role": "assistant",
@@ -555,6 +585,7 @@ def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_f
                 "event_type": "intimacy_photo_ready",
                 "event_key": ip_evt.get("id", ""),
                 "created_at": now_iso(),
+                "photo": ip_evt,
             }
             if user_id and gf_id:
                 sb.append_message(user_id, gf_id, photo_msg)
@@ -584,7 +615,7 @@ def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_f
     if response_text and girlfriend_id:
         try:
             from app.services.behavior_engine.behavior_orchestrator import (
-                BehaviorTurnInput, persist_behavior_turn, process_behavior_turn,
+                BehaviorTurnInput, BehaviorTurnResult, persist_behavior_turn, validate_behavior_response,
             )
             from app.core.supabase_client import get_supabase_admin as _get_sb
             sb_persist = _get_sb()
@@ -597,13 +628,21 @@ def _stream_response_and_save(sid, user_id, gf_id, milestone_message, messages_f
                     girlfriend_data={},
                     sb_admin=sb_persist,
                 )
-                # Build a minimal result for persistence (we just need intent and contract)
-                from app.services.behavior_engine.intent_classifier import TurnIntent
-                from app.services.behavior_engine.response_contract import BehaviorContract
-                from app.services.behavior_engine.behavior_orchestrator import BehaviorTurnResult
-                from app.services.dossier.retriever import DossierContext
-                _beh_result = BehaviorTurnResult()
+                _beh_result = behavior_result if behavior_result is not None else BehaviorTurnResult()
+                validation = validate_behavior_response(
+                    response_text,
+                    _beh_result,
+                    recent_responses=[
+                        m.get("content", "") for m in (messages_for_context or [])[-6:]
+                        if m.get("role") == "assistant" and m.get("content")
+                    ],
+                )
                 persist_behavior_turn(_beh_inp, _beh_result, response_text, str(uuid_mod.uuid4()))
+                if validation and validation.issues:
+                    issue_keys = [f"{i.validator}:{i.severity}" for i in validation.issues[:5]]
+                    sb_persist.table("conversation_mode_state").update({
+                        "last_quality_issues": issue_keys,
+                    }).eq("user_id", str(user_id)).eq("girlfriend_id", str(gf_id)).execute()
         except Exception as e:
             logger.debug("Behavior persistence failed: %s", e)
 
@@ -658,6 +697,7 @@ def send_message(request: Request, body: SendMessageRequest):
         else:
             gf_uuid = None
     else:
+        # Use explicit girlfriend_id if provided, otherwise fall back to current
         if explicit_gf_id:
             from app.api.store import get_girlfriend_by_id
             gf = get_girlfriend_by_id(sid, explicit_gf_id)
@@ -667,6 +707,27 @@ def send_message(request: Request, body: SendMessageRequest):
     if not gf:
         return JSONResponse(status_code=400, content={"error": "no_girlfriend"})
 
+    # Persona vector (stored active vector → deterministic fallback).
+    persona_vector = None
+    try:
+        if use_sb and user_id and gf_uuid:
+            from app.services.persona_vector_store import get_active_persona_vector
+            pv_row = get_active_persona_vector(
+                get_supabase_admin(),
+                user_id,
+                gf_uuid,
+                version_hint=gf.get("persona_vector_version"),
+            )
+            if pv_row and pv_row.get("vector_json"):
+                persona_vector = pv_row["vector_json"]
+        if not persona_vector:
+            from app.services.persona_vector import build_persona_vector
+            persona_vector = build_persona_vector(gf.get("traits") or {})
+        gf["persona_vector"] = persona_vector
+    except Exception:
+        persona_vector = None
+
+    # Use the resolved girlfriend's id for all per-girl storage
     resolved_gf_id = explicit_gf_id or gf.get("id")
 
     # Save user message
@@ -682,25 +743,14 @@ def send_message(request: Request, body: SendMessageRequest):
     if use_sb and user_id and gf_uuid:
         sb.append_message(user_id, gf_uuid, user_msg)
         messages = sb.get_messages(user_id, gf_uuid)
-        try:
-            write_memories_from_message(
-                sb=get_supabase_admin(),
-                user_id=user_id,
-                girlfriend_id=gf_uuid,
-                message_id=user_msg["id"],
-                role="user",
-                text=body.message
-            )
-        except Exception as e:
-            logger.warning("Memory write failed: %s", e)
     else:
         store_append_message(sid, user_msg, girlfriend_id=resolved_gf_id)
         messages = get_messages(sid, girlfriend_id=resolved_gf_id)
-
+    
     # Build habit profile
     user_timestamps = [m["created_at"] for m in messages if m["role"] == "user"]
     habit = build_habit_profile(user_timestamps)
-
+    
     # Compute and store Big Five scores from girlfriend traits
     traits_dict = gf.get("traits") or {}
     if traits_dict and isinstance(traits_dict, dict):
@@ -716,11 +766,13 @@ def send_message(request: Request, body: SendMessageRequest):
     progression_now = dt_cls.now(tz.utc)
 
     if not (use_sb and user_id and gf_uuid):
+        # In-memory: drive relationship via the progression engine
         prog = get_relationship_progress(sid, girlfriend_id=resolved_gf_id)
         prev_level = prog.level
         prog, _award_result = award_progress(prog, body.message, progression_now)
         set_relationship_progress(sid, prog, girlfriend_id=resolved_gf_id)
 
+        # Derive a relationship state dict from progression for milestone checks etc.
         region = get_region_for_level(prog.level)
         state = {
             "trust": derive_trust(prog.level),
@@ -730,12 +782,14 @@ def send_message(request: Request, body: SendMessageRequest):
             "last_interaction_at": prog.last_interaction_at.isoformat() if prog.last_interaction_at else None,
             "milestones_reached": [],
         }
+        # Carry over existing milestones from stored relationship_state
         old_rs = get_relationship_state(sid, girlfriend_id=resolved_gf_id) or {}
         state["milestones_reached"] = old_rs.get("milestones_reached", [])
 
         prev_state = {**state, "level": prev_level, "region_key": get_region_for_level(prev_level).key}
         set_relationship_state(sid, state, girlfriend_id=resolved_gf_id)
     else:
+        # Supabase path: keep legacy register_interaction flow
         state = sb.get_relationship_state(user_id, gf_uuid)
         if not state:
             state = create_initial_relationship_state()
@@ -749,10 +803,11 @@ def send_message(request: Request, body: SendMessageRequest):
         sb.upsert_relationship_state(user_id, gf_uuid, state)
 
     # ── Trust/Intimacy gain tracking ─────────────────────────────────────────
-    gain_events = []
+    gain_events = []  # list of dicts for SSE relationship_gain events
     ti_state = get_trust_intimacy_state(sid, girlfriend_id=resolved_gf_id)
     current_region_key = state.get("region_key") or get_region_for_level(state.get("level", 0)).key
 
+    # 1) Conversation trust gain (slow, quality-gated, cooldowned) — bank-first
     try:
         ti_state, trust_result = apply_conversation_trust_gain(
             ti_state, body.message, progression_now,
@@ -766,6 +821,7 @@ def send_message(request: Request, body: SendMessageRequest):
                 "intimacy_delta": 0,
                 "intimacy_new": ti_state.intimacy,
                 "reason": "conversation",
+                # Bank/release breakdown
                 "trust_banked_delta": trust_result.banked_delta,
                 "trust_released_delta": trust_result.released_delta,
                 "trust_visible_new": trust_result.visible_new,
@@ -815,7 +871,10 @@ def send_message(request: Request, body: SendMessageRequest):
             ti_state, intimacy_result = award_intimacy_region(
                 ti_state, region_key, region_index, progression_now
             )
+
+            # Also release any previously banked values under the new higher cap
             release_banked(ti_state, region_key)
+            # Update current_region_key for subsequent calls
             current_region_key = region_key
 
             if intimacy_result.delta > 0:
@@ -826,6 +885,7 @@ def send_message(request: Request, body: SendMessageRequest):
                     "intimacy_delta": intimacy_result.delta,
                     "intimacy_new": ti_state.intimacy,
                     "reason": "region",
+                    # Bank/release breakdown
                     "trust_banked_delta": 0,
                     "trust_released_delta": 0,
                     "trust_visible_new": ti_state.trust_visible,
@@ -846,6 +906,7 @@ def send_message(request: Request, body: SendMessageRequest):
         try:
             user_plan = (user or {}).get("plan", "free")
             content_prefs = gf.get("content_prefs") or {}
+            # Use visible intimacy for blurred surprise check
             if (
                 should_send_blurred_surprise(
                     ti_state.intimacy_visible,
@@ -883,9 +944,11 @@ def send_message(request: Request, body: SendMessageRequest):
         ach_progress = get_achievement_progress(sid, girlfriend_id=resolved_gf_id)
         cur_region_idx = get_current_region_index_for_girl(state.get("level", 0))
 
+        # Update region index (non-missable: no counter reset)
         if ach_progress.region_index != cur_region_idx:
             ach_progress = reset_progress_for_region(ach_progress, cur_region_idx)
 
+        # Build recent messages context for arc detection
         recent_msgs = get_messages(sid, girlfriend_id=resolved_gf_id)
         last_assistant = ""
         recent_texts = []
@@ -894,18 +957,22 @@ def send_message(request: Request, body: SendMessageRequest):
             if m.get("role") == "assistant":
                 last_assistant = m.get("content", "")
 
+        # Run emotional signal detection on user + assistant messages
         all_triggers = detect_signals(
             body.message, last_assistant, ach_progress, recent_texts
         )
 
+        # Try unlock ALL eligible achievements (non-missable: past + current regions)
         if all_triggers:
             state, new_events = try_unlock_for_triggers(
                 state, ach_progress, all_triggers
             )
             achievement_events.extend(new_events)
 
+        # Persist achievement progress
         set_achievement_progress(sid, ach_progress, girlfriend_id=resolved_gf_id)
 
+        # Persist state if any achievements unlocked
         if achievement_events:
             if use_sb and user_id and gf_uuid:
                 sb.upsert_relationship_state(user_id, gf_uuid, state)
@@ -1005,6 +1072,8 @@ def send_message(request: Request, body: SendMessageRequest):
     
     # ── Build system prompt ─────────────────────────────────────────────────
     system_prompt = None
+    behavior_intent: str | None = None
+    behavior_result = None
     try:
         prompt_ctx = get_prompt_context(
             sb_admin=get_supabase_admin() if use_sb else None,
@@ -1046,6 +1115,7 @@ def send_message(request: Request, body: SendMessageRequest):
             )
             behavior_result = process_behavior_turn(behavior_input)
             behavior_context = behavior_result.get_full_behavior_context()
+            behavior_intent = behavior_result.intent.primary
             if behavior_context:
                 # Append behavior context after bond context
                 existing_bond = prompt_ctx.get("bond_context", "")
@@ -1058,6 +1128,11 @@ def send_message(request: Request, body: SendMessageRequest):
         except Exception as e:
             logger.warning("Behavior engine failed (non-blocking): %s", e)
 
+        # Always add concise reply guardrail to reduce unnatural long outputs.
+        length_guardrail = _build_concise_style_guardrail(body.message, behavior_intent)
+        existing_bond = prompt_ctx.get("bond_context", "")
+        prompt_ctx["bond_context"] = (existing_bond + "\n\n" + length_guardrail).strip()
+
         prompt_input = build_input_from_dict(**prompt_ctx)
         system_prompt = build_system_prompt(prompt_input)
     except Exception as e:
@@ -1069,6 +1144,7 @@ def send_message(request: Request, body: SendMessageRequest):
         try:
             content_prefs = gf.get("content_prefs") or {}
             user_plan = (user or {}).get("plan", "free")
+            # Use VISIBLE intimacy only (banked does NOT count for gates)
             img_decision = decide_image_action(
                 text=body.message,
                 age_gate_passed=bool((user or {}).get("age_gate_passed")),
@@ -1116,7 +1192,16 @@ def send_message(request: Request, body: SendMessageRequest):
             old_trust_vis = prev_state.get("trust_visible", 20) if prev_state else 20
             new_trust_vis = ti_state.trust_visible if hasattr(ti_state, "trust_visible") else (ti_state.get("trust_visible", 20) if isinstance(ti_state, dict) else 20)
             old_streak_val = 0
-            new_streak_val = prog.streak_days if hasattr(prog, "streak_days") else 0
+            # `prog` only exists in the in-memory progression path; for Supabase users
+            # we still want progression events to work without crashing.
+            try:
+                _prog_any = get_relationship_progress(sid, girlfriend_id=resolved_gf_id)
+                if isinstance(_prog_any, dict):
+                    new_streak_val = int(_prog_any.get("streak_days", 0) or 0)
+                else:
+                    new_streak_val = int(getattr(_prog_any, "streak_days", 0) or 0)
+            except Exception:
+                new_streak_val = 0
             ach_state = get_achievement_progress(sid, girlfriend_id=resolved_gf_id)
             old_mc = (ach_state.get("message_counter", 0) if isinstance(ach_state, dict) else getattr(ach_state, "message_counter", 0)) - 1
             new_mc = old_mc + 1
@@ -1165,6 +1250,11 @@ def send_message(request: Request, body: SendMessageRequest):
         import hashlib
         prompt_hash = hashlib.sha256(system_prompt.encode()).hexdigest()[:16]
         extra_headers["X-Prompt-Hash"] = prompt_hash
+    gen_max_tokens, gen_temperature = _compute_generation_controls(
+        body.message,
+        behavior_intent,
+        persona_vector=persona_vector,
+    )
 
     return StreamingResponse(
         _stream_response_and_save(
@@ -1181,6 +1271,9 @@ def send_message(request: Request, body: SendMessageRequest):
             system_prompt=system_prompt,
             bond_outcome=bond_outcome,
             bond_turn_ctx=bond_ctx if bond_outcome else None,
+            behavior_result=behavior_result,
+            max_tokens=gen_max_tokens,
+            temperature=gen_temperature,
         ),
         media_type="text/event-stream",
         headers=extra_headers,

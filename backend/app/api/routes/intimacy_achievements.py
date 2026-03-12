@@ -1,4 +1,5 @@
 """Intimacy achievement catalog + per-girlfriend unlocked status + mystery-box unlock."""
+import hashlib
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -28,7 +29,6 @@ from app.api.store import (
     set_intimacy_last_award_time,
     add_gallery_item,
 )
-from app.utils.ai_images import pick_ai_image_url
 
 logger = logging.getLogger(__name__)
 
@@ -176,10 +176,8 @@ def mystery_unlock(request: Request, body: MysteryUnlockRequest):
     mark_intimacy_achievement_unlocked(sid, ach.id, now_iso, girlfriend_id=girlfriend_id)
 
     # Generate photo immediately (mystery boxes skip the 6h throttle)
-    image_url = pick_ai_image_url(
-        f"intimacy:{girlfriend_id}:{ach.id}",
-        fallback_url=f"https://picsum.photos/seed/{girlfriend_id}-{ach.id}/400/400",
-    )
+    seed = hashlib.md5(f"{girlfriend_id}:{ach.id}".encode()).hexdigest()[:10]
+    image_url = f"https://picsum.photos/seed/{seed}/400/400"
 
     set_photo_for_intimacy_achievement(sid, ach.id, image_url, girlfriend_id=girlfriend_id)
     add_gallery_item(sid, {
@@ -196,6 +194,31 @@ def mystery_unlock(request: Request, body: MysteryUnlockRequest):
 
     logger.info("Mystery box unlocked intimacy achievement: %s (tier=%d, rarity=%s)",
                 ach.id, ach.tier, ach.rarity.value)
+
+    # Also emit a persistent chat message so the unlock shows up in history.
+    try:
+        from app.api.store import append_message as store_append_message
+
+        msg = {
+            "id": str(uuid.uuid4()),
+            "role": "assistant",
+            "content": f"{ach.icon or '🔥'} **{ach.title}** unlocked — {ach.subtitle}",
+            "image_url": image_url,
+            "event_type": "intimacy_achievement",
+            "event_key": ach.id,
+            "created_at": now_iso,
+            "achievement": {
+                "id": ach.id,
+                "title": ach.title,
+                "subtitle": ach.subtitle,
+                "rarity": ach.rarity.value,
+                "tier": ach.tier,
+                "icon": ach.icon,
+            },
+        }
+        store_append_message(sid, msg, girlfriend_id=girlfriend_id)
+    except Exception as exc:
+        logger.warning("Failed to append intimacy_achievement message (mystery_unlock): %s", exc)
 
     return {
         "ok": True,
@@ -393,10 +416,8 @@ def purchase_intimate_box(request: Request, body: IntimateBoxPurchaseRequest):
     now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     mark_intimacy_achievement_unlocked(sid, ach.id, now_iso, girlfriend_id=girlfriend_id)
 
-    image_url = pick_ai_image_url(
-        f"intimacy:{girlfriend_id}:{ach.id}",
-        fallback_url=f"https://picsum.photos/seed/{girlfriend_id}-{ach.id}/400/400",
-    )
+    seed = hashlib.md5(f"{girlfriend_id}:{ach.id}".encode()).hexdigest()[:10]
+    image_url = f"https://picsum.photos/seed/{seed}/400/400"
 
     set_photo_for_intimacy_achievement(sid, ach.id, image_url, girlfriend_id=girlfriend_id)
     add_gallery_item(sid, {
@@ -412,6 +433,98 @@ def purchase_intimate_box(request: Request, body: IntimateBoxPurchaseRequest):
 
     logger.info("Intimate box purchase: %s -> %s (tier=%d, paid=%s)",
                 body.box_id, ach.id, ach.tier, payment_status)
+
+    # ── Apply an intimacy boost + chat cards so behavior adjusts ──────────
+    try:
+        from app.api.store import (
+            get_trust_intimacy_state,
+            set_trust_intimacy_state,
+            get_relationship_state,
+            set_relationship_state,
+            append_message as store_append_message,
+        )
+        from app.services.trust_intimacy_service import (
+            award_intimacy_gift,
+            get_intimacy_cap_for_region,
+        )
+        from app.services.relationship_regions import get_region_for_level
+        from app.services.relationship_descriptors import get_gain_micro_lines
+
+        # Derive current region for caps
+        rel_state = get_relationship_state(sid, girlfriend_id=girlfriend_id) or {}
+        level = rel_state.get("level", 0) if isinstance(rel_state.get("level"), int) else 0
+        region = rel_state.get("region_key") or get_region_for_level(level).key
+
+        ti_state = get_trust_intimacy_state(sid, girlfriend_id=girlfriend_id)
+
+        # Treat intimate box like a special gift contributing to intimacy bank
+        purchase_key = f"intimate_box:{body.box_id}:{ach.id}"
+        ti_state, int_res = award_intimacy_gift(ti_state, purchase_key, region_key=region)
+
+        # Cap by region and persist
+        cap = get_intimacy_cap_for_region(region)
+        if int_res.visible_new > cap:
+            int_res.visible_new = cap
+        set_trust_intimacy_state(sid, ti_state, girlfriend_id=girlfriend_id)
+
+        # Mirror updated trust/intimacy into relationship_state so other services see it
+        rel_state["intimacy"] = ti_state.intimacy
+        rel_state["trust"] = ti_state.trust
+        set_relationship_state(sid, rel_state, girlfriend_id=girlfriend_id)
+
+        # Relationship gain card so the user sees the effect
+        if int_res.delta > 0 or int_res.released_delta > 0 or int_res.banked_delta > 0:
+            micro = get_gain_micro_lines(0, ti_state.trust, int_res.delta, ti_state.intimacy)
+            gain_msg = {
+                "id": str(uuid.uuid4()),
+                "role": "assistant",
+                "content": "",
+                "image_url": None,
+                "event_type": "relationship_gain",
+                "event_key": "intimate_box",
+                "created_at": now_iso,
+                "gain_data": {
+                    "trust_delta": 0,
+                    "trust_new": ti_state.trust,
+                    "intimacy_delta": int_res.delta,
+                    "intimacy_new": ti_state.intimacy,
+                    "reason": "intimate_box",
+                    "trust_banked_delta": 0,
+                    "trust_released_delta": 0,
+                    "trust_visible_new": ti_state.trust_visible,
+                    "trust_bank_new": ti_state.trust_bank,
+                    "trust_cap": 100,
+                    "intimacy_banked_delta": int_res.banked_delta,
+                    "intimacy_released_delta": int_res.released_delta,
+                    "intimacy_visible_new": int_res.visible_new,
+                    "intimacy_bank_new": int_res.bank_new,
+                    "intimacy_cap": cap,
+                    **micro,
+                },
+            }
+            store_append_message(sid, gain_msg, girlfriend_id=girlfriend_id)
+
+        # Intimacy achievement card in chat history
+        ach_msg = {
+            "id": str(uuid.uuid4()),
+            "role": "assistant",
+            "content": f"{ach.icon or '🔥'} **{ach.title}** unlocked — {ach.subtitle}",
+            "image_url": image_url,
+            "event_type": "intimacy_achievement",
+            "event_key": ach.id,
+            "created_at": now_iso,
+            "achievement": {
+                "id": ach.id,
+                "title": ach.title,
+                "subtitle": ach.subtitle,
+                "rarity": ach.rarity.value,
+                "tier": ach.tier,
+                "icon": ach.icon,
+            },
+        }
+        store_append_message(sid, ach_msg, girlfriend_id=girlfriend_id)
+    except Exception as exc:
+        logger.warning("Intimate box side-effects failed (non-blocking): %s", exc)
 
     return {
         "status": payment_status,

@@ -6,6 +6,7 @@ import ImageTeaseCard from "./ImageTeaseCard"
 import BlurredImageCard from "./BlurredImageCard"
 import RelationshipGainCard from "./RelationshipGainCard"
 import AchievementUnlockedCard from "./AchievementUnlockedCard"
+import IntimacyStageCard from "./IntimacyStageCard"
 
 interface MessageBubbleProps {
   message: ChatMessage
@@ -20,6 +21,8 @@ export default function MessageBubble({ message, className }: MessageBubbleProps
   const isBlurredPreview = message.event_type === "blurred_preview"
   const isRelationshipGain = message.event_type === "relationship_gain"
   const isAchievement = message.event_type === "relationship_achievement"
+  const isIntimacyStage =
+    message.event_type === "intimacy_achievement" || message.event_type === "intimacy_stage_unlocked"
 
   // Don't render system/memory messages
   if (message.role === "system") return null
@@ -35,6 +38,17 @@ export default function MessageBubble({ message, className }: MessageBubbleProps
       | undefined
     if (achData) {
       return <AchievementUnlockedCard achievement={achData} className={className} />
+    }
+    return null
+  }
+
+  // Intimacy stage / intimacy achievement card
+  if (isIntimacyStage) {
+    const achData = (message as unknown as Record<string, unknown>).achievement as
+      | { id: string; title: string; subtitle?: string; tier?: number; rarity?: string; icon?: string }
+      | undefined
+    if (achData) {
+      return <IntimacyStageCard achievement={achData} className={className} />
     }
     return null
   }
